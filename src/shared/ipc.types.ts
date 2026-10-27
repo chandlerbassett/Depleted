@@ -3,6 +3,7 @@
 // Renderer: ipcRenderer.invoke / ipcRenderer.on (via contextBridge)
 
 import type { CoachData } from './coach.types'
+import type { BenchmarkResult } from './benchmark.types'
 
 // ---------------------------------------------------------------------------
 // Bracket and result types
@@ -153,6 +154,15 @@ export interface IpcCommands {
   'storage:deleteRecording': { params: { id: string }; result: void }
   'storage:openFolder': { params: { id: string }; result: void }
   'storage:getCoachData': { params: { id: string }; result: CoachData | null }
+
+  // Coach: comparing with top Warcraft Logs players. The secret never comes back.
+  'coach:getWclStatus': { params: void; result: { configured: boolean; clientId: string | null } }
+  'coach:setWclCredentials': {
+    params: { clientId: string; clientSecret: string }
+    result: { ok: boolean; error?: string }
+  }
+  'coach:clearWclCredentials': { params: void; result: void }
+  'coach:getBenchmark': { params: { specId: number; dungeon: string; keyLevel: number }; result: BenchmarkResult }
 
   // Config
   'config:get': { params: { key: string }; result: unknown }

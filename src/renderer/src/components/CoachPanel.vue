@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import type { CoachData } from '@shared/coach.types'
+import type { BenchmarkResult } from '@shared/benchmark.types'
 import { reviewPlayer, fmtClock, DOWNTIME_MIN_SECS, type FindingKind } from '@shared/coachAnalysis'
+import { compareWithTop } from '@shared/coachBenchmark'
+import { WOW_SPEC_ID_MAP } from '@shared/constants'
 
 const props = defineProps<{
   recordingId: string
+  // Dungeon name and key level, to find top players' runs to compare with
+  dungeon: string
+  keyLevel: number
   playerColor: (name: string) => string
 }>()
 
@@ -52,6 +58,56 @@ const review = computed(() =>
   coach.value !== null && selectedGuid.value !== null ? reviewPlayer(coach.value, selectedGuid.value) : null
 )
 const moments = computed(() => review.value?.findings.slice(0, 8) ?? [])
+
+// --- Top players ------------------------------------------------------------
+// One benchmark per spec in this key; switching players reuses it
+
+const benchmarks = ref(new Map<string, BenchmarkResult | 'loading'>())
+
+const selectedSpecId = computed(() => coach.value?.players.find((p) => p.guid === selectedGuid.value)?.specId ?? null)
+const benchKey = computed(() =>
+  selectedSpecId.value !== null ? `${props.recordingId}:${selectedSpecId.value}` : null
+)
+const bench = computed(() => (benchKey.value !== null ? benchmarks.value.get(benchKey.value) ?? null : null))
+
+async function loadBenchmark(): Promise<void> {
+  const key = benchKey.value
+  const specId = selectedSpecId.value
+  if (key === null || specId === null || benchmarks.value.has(key)) return
+  benchmarks.value.set(key, 'loading')
+  const result = await window.electron
+    .invoke('coach:getBenchmark', { specId, dungeon: props.dungeon, keyLevel: props.keyLevel })
+    .catch((err: unknown): BenchmarkResult => ({ status: 'error', message: String(err) }))
+  benchmarks.value.set(key, result)
+}
+
+watch(benchKey, () => void loadBenchmark(), { immediate: true })
+
+function retryBenchmark(): void {
+  if (benchKey.value !== null) benchmarks.value.delete(benchKey.value)
+  void loadBenchmark()
+}
+
+const comparison = computed(() => {
+  const b = bench.value
+  if (coach.value === null || selectedGuid.value === null || b === null || b === 'loading' || b.status !== 'ok') return null
+  return compareWithTop(coach.value, selectedGuid.value, b.benchmark)
+})
+
+const benchSpecName = computed(() => {
+  const s = selectedSpecId.value !== null ? WOW_SPEC_ID_MAP[selectedSpecId.value] : undefined
+  return s !== undefined ? `${s.spec} ${s.class}` : ''
+})
+
+function fmtAmount(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`
+  if (n >= 1e3) return `${Math.round(n / 1e3)}k`
+  return String(Math.round(n))
+}
+
+function openUrl(url: string): void {
+  void window.electron.invoke('system:openUrl', { url })
+}
 const throughputCds = computed(() => review.value?.cooldowns.filter((cd) => cd.throughput) ?? [])
 const utilityCds = computed(() => review.value?.cooldowns.filter((cd) => !cd.throughput) ?? [])
 const duration = computed(() => coach.value?.duration ?? 1)
@@ -60,7 +116,8 @@ const KIND_COLOR: Record<FindingKind, string> = {
   'death': '#ef4444',
   'downtime': '#f59e0b',
   'cooldown': '#3b82f6',
-  'low-output': '#a855f7'
+  'low-output': '#a855f7',
+  'benchmark': '#f0b429'
 }
 
 function shortName(name: string): string {
@@ -175,6 +232,158 @@ function pct(t: number): string {
           </p>
         </div>
 
+        <!-- Compared with top players of this spec, dungeon and key level (Warcraft Logs) -->
+        <div>
+          <p class="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
+            Compared with top players
+          </p>
+          <p
+            v-if="bench === 'loading'"
+            class="text-xs text-zinc-600 py-1"
+          >
+            Fetching top {{ benchSpecName }} runs from Warcraft Logs…
+          </p>
+          <p
+            v-else-if="bench?.status === 'no-credentials'"
+            class="text-xs text-zinc-500 py-1"
+          >
+            Connect Warcraft Logs in Settings to compare this key with top players of the same spec.
+          </p>
+          <div
+            v-else-if="bench?.status === 'error' || bench?.status === 'unsupported'"
+            class="text-xs text-zinc-500 py-1"
+          >
+            {{ bench.message }}
+            <button
+              v-if="bench.status === 'error'"
+              class="ml-1 text-blue-400 hover:underline"
+              @click="retryBenchmark"
+            >
+              Try again
+            </button>
+          </div>
+          <p
+            v-else-if="bench?.status === 'ok' && comparison === null"
+            class="text-xs text-zinc-500 py-1"
+          >
+            Not enough top runs to compare with.
+          </p>
+
+          <template v-else-if="comparison !== null">
+            <p class="text-[10px] text-zinc-600 mb-2">
+              Median of {{ comparison.runs }} top {{ benchSpecName }} runs in {{ dungeon }}
+              +{{ comparison.levels[0] }}<template v-if="comparison.levels[1] !== comparison.levels[0]">
+                to +{{ comparison.levels[1] }}
+              </template>
+            </p>
+
+            <div class="grid grid-cols-2 gap-2 text-center mb-2">
+              <div>
+                <p class="text-sm font-semibold text-white">
+                  {{ fmtAmount(comparison.output.you) }}
+                  <span class="text-zinc-500 font-normal">/ {{ fmtAmount(comparison.output.top) }}</span>
+                </p>
+                <p class="text-[10px] text-zinc-500">
+                  {{ comparison.metric === 'hps' ? 'HPS' : 'DPS' }}: you / top
+                </p>
+              </div>
+              <div>
+                <p class="text-sm font-semibold text-white">
+                  {{ comparison.castsPerMin.you.toFixed(0) }}
+                  <span class="text-zinc-500 font-normal">/ {{ comparison.castsPerMin.top.toFixed(0) }}</span>
+                </p>
+                <p
+                  class="text-[10px] text-zinc-500"
+                  title="Over the whole key, including between pulls, since that's how top runs are measured"
+                >
+                  Casts/min over the key: you / top
+                </p>
+              </div>
+            </div>
+
+            <div
+              v-for="(f, i) in comparison.findings"
+              :key="`b${i}`"
+              class="flex items-start gap-2 text-xs py-1 px-1 rounded hover:bg-zinc-800/60 cursor-pointer"
+              @click="emit('seek', f.at)"
+            >
+              <span class="w-9 flex-shrink-0 text-zinc-500 tabular-nums">{{ fmtClock(Math.max(0, f.at - 2)) }}</span>
+              <span
+                class="w-1.5 h-1.5 mt-1.5 rounded-sm flex-shrink-0"
+                :style="{ backgroundColor: KIND_COLOR[f.kind] }"
+              />
+              <div class="min-w-0">
+                <p class="text-zinc-200">
+                  {{ f.title }}
+                </p>
+                <p class="text-zinc-500">
+                  {{ f.detail }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Every cooldown top players press on cooldown, with use counts -->
+            <div
+              v-if="comparison.cooldowns.length > 0"
+              class="mt-2"
+            >
+              <p class="text-[10px] text-zinc-500 mb-0.5">
+                Cooldowns top players press on cooldown (your uses / theirs)
+              </p>
+              <div
+                v-for="cd in comparison.cooldowns"
+                :key="cd.spellId"
+                class="flex items-center justify-between text-xs py-0.5"
+              >
+                <span class="text-zinc-300 truncate">{{ cd.name }}</span>
+                <span
+                  class="flex-shrink-0 tabular-nums"
+                  :class="cd.yourUses < cd.topUses * 0.75 ? 'text-amber-400' : 'text-zinc-500'"
+                >
+                  {{ cd.yourUses }} / ~{{ Math.round(cd.topUses) }} uses
+                </span>
+              </div>
+            </div>
+
+            <!-- Core spells cast much less often than top players -->
+            <div
+              v-if="comparison.castMix.length > 0"
+              class="mt-2"
+            >
+              <p class="text-[10px] text-zinc-500 mb-0.5">
+                Cast much less than top players (per minute)
+              </p>
+              <div
+                v-for="m in comparison.castMix"
+                :key="m.spellId"
+                class="flex items-center justify-between text-xs py-0.5"
+              >
+                <span class="text-zinc-300 truncate">{{ m.name }}</span>
+                <span class="text-zinc-500 flex-shrink-0 tabular-nums">{{ m.you.toFixed(1) }} / {{ m.top.toFixed(1) }}</span>
+              </div>
+            </div>
+
+            <p
+              v-if="comparison.findings.length === 0 && comparison.castMix.length === 0"
+              class="text-xs text-zinc-600 py-1"
+            >
+              Cooldown use and cast mix are in line with top players.
+            </p>
+
+            <div class="mt-2 flex flex-wrap gap-x-2 text-[10px] text-zinc-600">
+              <span>Watch a top run:</span>
+              <button
+                v-for="r in comparison.topRuns"
+                :key="r.url"
+                class="text-blue-400 hover:underline"
+                @click="openUrl(r.url)"
+              >
+                {{ r.name }} +{{ r.keyLevel }}
+              </button>
+            </div>
+          </template>
+        </div>
+
         <!-- Throughput cooldowns: uses on a key-length track, ready-but-unused shaded -->
         <div v-if="throughputCds.length > 0">
           <p class="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
@@ -244,10 +453,6 @@ function pct(t: number): string {
             </div>
           </div>
         </div>
-
-        <p class="text-[10px] text-zinc-600">
-          Measured against this key alone. Comparing with top players of the same spec comes next.
-        </p>
       </template>
     </template>
   </div>

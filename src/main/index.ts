@@ -18,6 +18,7 @@ import { registerRecorderIpc, wireRecorderWindow } from './ipc/recorder.ipc'
 import { registerStorageIpc, wireStorageWindow } from './ipc/storage.ipc'
 import { registerConfigIpc } from './ipc/config.ipc'
 import { registerTestModeIpc } from './ipc/testMode.ipc'
+import { registerCoachIpc } from './ipc/coach.ipc'
 
 import { CombatLogWatcher } from './combatlog/CombatLogWatcher'
 import { WindowCaptureRecorder } from './recorder/WindowCaptureRecorder'
@@ -255,6 +256,7 @@ app.whenReady().then(() => {
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)
   registerStorageIpc(storageManager)
+  registerCoachIpc()
   registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 
   const mainWindow = createWindow(stateMachine, storageManager)
