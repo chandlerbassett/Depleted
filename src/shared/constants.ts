@@ -76,7 +76,7 @@ export const SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS = 3
 
 // Mythic+: keep recording this long after CHALLENGE_MODE_END so the completion banner
 // and loot chest make it into the video.
-export const MYTHIC_PLUS_POST_ROLL_SECS = 8
+export const MYTHIC_PLUS_POST_ROLL_SECS = 18
 // Mythic+: if the player leaves the dungeon mid-key and hasn't come back (or the key
 // hasn't ended) after this long, treat the key as abandoned and save what we have.
 export const MYTHIC_PLUS_ABANDON_TIMEOUT_SECS = 180

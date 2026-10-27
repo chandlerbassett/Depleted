@@ -19,7 +19,7 @@ does on Windows. Arena recording (2v2, 3v3, Solo Shuffle) from the original proj
 **Mythic+**
 - Records the WoW window and game audio with ScreenCaptureKit, encoded to H.264 MP4 on the
   Mac's hardware video encoder, so recording costs very little CPU while you play
-- Starts recording when the key is activated (`CHALLENGE_MODE_START`) and stops a few seconds
+- Starts recording when the key is activated (`CHALLENGE_MODE_START`) and stops about 18 seconds
   after it ends (`CHALLENGE_MODE_END`), so the completion screen is included
 - Marks every boss pull as a **kill** or **wipe**
 - Marks **party deaths**, each with a recap of the last 10 seconds of damage taken
