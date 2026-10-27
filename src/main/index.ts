@@ -155,11 +155,7 @@ let isQuitting = false
 
 async function createTray(mainWindow: BrowserWindow): Promise<void> {
   if (tray !== null) return
-  let icon = nativeImage.createEmpty()
-  try {
-    icon = await app.getFileIcon(process.execPath, { size: 'small' })
-  } catch { /* use empty icon */ }
-  tray = new Tray(icon)
+  tray = new Tray(await trayIcon())
   tray.setToolTip('Depleted')
   tray.on('double-click', () => mainWindow.show())
   tray.setContextMenu(Menu.buildFromTemplate([
@@ -167,6 +163,22 @@ async function createTray(mainWindow: BrowserWindow): Promise<void> {
     { type: 'separator' },
     { label: 'Quit', click: () => { isQuitting = true; app.quit() } },
   ]))
+}
+
+// macOS gets a monochrome template image (the "Template" suffix makes it follow the
+// light/dark menu bar, and the @2x file is picked up automatically). Elsewhere, and if
+// it's missing, fall back to the executable's icon, which in dev is Electron's logo.
+async function trayIcon(): Promise<Electron.NativeImage> {
+  if (process.platform === 'darwin') {
+    const dir = app.isPackaged ? join(process.resourcesPath, 'tray') : join(app.getAppPath(), 'resources', 'tray')
+    const image = nativeImage.createFromPath(join(dir, 'trayTemplate.png'))
+    if (!image.isEmpty()) return image
+  }
+  try {
+    return await app.getFileIcon(process.execPath, { size: 'small' })
+  } catch {
+    return nativeImage.createEmpty()
+  }
 }
 
 function destroyTray(): void {

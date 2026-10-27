@@ -20,7 +20,7 @@ const { selected } = storeToRefs(recordingsStore)
 const { deleteRecording, deleteGroup, openFolder } = useMainView()
 
 const settingsOpen = ref(false)
-const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish' | 'mythic-plus' | 'hub'>('2v2')
+const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish' | 'mythic-plus' | 'hub'>('mythic-plus')
 
 // -------------------------------------------------------------------------
 // Live recording elapsed-time indicator — ticks once per second while
@@ -51,12 +51,13 @@ async function copyError(): Promise<void> {
   setTimeout(() => { errorCopied.value = false }, 1500)
 }
 
+// Mythic+ first: it's what Depleted is for; the arena tabs follow
 const BRACKET_TABS = [
+  { key: 'mythic-plus' as const, label: 'Mythic+' },
   { key: '2v2' as const, label: '2v2' },
   { key: '3v3' as const, label: '3v3' },
   { key: 'solo-shuffle' as const, label: 'Shuffle' },
   { key: 'skirmish' as const, label: 'Skirmish' },
-  { key: 'mythic-plus' as const, label: 'Mythic+' },
 ] as const
 
 const { recordings } = storeToRefs(recordingsStore)
@@ -99,19 +100,6 @@ function applyAddonStatus(result: { connected: boolean; name?: string; spec?: st
 async function refreshAddonStatus(): Promise<void> {
   const result = await window.electron.invoke('system:getAddonStatus')
   applyAddonStatus(result)
-}
-
-// -------------------------------------------------------------------------
-// Donate button
-// -------------------------------------------------------------------------
-
-const DONATE_URL = 'https://www.donationalerts.com/r/alex_mu7'
-
-async function openDonate(): Promise<void> {
-  const result = await window.electron.invoke('system:openUrl', { url: DONATE_URL })
-  if (!result.success) {
-    appStore.setError(`Couldn't open the donation page: ${result.error ?? 'unknown error'}`)
-  }
 }
 
 // -------------------------------------------------------------------------
@@ -240,15 +228,6 @@ const statusTextClass = computed(() => {
           <span :class="['w-1.5 h-1.5 rounded-full', statusDotClass]" />
           <span :class="['text-xs', statusTextClass]">{{ statusLabel }}</span>
         </div>
-
-        <!-- Donate button -->
-        <button
-          class="px-2 py-0.5 rounded text-xs font-medium bg-pink-950/60 text-pink-400 hover:bg-pink-900/60 hover:text-pink-300 transition-colors"
-          title="Донаты и ваша поддержка помогают и мотивируют меня развивать данный проект. Спасибо!"
-          @click="openDonate"
-        >
-          Donate
-        </button>
 
         <!-- Settings button -->
         <button

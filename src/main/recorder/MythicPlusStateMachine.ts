@@ -35,6 +35,7 @@ import type { CombatLogWatcher } from '../combatlog/CombatLogWatcher'
 import type {
   ChallengeModeEndEvent,
   ChallengeModeStartEvent,
+  DamageDoneEvent,
   CombatantInfoEvent,
   EncounterEndEvent,
   EncounterStartEvent,
@@ -97,6 +98,7 @@ interface KeySession {
   deathsByPlayer: Map<string, number>
   interruptsByPlayer: Map<string, number>
   dmgTakenByName: Map<string, number>
+  dmgDoneByName: Map<string, number>
   healDoneByName: Map<string, number>
   abandonTimer: ReturnType<typeof setTimeout> | null
   // Last log line seen (log time) and when we saw it (wall clock), for the idle check
@@ -175,6 +177,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.watcher.onParser('unitDied', (e) => this.onUnitDied(e))
     this.watcher.onParser('spellInterruptSuccess', (e) => this.onInterrupt(e))
     this.watcher.onParser('spellDamage', (e) => this.onSpellDamage(e))
+    this.watcher.onParser('damageDone', (e) => this.onDamageDone(e))
     this.watcher.onParser('spellHealAmount', (e) => this.onSpellHeal(e))
   }
 
@@ -227,6 +230,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       deathsByPlayer: new Map(),
       interruptsByPlayer: new Map(),
       dmgTakenByName: new Map(),
+      dmgDoneByName: new Map(),
       healDoneByName: new Map(),
       abandonTimer: null,
       lastLogTimestamp: e.timestamp,
@@ -376,9 +380,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       enemyComp: [],
       playerRatings: {},
       playerAbsorb: {},
-      // The parser only emits damage with a player target (an arena-era filter), so
-      // damage done to mobs isn't available yet — left empty until that's opened up.
-      playerDamageDone: {},
+      playerDamageDone: Object.fromEntries(session.dmgDoneByName),
       playerDamageTaken: Object.fromEntries(session.dmgTakenByName),
       playerHealingDone: Object.fromEntries(session.healDoneByName),
       detectedMistakes: [],
@@ -599,7 +601,20 @@ export class MythicPlusStateMachine extends EventEmitter {
     const session = this.activeSession()
     if (session === null) return
     if (!session.roster.has(e.casterGuid)) return
-    session.healDoneByName.set(e.casterName, (session.healDoneByName.get(e.casterName) ?? 0) + e.amount)
+    // Effective healing, like Details!: overhealing doesn't count toward HPS
+    const effective = e.amount - (e.overhealing ?? 0)
+    if (effective <= 0) return
+    session.healDoneByName.set(e.casterName, (session.healDoneByName.get(e.casterName) ?? 0) + effective)
+  }
+
+  private onDamageDone(e: DamageDoneEvent): void {
+    const session = this.activeSession()
+    if (session === null || !e.casterName) return
+    if (!session.roster.has(e.casterGuid)) {
+      if (!isPartyPlayer(e.casterFlags)) return
+      this.learnPartyMember(e.casterGuid, e.casterName)
+    }
+    session.dmgDoneByName.set(e.casterName, (session.dmgDoneByName.get(e.casterName) ?? 0) + e.amount)
   }
 
   // ---------------------------------------------------------------------------

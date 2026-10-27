@@ -5,16 +5,17 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { StatsSite, WowRegion } from '@shared/ipc.types'
+import { normalizeStatsSite } from '@/utils/characterLinks'
 
 export const useStatsLinkStore = defineStore('statsLink', () => {
-  const statsSite = ref<StatsSite>('checkpvp')
+  const statsSite = ref<StatsSite>('raiderio')
   const wowRegion = ref<WowRegion>('eu')
   const loaded = ref(false)
 
   async function load(): Promise<void> {
     if (loaded.value) return
     const cfg = await window.electron.invoke('config:getAll')
-    statsSite.value = cfg.statsSite
+    statsSite.value = normalizeStatsSite(cfg.statsSite)
     wowRegion.value = cfg.wowRegion
     loaded.value = true
   }

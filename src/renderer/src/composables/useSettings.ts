@@ -6,6 +6,7 @@
 import { ref, computed, onMounted } from 'vue'
 import type { AppConfig, CaptureSource, StatsSite, WowRegion } from '@shared/ipc.types'
 import { useStatsLinkStore } from '@/stores/statsLinkStore'
+import { normalizeStatsSite } from '@/utils/characterLinks'
 
 export type BitratePreset = 'low' | 'medium' | 'high' | 'custom'
 
@@ -195,7 +196,7 @@ export function useSettings() {
   // -------------------------------------------------------------------------
 
   const statsSite = computed<StatsSite>({
-    get: () => config.value?.statsSite ?? 'checkpvp',
+    get: () => normalizeStatsSite(config.value?.statsSite),
     set: (site) => {
       if (config.value === null) return
       void set('statsSite', site)

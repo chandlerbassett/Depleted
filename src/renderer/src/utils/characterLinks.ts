@@ -1,6 +1,6 @@
-// Builds "view my stats" links to external PvP sites from a combat-log character
-// fullName ("Name-Realm" or "Name-Realm-EU"). No new data — reuses names already
-// captured in RecordingMetadata (playerName / teamComp / enemyComp).
+// Builds "view player" links (Raider.IO, Warcraft Logs, Armory) from a combat-log
+// character fullName ("Name-Realm" or "Name-Realm-US"). No new data — reuses names
+// already captured in RecordingMetadata.
 
 import type { StatsSite, WowRegion } from '@shared/ipc.types'
 
@@ -32,29 +32,40 @@ export function parseCharacterFullName(fullName: string, defaultRegion: WowRegio
 }
 
 export const STATS_SITE_LABELS: Readonly<Record<StatsSite, string>> = {
-  arenacoach: 'ArenaCoach',
-  seramate: 'Seramate',
-  checkpvp: 'Check-PvP',
-  drustvar: 'Drustvar',
+  raiderio: 'Raider.IO',
+  warcraftlogs: 'Warcraft Logs',
   armory: 'Armory'
 }
 
-export const STATS_SITES: readonly StatsSite[] = ['arenacoach', 'seramate', 'checkpvp', 'drustvar', 'armory']
+export const STATS_SITES: readonly StatsSite[] = ['raiderio', 'warcraftlogs', 'armory']
+
+// Configs saved before the PvP sites were dropped can still hold one of them
+export function normalizeStatsSite(site: string | undefined): StatsSite {
+  return STATS_SITES.includes(site as StatsSite) ? (site as StatsSite) : 'raiderio'
+}
+
+// Combat log realm names drop spaces but keep capitals and apostrophes ("MoonGuard",
+// "Area52", "Mal'Ganis"). Site slugs put a hyphen at each word break and drop
+// apostrophes: moon-guard, area-52, malganis.
+export function realmSlug(realm: string): string {
+  return realm
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/([A-Za-z])(\d)/g, '$1-$2')
+    .replace(/'/g, '')
+    .toLowerCase()
+}
 
 export function buildCharacterStatsUrl(site: StatsSite, fullName: string, defaultRegion: WowRegion): string {
   const { name, realm, region } = parseCharacterFullName(fullName, defaultRegion)
   const r = region.toLowerCase()
-  switch (site) {
-    case 'arenacoach':
-      return `https://arenacoach.gg/character/${r}/${realm.toLowerCase()}/${name.toLowerCase()}`
-    case 'drustvar':
-      return `https://drustvar.com/character/${r}/${realm.toLowerCase()}/${name.toLowerCase()}`
+  const slug = realmSlug(realm)
+  switch (normalizeStatsSite(site)) {
+    case 'warcraftlogs':
+      return `https://www.warcraftlogs.com/character/${r}/${slug}/${name.toLowerCase()}`
     case 'armory':
-      return `https://worldofwarcraft.blizzard.com/en-gb/character/${r}/${realm.toLowerCase()}/${name.toLowerCase()}`
-    case 'seramate':
-      return `https://seramate.com/${r}/${realm}/${name}`
-    case 'checkpvp':
+      return `https://worldofwarcraft.blizzard.com/en-us/character/${r}/${slug}/${name.toLowerCase()}`
+    case 'raiderio':
     default:
-      return `https://check-pvp.fr/${r}/${realm}/${name}`
+      return `https://raider.io/characters/${r}/${slug}/${encodeURIComponent(name)}`
   }
 }

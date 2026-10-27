@@ -1182,7 +1182,7 @@ export const MIN_ADDON_VERSION = '2.0.0'
 // play gaps.
 export const ADDON_STALE_MS = 30 * 60 * 1000 // 30 minutes
 
-export const DEFAULT_STATS_SITE: import('./ipc.types').StatsSite = 'checkpvp'
+export const DEFAULT_STATS_SITE: import('./ipc.types').StatsSite = 'raiderio'
 export const DEFAULT_WOW_REGION: import('./ipc.types').WowRegion = 'eu'
 
 // ---------------------------------------------------------------------------

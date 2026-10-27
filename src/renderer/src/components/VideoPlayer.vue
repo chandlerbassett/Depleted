@@ -369,15 +369,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 // -------------------------------------------------------------------------
 const showMeters = ref(false)
 
-const dmgDoneMeter = computed(() =>
-  computeMeter(props.recording.metadata.playerDamageDone, props.recording.metadata.duration)
-)
+// Per-second rates use the key timer for Mythic+ (the video also has the post-roll)
+const meterSecs = computed(() => {
+  const keyMs = props.recording.metadata.mythicPlus?.totalTimeMs ?? 0
+  return keyMs > 0 ? keyMs / 1000 : props.recording.metadata.duration
+})
+const dmgDoneMeter = computed(() => computeMeter(props.recording.metadata.playerDamageDone, meterSecs.value))
+// Mythic+ shows DPS and HPS only
 const dmgTakenMeter = computed(() =>
-  computeMeter(props.recording.metadata.playerDamageTaken, props.recording.metadata.duration)
+  bracket.value === 'mythic-plus' ? [] : computeMeter(props.recording.metadata.playerDamageTaken, meterSecs.value)
 )
-const healDoneMeter = computed(() =>
-  computeMeter(props.recording.metadata.playerHealingDone, props.recording.metadata.duration)
-)
+const healDoneMeter = computed(() => computeMeter(props.recording.metadata.playerHealingDone, meterSecs.value))
 const hasMeterData = computed(
   () => dmgDoneMeter.value.length > 0 || dmgTakenMeter.value.length > 0 || healDoneMeter.value.length > 0
 )
