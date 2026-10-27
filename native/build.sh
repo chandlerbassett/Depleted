@@ -14,8 +14,8 @@ if [[ "${UNIVERSAL:-0}" == "1" ]]; then
   archs=(--arch arm64 --arch x86_64)
 fi
 
-swift build -c release "${archs[@]}"
-bin_dir="$(swift build -c release "${archs[@]}" --show-bin-path)"
+swift build -c release ${archs[@]+"${archs[@]}"}
+bin_dir="$(swift build -c release ${archs[@]+"${archs[@]}"} --show-bin-path)"
 
 mkdir -p ../bin
 cp "$bin_dir/depleted-capture" ../bin/depleted-capture
