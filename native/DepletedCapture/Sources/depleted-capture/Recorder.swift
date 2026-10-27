@@ -18,7 +18,7 @@ struct RecordOptions {
     let fps: Int
     let bitrateKbps: Int
     let codec: AVVideoCodecType
-    // Bounding box to scale into; nil keeps the window's native pixel size
+    // Bounding box to scale into; nil means "native" (see Recorder.init)
     let maxSize: CGSize?
     let windowHint: String?
 
@@ -65,8 +65,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     init(options: RecordOptions, window: SCWindow, scale: CGFloat) {
         self.options = options
 
-        let native = CGSize(width: window.frame.width * scale, height: window.frame.height * scale)
-        size = Recorder.fit(native, into: options.maxSize)
+        // "native" is the window's size in points, not Retina pixels: a full-screen window
+        // on a 5K display is 6720x3780 pixels, which the encoder can't keep up with at
+        // 30fps (a test dropped to ~7fps). Points give 1:1 on non-Retina displays and
+        // are capped at 4K either way.
+        let pixels = CGSize(width: window.frame.width * scale, height: window.frame.height * scale)
+        let box = options.maxSize
+            ?? CGSize(width: min(window.frame.width, 3840), height: min(window.frame.height, 2160))
+        size = Recorder.fit(pixels, into: box)
 
         config = SCStreamConfiguration()
         config.width = Int(size.width)
