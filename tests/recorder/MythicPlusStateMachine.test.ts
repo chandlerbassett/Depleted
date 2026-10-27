@@ -114,7 +114,7 @@ describe('CombatLogParser — Mythic+ events', () => {
     })
   })
 
-  it('parses CHALLENGE_MODE_END with rating', () => {
+  it('parses CHALLENGE_MODE_END with dungeon score and rating', () => {
     const parser = new CombatLogParser()
     const ends: ParserEventMap['challengeModeEnd'][] = []
     parser.on('challengeModeEnd', (e) => ends.push(e))
@@ -125,8 +125,8 @@ describe('CombatLogParser — Mythic+ events', () => {
       success: true,
       keystoneLevel: 12,
       totalTimeMs: 1795000,
-      oldRating: 2650.5,
-      newRating: 2671.25
+      dungeonScore: 412.5,
+      overallRating: 2671.25
     })
   })
 
@@ -198,7 +198,7 @@ describe('MythicPlusStateMachine', () => {
     const mp = e.mythicPlus!
     expect(mp.outcome).toBe('completed')
     expect(mp.keystoneLevel).toBe(12)
-    expect(mp.rating).toEqual({ before: 2650.5, after: 2671.25 })
+    expect(mp.score).toEqual({ dungeon: 412.5, overall: 2671.25 })
     expect(mp.encounters).toEqual([
       { encounterId: 2902, name: 'Ulgrax the Devourer', start: 55, end: 85, success: false },
       { encounterId: 2902, name: 'Ulgrax the Devourer', start: 115, end: 195, success: true }
@@ -323,14 +323,14 @@ describe('MythicPlusStateMachine', () => {
     expect(e.durationSecs).toBe(85)
   })
 
-  it('treats a 0/0 rating on CHALLENGE_MODE_END as no rating', async () => {
+  it('treats a 0/0 score on CHALLENGE_MODE_END as no score', async () => {
     const { watcher, processed } = setup()
     watcher.feed([
       ...linesUpTo('CHALLENGE_MODE_START'),
       '10/27/2026 20:10:00.0000  CHALLENGE_MODE_END,2660,0,0,0,0.000000,0.000000'
     ])
     await vi.runAllTimersAsync()
-    expect(processed[0]!.mythicPlus!.rating).toBeNull()
+    expect(processed[0]!.mythicPlus!.score).toBeNull()
     expect(processed[0]!.mythicPlus!.outcome).toBe('abandoned')
   })
 

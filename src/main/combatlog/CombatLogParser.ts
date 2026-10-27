@@ -41,7 +41,8 @@ const ZONE_FIELD_ZONE_NAME = 1
 // ---------------------------------------------------------------------------
 // Mythic+ / encounter field indices (0-indexed, after the event type field)
 //   CHALLENGE_MODE_START,"zoneName",instanceID,challengeModeID,keystoneLevel,[affixIDs]
-//   CHALLENGE_MODE_END,instanceID,success,keystoneLevel,totalTimeMs[,oldRating,newRating]
+//   CHALLENGE_MODE_END,instanceID,success,keystoneLevel,totalTimeMs,dungeonScore,overallRating
+//     (12.x: a timed +10 logged "...,1,10,1041217,334.258545,3807.285889"; there's no old rating)
 //   ENCOUNTER_START,encounterID,"name",difficultyID,groupSize,instanceID
 //   ENCOUNTER_END,encounterID,"name",difficultyID,groupSize,success[,fightTimeMs]
 // Verify against a real Midnight M+ log — trailing fields have changed across patches.
@@ -56,8 +57,8 @@ const CM_END_FIELD_INSTANCE_ID = 0
 const CM_END_FIELD_SUCCESS = 1
 const CM_END_FIELD_KEYSTONE_LEVEL = 2
 const CM_END_FIELD_TOTAL_TIME_MS = 3
-const CM_END_FIELD_OLD_RATING = 4
-const CM_END_FIELD_NEW_RATING = 5
+const CM_END_FIELD_DUNGEON_SCORE = 4
+const CM_END_FIELD_OVERALL_RATING = 5
 
 const ENCOUNTER_FIELD_ID = 0
 const ENCOUNTER_FIELD_NAME = 1
@@ -408,8 +409,9 @@ export interface ChallengeModeEndEvent {
   keystoneLevel: number
   // 0 when the key was abandoned/reset rather than completed
   totalTimeMs: number
-  oldRating?: number
-  newRating?: number
+  // Score for this dungeon and overall M+ rating after the key; both 0 on a reset
+  dungeonScore?: number
+  overallRating?: number
   timestamp: Date
 }
 
@@ -707,16 +709,16 @@ export class CombatLogParser extends EventEmitter {
 
     const keystoneLevel = parseInt(fields[CM_END_FIELD_KEYSTONE_LEVEL] ?? '', 10)
     const totalTimeMs = parseInt(fields[CM_END_FIELD_TOTAL_TIME_MS] ?? '', 10)
-    const oldRating = parseFloat(fields[CM_END_FIELD_OLD_RATING] ?? '')
-    const newRating = parseFloat(fields[CM_END_FIELD_NEW_RATING] ?? '')
+    const dungeonScore = parseFloat(fields[CM_END_FIELD_DUNGEON_SCORE] ?? '')
+    const overallRating = parseFloat(fields[CM_END_FIELD_OVERALL_RATING] ?? '')
 
     this.emit('challengeModeEnd', {
       instanceId,
       success: fields[CM_END_FIELD_SUCCESS] === '1',
       keystoneLevel: isNaN(keystoneLevel) ? 0 : keystoneLevel,
       totalTimeMs: isNaN(totalTimeMs) ? 0 : totalTimeMs,
-      oldRating: isNaN(oldRating) ? undefined : oldRating,
-      newRating: isNaN(newRating) ? undefined : newRating,
+      dungeonScore: isNaN(dungeonScore) ? undefined : dungeonScore,
+      overallRating: isNaN(overallRating) ? undefined : overallRating,
       timestamp
     })
   }

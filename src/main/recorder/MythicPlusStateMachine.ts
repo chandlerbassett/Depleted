@@ -350,10 +350,10 @@ export class MythicPlusStateMachine extends EventEmitter {
       affixIds: session.start.affixIds,
       outcome,
       totalTimeMs: endEvent?.totalTimeMs ?? 0,
-      // A reset/abandoned END reports 0/0 — that's "no rating", not a rating of 0.
-      rating:
-        endEvent?.oldRating !== undefined && endEvent.newRating !== undefined && endEvent.newRating > 0
-          ? { before: endEvent.oldRating, after: endEvent.newRating }
+      // A reset/abandoned END reports 0/0 — that's "no score", not a score of 0.
+      score:
+        endEvent?.dungeonScore !== undefined && endEvent.overallRating !== undefined && endEvent.overallRating > 0
+          ? { dungeon: endEvent.dungeonScore, overall: endEvent.overallRating }
           : null,
       encounters,
       deathCount: Object.values(deathsByPlayer).reduce((a, b) => a + b, 0),
@@ -386,8 +386,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       enemyDmgBySecond: [],
       teamHealBySecond: [],
       enemyHealBySecond: [],
-      ratingBefore: mythicPlus.rating?.before,
-      ratingAfter: mythicPlus.rating?.after,
+      // No before/after pair for M+ (see MythicPlusInfo.score), so leave the arena rating unset.
       mythicPlus
     }
 
