@@ -61,7 +61,7 @@ function linesUpTo(eventType: string): string[] {
 // unless a test says otherwise.
 const KEY_START = new Date(2026, 9, 27, 20, 0, 5)
 
-function setup(options: { recorderLagMs?: number } = {}): {
+function setup(options: { recorderLagMs?: number; idleTimeoutSecs?: number } = {}): {
   watcher: FakeWatcher
   recorder: FakeRecorder
   machine: MythicPlusStateMachine
@@ -73,7 +73,12 @@ function setup(options: { recorderLagMs?: number } = {}): {
   const machine = new MythicPlusStateMachine(
     watcher as unknown as CombatLogWatcher,
     recorder as unknown as WindowCaptureRecorder,
-    { rawRecordingsDir: '/tmp/raw', postRollSecs: 8, abandonTimeoutSecs: 180 }
+    {
+      rawRecordingsDir: '/tmp/raw',
+      postRollSecs: 8,
+      abandonTimeoutSecs: 180,
+      idleTimeoutSecs: options.idleTimeoutSecs ?? 3600
+    }
   )
   const processed: ProcessingRequiredEvent[] = []
   machine.on('processingRequired', (e) => processed.push(e))
@@ -139,6 +144,17 @@ describe('CombatLogParser — Mythic+ events', () => {
     expect(ends[1]!.fightTimeMs).toBe(80000)
   })
 
+  it('parses 12.x timestamps with a UTC offset and 3-digit milliseconds', () => {
+    const parser = new CombatLogParser()
+    const starts: ParserEventMap['challengeModeStart'][] = []
+    parser.on('challengeModeStart', (e) => starts.push(e))
+    // Verbatim shape from a real COMBAT_LOG_VERSION 22 log
+    parser.processLine(`10/27/2026 12:59:23.987-4  CHALLENGE_MODE_START,"Kings' Rest",1762,249,20,[10,9,147]`)
+
+    expect(starts[0]).toMatchObject({ zoneName: "Kings' Rest", instanceId: 1762, keystoneLevel: 20, affixIds: [10, 9, 147] })
+    expect(starts[0]!.timestamp.toISOString()).toBe('2026-10-27T16:59:23.987Z')
+  })
+
   it('emits zoneChanged for non-arena zones', () => {
     const parser = new CombatLogParser()
     const zones: ParserEventMap['zoneChanged'][] = []
@@ -156,7 +172,7 @@ describe('MythicPlusStateMachine', () => {
   it('starts recording on CHALLENGE_MODE_START', async () => {
     const { watcher, recorder, machine } = setup()
     watcher.feed(linesUpTo('CHALLENGE_MODE_START'))
-    await vi.runAllTimersAsync()
+    await vi.advanceTimersByTimeAsync(0)
 
     expect(recorder.startMock).toHaveBeenCalledOnce()
     expect(recorder.startMock.mock.calls[0]![0]).toMatch(/raw_mplus_ara-kara--city-of-echoes_/)
@@ -287,6 +303,35 @@ describe('MythicPlusStateMachine', () => {
 
     expect(recorder.startMock).not.toHaveBeenCalled()
     expect(machine.getStatus()).toBe('idle')
+  })
+
+  it('closes the key as abandoned when the log goes quiet', async () => {
+    // Seen on a real Kings' Rest log: no CHALLENGE_MODE_END and no zone change, the log
+    // just stopped after the third boss.
+    const { watcher, recorder, processed } = setup({ idleTimeoutSecs: 300 })
+    watcher.feed(linesUpTo('ENCOUNTER_END'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    await vi.advanceTimersByTimeAsync(270_000)
+    expect(recorder.stopMock).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(recorder.stopMock).toHaveBeenCalledOnce()
+    const e = processed[0]!
+    expect(e.mythicPlus!.outcome).toBe('abandoned')
+    // Ends at the last log line seen (20:01:30, the wipe), not when the timer fired
+    expect(e.durationSecs).toBe(85)
+  })
+
+  it('treats a 0/0 rating on CHALLENGE_MODE_END as no rating', async () => {
+    const { watcher, processed } = setup()
+    watcher.feed([
+      ...linesUpTo('CHALLENGE_MODE_START'),
+      '10/27/2026 20:10:00.0000  CHALLENGE_MODE_END,2660,0,0,0,0.000000,0.000000'
+    ])
+    await vi.runAllTimersAsync()
+    expect(processed[0]!.mythicPlus!.rating).toBeNull()
+    expect(processed[0]!.mythicPlus!.outcome).toBe('abandoned')
   })
 
   it('ignores feign death and non-party deaths', async () => {

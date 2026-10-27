@@ -1,5 +1,5 @@
 // Parses WoW combat log lines and emits typed arena and Mythic+ events.
-// Line format: "M/D HH:MM:SS.mmm  EVENT_TYPE,field1,field2,..."
+// Line format: "M/D/YYYY HH:MM:SS.mmm-4  EVENT_TYPE,field1,field2,..." (see parseWowTimestamp)
 // Two spaces separate the timestamp from the event data.
 //
 // IMPORTANT: Field indices for ARENA_MATCH_STATS must be verified against
@@ -432,6 +432,13 @@ export interface EncounterEndEvent {
   timestamp: Date
 }
 
+// Heartbeat: fired at most once per second of log time while lines are arriving. Lets
+// Mythic+ notice a log that has simply stopped (game closed, logging turned off) without
+// subscribing to every event type.
+export interface LogActivityEvent {
+  timestamp: Date
+}
+
 // Re-exported so callers can test hostility without coupling to the bit value.
 export { UNIT_FLAG_REACTION_HOSTILE }
 
@@ -464,6 +471,7 @@ export interface ParserEventMap {
   challengeModeEnd: ChallengeModeEndEvent
   encounterStart: EncounterStartEvent
   encounterEnd: EncounterEndEvent
+  logActivity: LogActivityEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -494,6 +502,8 @@ export class CombatLogParser extends EventEmitter {
   // log event fired when a player creates a totem/pet/guardian) — see
   // resolveEffectiveCaster for why this is needed instead of the advanced-logging block.
   private readonly summonOwners = new Map<string, string>()
+  // Log time of the last logActivity emit (ms), for throttling
+  private lastActivityMs = 0
 
   // Typed overrides for EventEmitter methods
   override emit<K extends keyof ParserEventMap>(event: K, payload: ParserEventMap[K]): boolean {
@@ -540,6 +550,11 @@ export class CombatLogParser extends EventEmitter {
     if (parsed === null) return
 
     const { timestamp, eventType, fields } = parsed
+
+    if (timestamp.getTime() - this.lastActivityMs >= 1000) {
+      this.lastActivityMs = timestamp.getTime()
+      this.emit('logActivity', { timestamp })
+    }
 
     // Cache GUID→name from standard unit-prefix events (srcGUID/srcName, dstGUID/dstName).
     // Player names always follow "CharacterName-RealmName" format — guard with includes('-')
@@ -1206,24 +1221,32 @@ function parseHexFlags(raw: string): number {
   return isNaN(n) ? 0 : n
 }
 
-// WoW combat log timestamp format: "M/D/YYYY HH:MM:SS.mmmm" (4-digit ms, with year)
-const TIMESTAMP_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})\.(\d{1,4})$/
+// WoW combat log timestamp format: "M/D/YYYY HH:MM:SS.fff" plus, since COMBAT_LOG_VERSION 22
+// (12.x), a UTC offset in hours: "10/27/2026 12:59:23.987-4". Older logs and the test
+// fixtures have no offset and a 4-digit fraction ("20:00:40.0000"). The fraction is read
+// as a decimal fraction of a second, so 3 and 4 digits both come out in milliseconds.
+const TIMESTAMP_RE =
+  /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})\.(\d{1,4})(?:([+-])(\d{1,2})(?::?(\d{2}))?)?$/
 
 function parseWowTimestamp(raw: string): Date | null {
   const match = TIMESTAMP_RE.exec(raw)
   if (match === null) return null
 
-  const [, month, day, year, hours, minutes, seconds, ms] = match
+  const [, month, day, year, hours, minutes, seconds, fraction, sign, offH, offM] = match
+  const ms = Math.round(parseFloat(`0.${fraction!}`) * 1000)
+  const y = parseInt(year!, 10)
+  const mo = parseInt(month!, 10) - 1
+  const d = parseInt(day!, 10)
+  const h = parseInt(hours!, 10)
+  const mi = parseInt(minutes!, 10)
+  const sec = parseInt(seconds!, 10)
 
-  return new Date(
-    parseInt(year!, 10),
-    parseInt(month!, 10) - 1,
-    parseInt(day!, 10),
-    parseInt(hours!, 10),
-    parseInt(minutes!, 10),
-    parseInt(seconds!, 10),
-    parseInt(ms!, 10)
-  )
+  // No offset: the log is in the machine's local time.
+  if (sign === undefined) return new Date(y, mo, d, h, mi, sec, ms)
+
+  // With an offset the wall-clock fields are local to that offset — convert to UTC.
+  const offsetMins = (parseInt(offH!, 10) * 60 + parseInt(offM ?? '0', 10)) * (sign === '-' ? -1 : 1)
+  return new Date(Date.UTC(y, mo, d, h, mi, sec, ms) - offsetMins * 60_000)
 }
 
 // Extracts trailing numeric fields from a COMBATANT_INFO line by finding the last ']'
