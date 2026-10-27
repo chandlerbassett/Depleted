@@ -54,17 +54,19 @@ mac:
       Depleted captures the WoW window to record Mythic+ keys.
       This permission is used only while a key or match is in progress.
 
+# App icon: build/icon.icns (mac) and build/icon.png (other platforms), picked up from
+# buildResources by default.
 dmg:
   title: "${productName} ${version}"
-  background: null
+  background: build/background.png   # background@2x.png next to it is used on Retina
   window:
     width: 540
     height: 380
   contents:
     - x: 130
-      y: 220
+      y: 170
     - x: 410
-      y: 220
+      y: 170
       type: link
       path: /Applications
 
