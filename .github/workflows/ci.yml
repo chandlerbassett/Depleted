@@ -31,6 +31,12 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Build native capture helper
+        # Swift helper bundled into the app (native/DepletedCapture), arm64 + x86_64
+        run: npm run build:native
+        env:
+          UNIVERSAL: '1'
+
       - name: Package smoke-test (directory, no signing)
         # Verifies electron-builder config and that the app can be assembled.
         # Uses --dir to skip DMG creation (faster) and --universal for the
