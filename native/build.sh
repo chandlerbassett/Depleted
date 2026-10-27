@@ -19,5 +19,6 @@ bin_dir="$(swift build -c release ${archs[@]+"${archs[@]}"} --show-bin-path)"
 
 mkdir -p ../bin
 cp "$bin_dir/depleted-capture" ../bin/depleted-capture
-codesign --force --sign - ../bin/depleted-capture
+identity="$(node -p "require('../../build/signingIdentity.js').signingIdentity()")"
+codesign --force --sign "$identity" ../bin/depleted-capture
 echo "Built native/bin/depleted-capture ($(lipo -archs ../bin/depleted-capture))"

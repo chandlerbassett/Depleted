@@ -44,9 +44,10 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   hardenedRuntime: false
   gatekeeperAssess: false
-  # null = ad-hoc signing (local dev builds, no Developer ID required).
-  # For notarised public distribution, remove this line and set
-  # CSC_LINK / CSC_KEY_PASSWORD or use the Xcode keychain.
+  # null = no Developer ID. build/afterSign.js then signs with the stable local
+  # certificate from scripts/create-signing-cert.sh if it exists (so Screen Recording
+  # permission survives rebuilds), else ad-hoc. For notarised public distribution,
+  # remove this line and set CSC_LINK / CSC_KEY_PASSWORD or use the Xcode keychain.
   identity: null
   extendInfo:
     # Required since macOS 10.15 for any app that captures the screen.

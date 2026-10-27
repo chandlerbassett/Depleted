@@ -26,6 +26,15 @@ export default [
     }
   },
   {
+    // electron-builder hooks run as CommonJS in Node
+    files: ['build/**/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { require: 'readonly', module: 'writable', process: 'readonly', console: 'readonly' }
+    },
+    rules: { '@typescript-eslint/no-require-imports': 'off' }
+  },
+  {
     ignores: ['out/**', 'dist/**', 'node_modules/**']
   }
 ]
