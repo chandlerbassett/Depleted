@@ -213,7 +213,7 @@ const statusTextClass = computed(() => {
       <div class="w-[72px]" />
 
       <span class="flex-1 text-center text-xs text-zinc-500 font-medium tracking-wide">
-        WoW Arena Recorder
+        Depleted
       </span>
 
       <!-- Right side: status + settings button -->

@@ -1139,11 +1139,11 @@ export const DR_CATEGORY: Readonly<Record<number, string>> = {
 // HOME is only available in the main process; renderer must never access this.
 // typeof guard prevents a ReferenceError when the renderer imports this module.
 export const DEFAULT_STORAGE_PATH = (() => {
-  if (typeof process === 'undefined') return '~/Movies/WoWArenaRecorder'
+  if (typeof process === 'undefined') return '~/Movies/Depleted'
   if (process.platform === 'win32') {
-    return `${process.env?.USERPROFILE ?? 'C:\\Users\\User'}\\Videos\\WoWArenaRecorder`
+    return `${process.env?.USERPROFILE ?? 'C:\\Users\\User'}\\Videos\\Depleted`
   }
-  return `${process.env?.HOME ?? '~'}/Movies/WoWArenaRecorder`
+  return `${process.env?.HOME ?? '~'}/Movies/Depleted`
 })()
 export const DEFAULT_VIDEO_BITRATE_KBPS = 8000
 export const DEFAULT_VIDEO_FPS = 30
