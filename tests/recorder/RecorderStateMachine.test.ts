@@ -6,7 +6,7 @@ import type {
   ProcessingRequiredEvent
 } from '../../src/main/recorder/RecorderStateMachine'
 import type { CombatLogWatcher } from '../../src/main/combatlog/CombatLogWatcher'
-import type { WindowCaptureRecorder } from '../../src/main/recorder/WindowCaptureRecorder'
+import type { CaptureRecorder } from '../../src/main/recorder/CaptureRecorder'
 import type { ParserEventMap } from '../../src/main/combatlog/CombatLogParser'
 import { UNIT_FLAG_REACTION_HOSTILE } from '../../src/main/combatlog/CombatLogParser'
 import { SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS } from '../../src/shared/constants'
@@ -36,7 +36,7 @@ class FakeWatcher extends EventEmitter {
   }
 }
 
-// Fake WindowCaptureRecorder whose start/stop behaviour is controlled per test.
+// Fake recorder whose start/stop behaviour is controlled per test.
 class FakeRecorder extends EventEmitter {
   private recording = false
 
@@ -128,7 +128,7 @@ function buildMachine(
   }
   return new RecorderStateMachine(
     watcher as unknown as CombatLogWatcher,
-    recorder as unknown as WindowCaptureRecorder,
+    recorder as unknown as CaptureRecorder,
     options
   )
 }

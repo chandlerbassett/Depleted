@@ -22,10 +22,13 @@ import { registerTestModeIpc } from './ipc/testMode.ipc'
 
 import { CombatLogWatcher } from './combatlog/CombatLogWatcher'
 import { WindowCaptureRecorder } from './recorder/WindowCaptureRecorder'
+import { NativeCaptureRecorder } from './recorder/NativeCaptureRecorder'
+import type { CaptureRecorder } from './recorder/CaptureRecorder'
+import { nativeHelperPath } from './recorder/nativeHelperPath'
 import { RecorderStateMachine } from './recorder/RecorderStateMachine'
 import type { ProcessingRequiredEvent } from './recorder/RecorderStateMachine'
 import { MythicPlusStateMachine } from './recorder/MythicPlusStateMachine'
-import { StorageManager } from './storage/StorageManager'
+import { StorageManager, ffmpegMediaTools, nativeMediaTools, type MediaTools } from './storage/StorageManager'
 import { readAddonCharacterInfo } from './addon/SavedVarsReader'
 import { resolveFfmpegPath } from './system/ffmpeg'
 
@@ -74,7 +77,7 @@ const configStore = new Store<AppConfig>({
 
 function createPipeline(): {
   watcher: CombatLogWatcher
-  recorder: WindowCaptureRecorder
+  recorder: CaptureRecorder
   stateMachine: RecorderStateMachine
   mythicPlusMachine: MythicPlusStateMachine
   storageManager: StorageManager
@@ -85,7 +88,10 @@ function createPipeline(): {
   const rawDir = join(storagePath, 'raw')
 
   const watcher = new CombatLogWatcher({ dir: logsDir, glob: COMBAT_LOG_GLOB })
-  const recorder = new WindowCaptureRecorder()
+  // macOS records, trims and thumbnails with the native helper (ScreenCaptureKit +
+  // hardware encode); other platforms keep the Chromium MediaRecorder + FFmpeg path.
+  const useNative = process.platform === 'darwin'
+  const recorder: CaptureRecorder = useNative ? new NativeCaptureRecorder(nativeHelperPath) : new WindowCaptureRecorder()
   const localPlayer = readAddonCharacterInfo(wowPath)
   const recorderOptions = {
     bitrateKbps: configStore.get('videoBitrate'),
@@ -107,17 +113,17 @@ function createPipeline(): {
 
   // Post-processing is the same for arena matches and Mythic+ keys
   const onProcessingRequired = (event: ProcessingRequiredEvent): void => {
-    let ffmpegPath: string
+    let media: MediaTools
     try {
-      ffmpegPath = resolveFfmpegPath()
+      media = useNative ? nativeMediaTools(nativeHelperPath()) : ffmpegMediaTools(resolveFfmpegPath())
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('[Main] Cannot post-process recording: FFmpeg not found.', message)
+      console.error('[Main] Cannot post-process recording:', message)
       return
     }
 
     storageManager
-      .processRecording(event, ffmpegPath, event.timeline)
+      .processRecording(event, media, event.timeline)
       .then((recording) => {
         for (const win of BrowserWindow.getAllWindows()) {
           if (!win.isDestroyed()) {

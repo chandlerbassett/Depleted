@@ -1,8 +1,7 @@
 // Test Mode — lets the user record a short (10s) clip of the capture source on demand,
 // to verify the capture pipeline actually works before relying on it for a real match.
-// Reuses the same WindowCaptureRecorder instance the main pipeline uses (a second
-// instance's setDisplayMediaRequestHandler registration would be a no-op — see
-// WindowCaptureRecorder's `handlerRegistered` static guard — so it MUST be this instance).
+// Reuses the recorder instance the main pipeline uses, so a test can't overlap a real
+// recording (and WindowCaptureRecorder's display-media handler is registered only once).
 //
 // Commands (ipcMain.handle):
 //   testMode:start    — records for TEST_RECORDING_SECS, resolves once stopped
@@ -14,7 +13,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
-import type { WindowCaptureRecorder } from '../recorder/WindowCaptureRecorder'
+import type { CaptureRecorder } from '../recorder/CaptureRecorder'
 import type { RecorderStateMachine } from '../recorder/RecorderStateMachine'
 import type Store from 'electron-store'
 import type { AppConfig } from '@shared/ipc.types'
@@ -22,7 +21,7 @@ import type { AppConfig } from '@shared/ipc.types'
 const TEST_RECORDING_SECS = 10
 
 export function registerTestModeIpc(
-  recorder: WindowCaptureRecorder,
+  recorder: CaptureRecorder,
   stateMachine: RecorderStateMachine,
   configStore: Store<AppConfig>,
   storagePath: string

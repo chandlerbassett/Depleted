@@ -5,7 +5,7 @@
 //   0 — WoW folder detection and validation
 //   1 — Screen Recording permission
 //   2 — Addon
-//   3 — Homebrew + FFmpeg (Homebrew step auto-skipped on Windows)
+//   4 — FFmpeg (Windows only; macOS uses the built-in capture helper)
 //   5 — Capture window (auto-detect by default; optional manual override)
 //   6 — Ready (summary + finish)
 
@@ -43,13 +43,11 @@ export function useOnboarding() {
   const addonInstalling = ref(false)
   const addonInstallError = ref<string | null>(null)
 
-  // Step 3 — Brew + FFmpeg
-  const brewState = ref<CheckState>('idle')
+  // FFmpeg step (Windows only)
   const ffmpegState = ref<CheckState>('idle')
   const ffmpegPath = ref<string | null>(null)
 
-  // Step 3 sub-steps: on Windows skip brew (not applicable), show FFmpeg section immediately
-  const showFfmpegSection = computed(() => platform.value === 'win32' || brewState.value === 'ok')
+  const showFfmpegSection = computed(() => platform.value === 'win32')
 
   // Step 4 — capture window (auto-detect by default on both platforms; manual
   // override available in Settings after onboarding, see SettingsView.vue)
@@ -73,7 +71,8 @@ export function useOnboarding() {
         // Addon is recommended but not required
         return true
       case 4:
-        return ffmpegState.value === 'ok'
+        // macOS uses the built-in capture helper; only Windows needs FFmpeg
+        return platform.value !== 'win32' || ffmpegState.value === 'ok'
       case 5:
         // Auto-detect (the default) works without any manual selection on either
         // platform — always advanceable. Manual override lives in Settings.
@@ -169,14 +168,8 @@ export function useOnboarding() {
   }
 
   // -------------------------------------------------------------------------
-  // Step 3 — Homebrew + FFmpeg
+  // FFmpeg (Windows only)
   // -------------------------------------------------------------------------
-
-  async function checkBrew(): Promise<void> {
-    brewState.value = 'checking'
-    const result = await window.electron.invoke('system:checkBrew')
-    brewState.value = result.found ? 'ok' : 'fail'
-  }
 
   async function checkFfmpeg(): Promise<void> {
     ffmpegState.value = 'checking'
@@ -229,13 +222,8 @@ export function useOnboarding() {
         if (addonState.value === 'idle') await checkAddon()
         break
       case 4:
-        if (platform.value === 'win32') {
-          brewState.value = 'ok'
-          await checkFfmpeg()
-        } else {
-          await checkBrew()
-          if (brewState.value === 'ok') await checkFfmpeg()
-        }
+        // Only Windows needs FFmpeg; macOS uses the built-in capture helper
+        if (platform.value === 'win32') await checkFfmpeg()
         break
       case 5: {
         // Load capture sources for the optional manual-override picker; auto-detect
@@ -285,7 +273,6 @@ export function useOnboarding() {
     addonState,
     addonInstalling,
     addonInstallError,
-    brewState,
     ffmpegState,
     ffmpegPath,
     showFfmpegSection,
@@ -300,7 +287,6 @@ export function useOnboarding() {
     openSystemPreferences,
     checkAddon,
     installAddon,
-    checkBrew,
     checkFfmpeg,
     next,
     back,

@@ -9,3 +9,5 @@ tests/fixtures/*.txt
 .claude/
 docs/
 CLAUDE.md
+native/bin/
+native/DepletedCapture/.build/

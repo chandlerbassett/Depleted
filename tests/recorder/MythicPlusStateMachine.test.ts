@@ -7,7 +7,7 @@ import type { ParserEventMap } from '../../src/main/combatlog/CombatLogParser'
 import { MythicPlusStateMachine } from '../../src/main/recorder/MythicPlusStateMachine'
 import type { ProcessingRequiredEvent } from '../../src/main/recorder/RecorderStateMachine'
 import type { CombatLogWatcher } from '../../src/main/combatlog/CombatLogWatcher'
-import type { WindowCaptureRecorder } from '../../src/main/recorder/WindowCaptureRecorder'
+import type { CaptureRecorder } from '../../src/main/recorder/CaptureRecorder'
 
 // ---------------------------------------------------------------------------
 // Fakes — a real CombatLogParser behind a minimal watcher, so the fixture log
@@ -72,7 +72,7 @@ function setup(options: { recorderLagMs?: number; idleTimeoutSecs?: number } = {
   vi.setSystemTime(new Date(KEY_START.getTime() + (options.recorderLagMs ?? 0)))
   const machine = new MythicPlusStateMachine(
     watcher as unknown as CombatLogWatcher,
-    recorder as unknown as WindowCaptureRecorder,
+    recorder as unknown as CaptureRecorder,
     {
       rawRecordingsDir: '/tmp/raw',
       postRollSecs: 8,
