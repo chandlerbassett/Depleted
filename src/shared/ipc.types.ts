@@ -167,7 +167,9 @@ export interface MythicPlusInfo {
   outcome: MythicPlusOutcome
   // Key timer from CHALLENGE_MODE_END (ms), 0 if the key never ended cleanly
   totalTimeMs: number
-  rating: { before: number; after: number } | null
+  // From CHALLENGE_MODE_END: this dungeon's score and the overall M+ rating after the key.
+  // The log has no "before" value. null when the key never ended or was reset.
+  score: { dungeon: number; overall: number } | null
   encounters: MythicPlusEncounter[]
   deathCount: number
   // name → number of deaths during the key

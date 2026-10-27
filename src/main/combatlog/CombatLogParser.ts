@@ -1,5 +1,5 @@
 // Parses WoW combat log lines and emits typed arena and Mythic+ events.
-// Line format: "M/D HH:MM:SS.mmm  EVENT_TYPE,field1,field2,..."
+// Line format: "M/D/YYYY HH:MM:SS.mmm-4  EVENT_TYPE,field1,field2,..." (see parseWowTimestamp)
 // Two spaces separate the timestamp from the event data.
 //
 // IMPORTANT: Field indices for ARENA_MATCH_STATS must be verified against
@@ -41,7 +41,8 @@ const ZONE_FIELD_ZONE_NAME = 1
 // ---------------------------------------------------------------------------
 // Mythic+ / encounter field indices (0-indexed, after the event type field)
 //   CHALLENGE_MODE_START,"zoneName",instanceID,challengeModeID,keystoneLevel,[affixIDs]
-//   CHALLENGE_MODE_END,instanceID,success,keystoneLevel,totalTimeMs[,oldRating,newRating]
+//   CHALLENGE_MODE_END,instanceID,success,keystoneLevel,totalTimeMs,dungeonScore,overallRating
+//     (12.x: a timed +10 logged "...,1,10,1041217,334.258545,3807.285889"; there's no old rating)
 //   ENCOUNTER_START,encounterID,"name",difficultyID,groupSize,instanceID
 //   ENCOUNTER_END,encounterID,"name",difficultyID,groupSize,success[,fightTimeMs]
 // Verify against a real Midnight M+ log — trailing fields have changed across patches.
@@ -56,8 +57,8 @@ const CM_END_FIELD_INSTANCE_ID = 0
 const CM_END_FIELD_SUCCESS = 1
 const CM_END_FIELD_KEYSTONE_LEVEL = 2
 const CM_END_FIELD_TOTAL_TIME_MS = 3
-const CM_END_FIELD_OLD_RATING = 4
-const CM_END_FIELD_NEW_RATING = 5
+const CM_END_FIELD_DUNGEON_SCORE = 4
+const CM_END_FIELD_OVERALL_RATING = 5
 
 const ENCOUNTER_FIELD_ID = 0
 const ENCOUNTER_FIELD_NAME = 1
@@ -408,8 +409,9 @@ export interface ChallengeModeEndEvent {
   keystoneLevel: number
   // 0 when the key was abandoned/reset rather than completed
   totalTimeMs: number
-  oldRating?: number
-  newRating?: number
+  // Score for this dungeon and overall M+ rating after the key; both 0 on a reset
+  dungeonScore?: number
+  overallRating?: number
   timestamp: Date
 }
 
@@ -429,6 +431,13 @@ export interface EncounterEndEvent {
   groupSize: number
   success: boolean
   fightTimeMs?: number
+  timestamp: Date
+}
+
+// Heartbeat: fired at most once per second of log time while lines are arriving. Lets
+// Mythic+ notice a log that has simply stopped (game closed, logging turned off) without
+// subscribing to every event type.
+export interface LogActivityEvent {
   timestamp: Date
 }
 
@@ -464,6 +473,7 @@ export interface ParserEventMap {
   challengeModeEnd: ChallengeModeEndEvent
   encounterStart: EncounterStartEvent
   encounterEnd: EncounterEndEvent
+  logActivity: LogActivityEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -494,6 +504,8 @@ export class CombatLogParser extends EventEmitter {
   // log event fired when a player creates a totem/pet/guardian) — see
   // resolveEffectiveCaster for why this is needed instead of the advanced-logging block.
   private readonly summonOwners = new Map<string, string>()
+  // Log time of the last logActivity emit (ms), for throttling
+  private lastActivityMs = 0
 
   // Typed overrides for EventEmitter methods
   override emit<K extends keyof ParserEventMap>(event: K, payload: ParserEventMap[K]): boolean {
@@ -540,6 +552,11 @@ export class CombatLogParser extends EventEmitter {
     if (parsed === null) return
 
     const { timestamp, eventType, fields } = parsed
+
+    if (timestamp.getTime() - this.lastActivityMs >= 1000) {
+      this.lastActivityMs = timestamp.getTime()
+      this.emit('logActivity', { timestamp })
+    }
 
     // Cache GUID→name from standard unit-prefix events (srcGUID/srcName, dstGUID/dstName).
     // Player names always follow "CharacterName-RealmName" format — guard with includes('-')
@@ -692,16 +709,16 @@ export class CombatLogParser extends EventEmitter {
 
     const keystoneLevel = parseInt(fields[CM_END_FIELD_KEYSTONE_LEVEL] ?? '', 10)
     const totalTimeMs = parseInt(fields[CM_END_FIELD_TOTAL_TIME_MS] ?? '', 10)
-    const oldRating = parseFloat(fields[CM_END_FIELD_OLD_RATING] ?? '')
-    const newRating = parseFloat(fields[CM_END_FIELD_NEW_RATING] ?? '')
+    const dungeonScore = parseFloat(fields[CM_END_FIELD_DUNGEON_SCORE] ?? '')
+    const overallRating = parseFloat(fields[CM_END_FIELD_OVERALL_RATING] ?? '')
 
     this.emit('challengeModeEnd', {
       instanceId,
       success: fields[CM_END_FIELD_SUCCESS] === '1',
       keystoneLevel: isNaN(keystoneLevel) ? 0 : keystoneLevel,
       totalTimeMs: isNaN(totalTimeMs) ? 0 : totalTimeMs,
-      oldRating: isNaN(oldRating) ? undefined : oldRating,
-      newRating: isNaN(newRating) ? undefined : newRating,
+      dungeonScore: isNaN(dungeonScore) ? undefined : dungeonScore,
+      overallRating: isNaN(overallRating) ? undefined : overallRating,
       timestamp
     })
   }
@@ -1206,24 +1223,32 @@ function parseHexFlags(raw: string): number {
   return isNaN(n) ? 0 : n
 }
 
-// WoW combat log timestamp format: "M/D/YYYY HH:MM:SS.mmmm" (4-digit ms, with year)
-const TIMESTAMP_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})\.(\d{1,4})$/
+// WoW combat log timestamp format: "M/D/YYYY HH:MM:SS.fff" plus, since COMBAT_LOG_VERSION 22
+// (12.x), a UTC offset in hours: "10/27/2026 12:59:23.987-4". Older logs and the test
+// fixtures have no offset and a 4-digit fraction ("20:00:40.0000"). The fraction is read
+// as a decimal fraction of a second, so 3 and 4 digits both come out in milliseconds.
+const TIMESTAMP_RE =
+  /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})\.(\d{1,4})(?:([+-])(\d{1,2})(?::?(\d{2}))?)?$/
 
 function parseWowTimestamp(raw: string): Date | null {
   const match = TIMESTAMP_RE.exec(raw)
   if (match === null) return null
 
-  const [, month, day, year, hours, minutes, seconds, ms] = match
+  const [, month, day, year, hours, minutes, seconds, fraction, sign, offH, offM] = match
+  const ms = Math.round(parseFloat(`0.${fraction!}`) * 1000)
+  const y = parseInt(year!, 10)
+  const mo = parseInt(month!, 10) - 1
+  const d = parseInt(day!, 10)
+  const h = parseInt(hours!, 10)
+  const mi = parseInt(minutes!, 10)
+  const sec = parseInt(seconds!, 10)
 
-  return new Date(
-    parseInt(year!, 10),
-    parseInt(month!, 10) - 1,
-    parseInt(day!, 10),
-    parseInt(hours!, 10),
-    parseInt(minutes!, 10),
-    parseInt(seconds!, 10),
-    parseInt(ms!, 10)
-  )
+  // No offset: the log is in the machine's local time.
+  if (sign === undefined) return new Date(y, mo, d, h, mi, sec, ms)
+
+  // With an offset the wall-clock fields are local to that offset — convert to UTC.
+  const offsetMins = (parseInt(offH!, 10) * 60 + parseInt(offM ?? '0', 10)) * (sign === '-' ? -1 : 1)
+  return new Date(Date.UTC(y, mo, d, h, mi, sec, ms) - offsetMins * 60_000)
 }
 
 // Extracts trailing numeric fields from a COMBATANT_INFO line by finding the last ']'

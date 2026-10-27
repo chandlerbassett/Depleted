@@ -28,6 +28,7 @@ import type {
 import {
   DEATH_RECAP_WINDOW_SECS,
   MYTHIC_PLUS_ABANDON_TIMEOUT_SECS,
+  MYTHIC_PLUS_IDLE_TIMEOUT_SECS,
   MYTHIC_PLUS_POST_ROLL_SECS
 } from '@shared/constants'
 import type { CombatLogWatcher } from '../combatlog/CombatLogWatcher'
@@ -37,6 +38,7 @@ import type {
   CombatantInfoEvent,
   EncounterEndEvent,
   EncounterStartEvent,
+  LogActivityEvent,
   SpellDamageEvent,
   SpellHealAmountEvent,
   SpellInterruptSuccessEvent,
@@ -58,6 +60,7 @@ export interface MythicPlusStateMachineOptions {
   // Overridable for tests
   postRollSecs?: number
   abandonTimeoutSecs?: number
+  idleTimeoutSecs?: number
 }
 
 // Unit flag bits (COMBATLOG_OBJECT_*) used to pick out the local party.
@@ -96,6 +99,10 @@ interface KeySession {
   dmgTakenByName: Map<string, number>
   healDoneByName: Map<string, number>
   abandonTimer: ReturnType<typeof setTimeout> | null
+  // Last log line seen (log time) and when we saw it (wall clock), for the idle check
+  lastLogTimestamp: Date
+  lastLogWallMs: number
+  idleTimer: ReturnType<typeof setInterval> | null
   // Set once finalize() has begun so late events don't double-finalize
   ending: boolean
 }
@@ -163,6 +170,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.watcher.onParser('encounterStart', (e) => this.onEncounterStart(e))
     this.watcher.onParser('encounterEnd', (e) => this.onEncounterEnd(e))
     this.watcher.onParser('zoneChanged', (e) => this.onZoneChanged(e))
+    this.watcher.onParser('logActivity', (e) => this.onLogActivity(e))
     this.watcher.onParser('combatantInfo', (e) => this.onCombatantInfo(e))
     this.watcher.onParser('unitDied', (e) => this.onUnitDied(e))
     this.watcher.onParser('spellInterruptSuccess', (e) => this.onInterrupt(e))
@@ -174,7 +182,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.recorder.on('unexpectedStop', ({ outputPath }) => {
       if (this.session === null) return
       console.error('[MythicPlus] Recorder stopped unexpectedly mid-key')
-      this.clearAbandonTimer()
+      this.clearTimers()
       this.session = null
       this.transitionTo('error')
       this.emit('error', { message: `Recording stopped unexpectedly. Raw file: ${outputPath}` })
@@ -221,9 +229,13 @@ export class MythicPlusStateMachine extends EventEmitter {
       dmgTakenByName: new Map(),
       healDoneByName: new Map(),
       abandonTimer: null,
+      lastLogTimestamp: e.timestamp,
+      lastLogWallMs: Date.now(),
+      idleTimer: null,
       ending: false
     }
     session.started = previousStop.then(() => this.startRecorder(session))
+    session.idleTimer = setInterval(() => this.checkIdle(session), 30_000)
     this.session = session
     this.transitionTo('recording', `${e.zoneName} +${e.keystoneLevel}`)
   }
@@ -239,7 +251,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       const message = err instanceof Error ? err.message : String(err)
       console.error('[MythicPlus] recorder.start() failed:', message)
       if (this.session === session) {
-        this.clearAbandonTimer()
+        this.clearTimers()
         this.session = null
       }
       this.transitionTo('error')
@@ -270,7 +282,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     // Keep rolling briefly so the completion screen makes it into the video. Mark the
     // session as ending now so nothing else (zone change, another END) races this.
     session.ending = true
-    this.clearAbandonTimer()
+    this.clearTimers()
     const postRollMs = (this.options.postRollSecs ?? MYTHIC_PLUS_POST_ROLL_SECS) * 1000
     this.finalizing = sleep(postRollMs).then(() =>
       this.doFinalize(session, outcome, e.timestamp, e, postRollMs / 1000)
@@ -282,7 +294,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     const session = this.session
     if (session === null || session.ending) return
     session.ending = true
-    this.clearAbandonTimer()
+    this.clearTimers()
     this.closeOpenEncounter(endTimestamp, false)
     this.finalizing = this.doFinalize(session, outcome, endTimestamp, endEvent, 0)
   }
@@ -338,9 +350,10 @@ export class MythicPlusStateMachine extends EventEmitter {
       affixIds: session.start.affixIds,
       outcome,
       totalTimeMs: endEvent?.totalTimeMs ?? 0,
-      rating:
-        endEvent?.oldRating !== undefined && endEvent.newRating !== undefined
-          ? { before: endEvent.oldRating, after: endEvent.newRating }
+      // A reset/abandoned END reports 0/0 — that's "no score", not a score of 0.
+      score:
+        endEvent?.dungeonScore !== undefined && endEvent.overallRating !== undefined && endEvent.overallRating > 0
+          ? { dungeon: endEvent.dungeonScore, overall: endEvent.overallRating }
           : null,
       encounters,
       deathCount: Object.values(deathsByPlayer).reduce((a, b) => a + b, 0),
@@ -373,8 +386,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       enemyDmgBySecond: [],
       teamHealBySecond: [],
       enemyHealBySecond: [],
-      ratingBefore: mythicPlus.rating?.before,
-      ratingAfter: mythicPlus.rating?.after,
+      // No before/after pair for M+ (see MythicPlusInfo.score), so leave the arena rating unset.
       mythicPlus
     }
 
@@ -413,6 +425,35 @@ export class MythicPlusStateMachine extends EventEmitter {
       clearTimeout(this.session.abandonTimer)
       this.session.abandonTimer = null
     }
+  }
+
+  private clearTimers(): void {
+    this.clearAbandonTimer()
+    if (this.session?.idleTimer != null) {
+      clearInterval(this.session.idleTimer)
+      this.session.idleTimer = null
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Log going quiet
+  // ---------------------------------------------------------------------------
+
+  private onLogActivity(e: LogActivityEvent): void {
+    const session = this.activeSession()
+    if (session === null) return
+    session.lastLogTimestamp = e.timestamp
+    session.lastLogWallMs = Date.now()
+  }
+
+  // Seen on a real log: the key never got a CHALLENGE_MODE_END and no zone change —
+  // the log just stopped. Without this the recorder would run until the app quits.
+  private checkIdle(session: KeySession): void {
+    if (this.session !== session || session.ending) return
+    const timeoutMs = (this.options.idleTimeoutSecs ?? MYTHIC_PLUS_IDLE_TIMEOUT_SECS) * 1000
+    if (Date.now() - session.lastLogWallMs < timeoutMs) return
+    console.warn('[MythicPlus] Combat log went quiet mid-key — closing as abandoned')
+    this.finalize('abandoned', session.lastLogTimestamp, null)
   }
 
   // ---------------------------------------------------------------------------
