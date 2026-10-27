@@ -15,7 +15,7 @@ import { existsSync } from 'fs'
 import { mkdir } from 'fs/promises'
 import { dirname } from 'path'
 import type { CaptureRecorder, RecorderEventMap, RecorderOptions } from './CaptureRecorder'
-import { createEventParser, missingHelperMessage, NATIVE_HELPER_NAME, type HelperEvent } from './nativeHelper'
+import { createEventParser, missingHelperMessage, type HelperEvent } from './nativeHelper'
 
 const DEFAULT_BITRATE_KBPS = 8000
 const DEFAULT_FPS = 30
