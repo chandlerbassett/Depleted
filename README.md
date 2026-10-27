@@ -58,7 +58,7 @@ Recordings appear in the list on the left. Open one to watch it with its event t
 
 ## Requirements
 
-- macOS 13 (Ventura) or later, Apple Silicon or Intel
+- macOS 13 (Ventura) or later on Apple silicon (Intel Macs aren't supported)
 - Xcode Command Line Tools to build from source (`xcode-select --install`)
 - Screen Recording permission (the app prompts you during onboarding)
 - **Advanced Combat Logging** turned on in WoW (see below)

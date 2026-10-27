@@ -11,10 +11,10 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # macOS — universal DMG (arm64 + x64)
+  # macOS — Apple silicon DMG (arm64)
   # ---------------------------------------------------------------------------
   build-mac:
-    name: macOS (universal)
+    name: macOS (arm64)
     runs-on: macos-latest
 
     steps:
@@ -32,7 +32,7 @@ jobs:
         run: npm test
 
       - name: Build & package
-        run: npm run build:mac:universal -- --publish never
+        run: npm run build:mac -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 

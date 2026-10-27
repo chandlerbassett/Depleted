@@ -16,8 +16,7 @@ Requires macOS 13 (Ventura) or later.
 ## Build
 
 ```bash
-npm run build:native          # → native/bin/depleted-capture
-UNIVERSAL=1 npm run build:native   # arm64 + x86_64, needs full Xcode
+npm run build:native          # → native/bin/depleted-capture (arm64)
 ```
 
 ## Try it by hand

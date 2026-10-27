@@ -32,19 +32,16 @@ jobs:
         run: npm test
 
       - name: Build native capture helper
-        # Swift helper bundled into the app (native/DepletedCapture), arm64 + x86_64
+        # Swift helper bundled into the app (native/DepletedCapture), arm64
         run: npm run build:native
-        env:
-          UNIVERSAL: '1'
 
       - name: Package smoke-test (directory, no signing)
         # Verifies electron-builder config and that the app can be assembled.
-        # Uses --dir to skip DMG creation (faster) and --universal for the
-        # fat-binary target defined in electron-builder.yml.
+        # Uses --dir to skip DMG creation (faster).
         # On failure, the tail of the log is also posted as an annotation so it shows on the PR.
         run: |
           set -o pipefail
-          if ! npx electron-builder --mac --dir --universal 2>&1 | tee "$RUNNER_TEMP/package.log"; then
+          if ! npx electron-builder --mac --dir --arm64 2>&1 | tee "$RUNNER_TEMP/package.log"; then
             tail -n 40 "$RUNNER_TEMP/package.log" | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | sed -e 's/^/::error title=Package smoke-test::/'
             echo
             exit 1

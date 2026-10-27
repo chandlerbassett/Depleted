@@ -1,6 +1,6 @@
 #!/bin/bash
-# Builds the depleted-capture helper into native/bin/. Needs the Xcode Command Line
-# Tools (xcode-select --install). UNIVERSAL=1 builds arm64 + x86_64, which needs full Xcode.
+# Builds the depleted-capture helper (arm64) into native/bin/. Needs the Xcode Command
+# Line Tools (xcode-select --install).
 set -euo pipefail
 
 if [[ "$(uname)" != "Darwin" ]]; then
@@ -9,13 +9,8 @@ if [[ "$(uname)" != "Darwin" ]]; then
 fi
 
 cd "$(dirname "$0")/DepletedCapture"
-archs=()
-if [[ "${UNIVERSAL:-0}" == "1" ]]; then
-  archs=(--arch arm64 --arch x86_64)
-fi
-
-swift build -c release ${archs[@]+"${archs[@]}"}
-bin_dir="$(swift build -c release ${archs[@]+"${archs[@]}"} --show-bin-path)"
+swift build -c release --arch arm64
+bin_dir="$(swift build -c release --arch arm64 --show-bin-path)"
 
 mkdir -p ../bin
 cp "$bin_dir/depleted-capture" ../bin/depleted-capture

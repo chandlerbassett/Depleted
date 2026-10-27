@@ -23,7 +23,6 @@ body:
       label: Operating System
       options:
         - macOS (Apple Silicon)
-        - macOS (Intel)
         - Windows 10
         - Windows 11
     validations:
