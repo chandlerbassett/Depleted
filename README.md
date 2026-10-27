@@ -1,3 +1,5 @@
+<img src="build/icon.png" width="128" alt="Depleted icon">
+
 # Depleted.app
 
 **A Mythic+ recorder for World of Warcraft on macOS.**
