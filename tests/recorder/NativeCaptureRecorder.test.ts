@@ -73,6 +73,7 @@ describe('NativeCaptureRecorder', () => {
     const started = recorder.start(join(dir, 'raw', 'key.webm'), {
       fps: 60,
       bitrateKbps: 12000,
+      codec: 'hevc',
       resolution: '1920x1080',
       sourceHint: 'World of Warcraft'
     })
@@ -91,6 +92,8 @@ describe('NativeCaptureRecorder', () => {
       '60',
       '--bitrate-kbps',
       '12000',
+      '--codec',
+      'hevc',
       '--resolution',
       '1920x1080',
       '--window',

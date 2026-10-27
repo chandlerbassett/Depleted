@@ -2,12 +2,16 @@
 //   NativeCaptureRecorder  — macOS: the depleted-capture helper (ScreenCaptureKit + hardware encode)
 //   WindowCaptureRecorder  — elsewhere: Chromium getDisplayMedia + MediaRecorder
 
+import type { VideoCodec } from '@shared/ipc.types'
+
 export interface RecorderOptions {
   // Persisted capture-source name (window title), or 'auto'/undefined for WoW-window
   // auto-detect. Window ids aren't stable across restarts, so we resolve by name each time.
   sourceHint?: string
   bitrateKbps?: number
   fps?: number
+  // Native capture only; the MediaRecorder path always records VP8/WebM.
+  codec?: VideoCodec
   resolution?: string
   startupTimeoutMs?: number
 }

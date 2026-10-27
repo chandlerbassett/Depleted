@@ -516,7 +516,8 @@ export const DEFAULT_STORAGE_PATH = (() => {
   }
   return `${process.env?.HOME ?? '~'}/Movies/Depleted`
 })()
-export const DEFAULT_VIDEO_BITRATE_KBPS = 8000
+export const DEFAULT_VIDEO_BITRATE_KBPS = 30000
+export const DEFAULT_VIDEO_CODEC = 'hevc' as const
 export const DEFAULT_VIDEO_FPS = 30
 // Directory that holds WoW combat logs (relative to wowPath)
 export const COMBAT_LOG_RELATIVE_DIR = '_retail_/Logs'
