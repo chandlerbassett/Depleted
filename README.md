@@ -34,6 +34,10 @@ removed.
 - A **Coach** panel for any party member, any class: time spent casting, gaps with no casts
   mid-pull, throughput cooldowns that sat ready, stretches where their damage share dropped,
   and which defensives looked ready when they died. Every moment jumps the video to it
+- The Coach also compares the key with the **top Warcraft Logs runs** of the same spec, dungeon
+  and key level: output, cooldowns top players press on cooldown (and how soon in the opener),
+  potions, and core spells cast much less. Learned from the logs, so it works for every spec.
+  Needs your own free API client from warcraftlogs.com/api/clients, entered in Settings
 - If you leave the dungeon and don't return within 3 minutes, the key is saved as
   *abandoned* rather than thrown away
 
@@ -47,7 +51,8 @@ Recordings appear in the list on the left. Open one to watch it with its event t
    buffer so the countdown isn't missed)
 4. "Good / bad moment" detection: avoidable damage, missed kicks, defensive usage on deaths
    (started: the Coach panel)
-5. Coach comparisons with top Warcraft Logs players of the same spec, dungeon and key level
+5. ~~Coach comparisons with top Warcraft Logs players of the same spec, dungeon and key level~~ ✅
+   (next: talents and pull-by-pull damage)
 
 ---
 

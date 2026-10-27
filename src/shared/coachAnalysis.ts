@@ -88,7 +88,8 @@ export interface DeathReview {
   readyCooldowns: string[]
 }
 
-export type FindingKind = 'death' | 'downtime' | 'cooldown' | 'low-output'
+// 'benchmark' findings come from comparing with top players (coachBenchmark.ts)
+export type FindingKind = 'death' | 'downtime' | 'cooldown' | 'low-output' | 'benchmark'
 
 export interface LowStretch {
   start: number
@@ -454,7 +455,7 @@ function buildFindings(
   return findings.sort((a, b) => b.weight - a.weight)
 }
 
-function medianOf(values: number[]): number {
+export function medianOf(values: number[]): number {
   if (values.length === 0) return 0
   const sorted = [...values].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)

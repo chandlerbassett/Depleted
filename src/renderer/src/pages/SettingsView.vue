@@ -48,6 +48,52 @@ const showManualInstall = ref(false)
 
 const showTestMode = ref(false)
 
+// Warcraft Logs API client for the Coach's top-player comparison. The secret is saved
+// encrypted by the main process and never read back here.
+const wclStatus = ref<{ configured: boolean; clientId: string | null } | null>(null)
+const wclClientId = ref('')
+const wclClientSecret = ref('')
+const wclSaving = ref(false)
+const wclError = ref('')
+const wclEditing = ref(false)
+
+async function loadWclStatus(): Promise<void> {
+  wclStatus.value = await window.electron.invoke('coach:getWclStatus')
+  wclClientId.value = wclStatus.value.clientId ?? ''
+}
+void loadWclStatus()
+
+async function saveWcl(): Promise<void> {
+  wclSaving.value = true
+  wclError.value = ''
+  try {
+    const result = await window.electron.invoke('coach:setWclCredentials', {
+      clientId: wclClientId.value,
+      clientSecret: wclClientSecret.value
+    })
+    if (!result.ok) {
+      wclError.value = result.error ?? 'Could not connect'
+      return
+    }
+    wclClientSecret.value = ''
+    wclEditing.value = false
+    await loadWclStatus()
+  } finally {
+    wclSaving.value = false
+  }
+}
+
+async function removeWcl(): Promise<void> {
+  await window.electron.invoke('coach:clearWclCredentials')
+  wclClientId.value = ''
+  wclClientSecret.value = ''
+  await loadWclStatus()
+}
+
+function openWclClients(): void {
+  void window.electron.invoke('system:openUrl', { url: 'https://www.warcraftlogs.com/api/clients/' })
+}
+
 const confirmingRerunWizard = ref(false)
 async function handleRerunSetupWizard(): Promise<void> {
   if (!confirmingRerunWizard.value) {
@@ -641,6 +687,94 @@ const CODECS = [
             </div>
             <p class="text-xs text-zinc-600 mt-1.5">
               Clicking a player name in a recording opens their profile here.
+            </p>
+          </div>
+        </section>
+
+        <!-- ---------------------------------------------------------------- -->
+        <!-- Warcraft Logs (Coach comparison with top players)                  -->
+        <!-- ---------------------------------------------------------------- -->
+        <section class="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-4 col-span-2">
+          <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+            Warcraft Logs
+          </h3>
+          <p class="text-xs text-zinc-400 mb-3">
+            The Coach compares your keys with top players of your spec in the same dungeon and key
+            level, using Warcraft Logs. It needs your own free API client:
+            <button
+              class="text-blue-400 hover:underline"
+              @click="openWclClients"
+            >
+              create one on warcraftlogs.com
+            </button>
+            (any name, redirect URL <span class="text-zinc-300">http://localhost</span>, leave Public Client
+            unchecked), then paste its ID and secret here.
+          </p>
+
+          <div
+            v-if="wclStatus?.configured && !wclEditing"
+            class="flex items-center gap-3"
+          >
+            <span class="text-xs text-emerald-400">Connected</span>
+            <span class="text-xs text-zinc-500 truncate">Client {{ wclStatus.clientId }}</span>
+            <button
+              class="text-xs px-3 py-1.5 rounded-lg border bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700"
+              @click="wclEditing = true"
+            >
+              Change
+            </button>
+            <button
+              class="text-xs px-3 py-1.5 rounded-lg border bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border-zinc-700"
+              @click="removeWcl"
+            >
+              Remove
+            </button>
+          </div>
+
+          <div
+            v-else-if="wclStatus !== null"
+            class="space-y-2"
+          >
+            <div class="flex gap-2">
+              <input
+                v-model="wclClientId"
+                type="text"
+                placeholder="Client ID"
+                autocomplete="off"
+                spellcheck="false"
+                class="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-blue-500"
+              >
+              <input
+                v-model="wclClientSecret"
+                type="password"
+                placeholder="Client secret"
+                autocomplete="off"
+                class="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-blue-500"
+                @keydown.enter="saveWcl"
+              >
+              <button
+                class="text-xs px-3 py-1.5 rounded-lg border bg-blue-600 hover:bg-blue-500 border-blue-500 text-white disabled:opacity-50"
+                :disabled="wclSaving || !wclClientId || !wclClientSecret"
+                @click="saveWcl"
+              >
+                {{ wclSaving ? 'Checking…' : 'Connect' }}
+              </button>
+              <button
+                v-if="wclStatus.configured"
+                class="text-xs px-3 py-1.5 rounded-lg border bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border-zinc-700"
+                @click="wclEditing = false; wclClientSecret = ''; wclError = ''"
+              >
+                Cancel
+              </button>
+            </div>
+            <p
+              v-if="wclError"
+              class="text-xs text-red-400"
+            >
+              {{ wclError }}
+            </p>
+            <p class="text-xs text-zinc-600">
+              The secret is stored encrypted with your macOS Keychain and only ever sent to Warcraft Logs.
             </p>
           </div>
         </section>

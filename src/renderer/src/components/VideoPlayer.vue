@@ -424,6 +424,8 @@ function fmtK(n: number): string {
         <CoachPanel
           v-if="showCoach"
           :recording-id="recording.id"
+          :dungeon="zone"
+          :key-level="mythicPlus?.keystoneLevel ?? 0"
           :player-color="playerColor"
           @seek="handleSeek"
         />
