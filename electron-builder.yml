@@ -36,6 +36,9 @@ mac:
       to: bin
       filter:
         - depleted-capture
+  # The helper is already a fat binary, so it's identical in the x64 and arm64 halves
+  # of a universal build; @electron/universal refuses to merge that unless told to.
+  x64ArchFiles: Contents/Resources/bin/depleted-capture
   minimumSystemVersion: "13.0"
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
