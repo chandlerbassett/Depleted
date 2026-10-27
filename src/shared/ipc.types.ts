@@ -7,6 +7,8 @@
 // ---------------------------------------------------------------------------
 
 export type ArenaBracket = '2v2' | '3v3' | 'solo-shuffle' | 'skirmish'
+// Everything a recording can be: an arena bracket, or a Mythic+ key.
+export type RecordingBracket = ArenaBracket | 'mythic-plus'
 export type ArenaResult = 'WIN' | 'LOSS'
 
 export type RecorderStatus = 'idle' | 'waiting' | 'recording' | 'processing' | 'error'
@@ -26,6 +28,11 @@ export type TimelineEventType =
   | 'interrupt'
   | 'cc-break'
   | 'trinket'
+  // Mythic+ only
+  | 'key-start'
+  | 'key-end'
+  | 'boss-kill'
+  | 'boss-wipe'
 
 export interface DeathHit {
   spellId?: number
@@ -100,7 +107,7 @@ export interface DetectedMistake {
 export interface RecordingMetadata {
   date: string // ISO 8601
   zone: string
-  bracket: ArenaBracket
+  bracket: RecordingBracket
   result: ArenaResult
   duration: number // seconds
   // Video container extension without the dot, e.g. "mp4" or "webm" — depends on which
@@ -135,7 +142,38 @@ export interface RecordingMetadata {
   // Solo Shuffle only
   round?: number
   sessionId?: string
+  // Mythic+ only
+  mythicPlus?: MythicPlusInfo
   events: TimelineEvent[]
+}
+
+export type MythicPlusOutcome = 'completed' | 'depleted' | 'abandoned'
+
+export interface MythicPlusEncounter {
+  encounterId: number
+  name: string
+  start: number // seconds from recording start
+  end: number   // seconds from recording start
+  success: boolean
+}
+
+export interface MythicPlusInfo {
+  instanceId: number
+  challengeModeId: number
+  keystoneLevel: number
+  affixIds: number[]
+  // 'completed' = CHALLENGE_MODE_END success flag set. Whether that flag means "in time"
+  // or just "finished" still needs confirming against a real log.
+  outcome: MythicPlusOutcome
+  // Key timer from CHALLENGE_MODE_END (ms), 0 if the key never ended cleanly
+  totalTimeMs: number
+  rating: { before: number; after: number } | null
+  encounters: MythicPlusEncounter[]
+  deathCount: number
+  // name → number of deaths during the key
+  deathsByPlayer: Record<string, number>
+  // name → successful interrupts during the key
+  interruptsByPlayer: Record<string, number>
 }
 
 export interface Recording {

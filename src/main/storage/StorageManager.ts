@@ -313,6 +313,9 @@ export function buildDirName(event: ProcessingRequiredEvent): string {
   }
 
   const date = formatDateTime(event.matchStartedAt)
+  if (event.bracket === 'mythic-plus' && event.mythicPlus !== undefined) {
+    return `${date}_${zone}_M${event.mythicPlus.keystoneLevel}_${event.mythicPlus.outcome}`
+  }
   return `${date}_${zone}_${event.bracket}_${event.result}`
 }
 
@@ -350,6 +353,10 @@ export function buildMetadata(
     enemyDmgBySecond: event.enemyDmgBySecond.length > 0 ? event.enemyDmgBySecond : undefined,
     teamHealBySecond: event.teamHealBySecond.length > 0 ? event.teamHealBySecond : undefined,
     enemyHealBySecond: event.enemyHealBySecond.length > 0 ? event.enemyHealBySecond : undefined
+  }
+
+  if (event.mythicPlus !== undefined) {
+    metadata.mythicPlus = event.mythicPlus
   }
 
   if (event.bracket === 'solo-shuffle') {

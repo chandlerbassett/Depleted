@@ -74,6 +74,13 @@ export const SOLO_SHUFFLE_ROUNDS_PER_SESSION = 6
 // screen the user actually watched play out live.
 export const SOLO_SHUFFLE_FINAL_ROUND_POST_ROLL_SECS = 3
 
+// Mythic+: keep recording this long after CHALLENGE_MODE_END so the completion banner
+// and loot chest make it into the video.
+export const MYTHIC_PLUS_POST_ROLL_SECS = 8
+// Mythic+: if the player leaves the dungeon mid-key and hasn't come back (or the key
+// hasn't ended) after this long, treat the key as abandoned and save what we have.
+export const MYTHIC_PLUS_ABANDON_TIMEOUT_SECS = 180
+
 // ---------------------------------------------------------------------------
 // Death recap
 // ---------------------------------------------------------------------------
@@ -96,6 +103,10 @@ export const TIMELINE_COLORS: Readonly<Record<import('./ipc.types').TimelineEven
   interrupt: '#22c55e',     // green-500
   'cc-break': '#a855f7',    // purple-500
   trinket: '#e879f9',       // fuchsia-400
+  'key-start': '#ffffff',
+  'key-end': '#ffffff',
+  'boss-kill': '#22d3ee',   // cyan-400
+  'boss-wipe': '#dc2626',   // red-600
 }
 
 // ---------------------------------------------------------------------------

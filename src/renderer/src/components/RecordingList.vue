@@ -363,10 +363,11 @@ function isRecording(item: ListItem): item is Recording {
                   :class="{
                     'bg-blue-900/60 text-blue-300': item.metadata.bracket === '2v2',
                     'bg-purple-900/60 text-purple-300': item.metadata.bracket === '3v3',
-                    'bg-zinc-800 text-zinc-500': item.metadata.bracket === 'skirmish'
+                    'bg-zinc-800 text-zinc-500': item.metadata.bracket === 'skirmish',
+                    'bg-teal-900/60 text-teal-300': item.metadata.bracket === 'mythic-plus'
                   }"
                 >
-                  {{ item.metadata.bracket }}
+                  {{ item.metadata.mythicPlus ? `+${item.metadata.mythicPlus.keystoneLevel}` : item.metadata.bracket }}
                 </span>
               </div>
 

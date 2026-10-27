@@ -100,6 +100,29 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe('buildDirName', () => {
+  it('formats a Mythic+ directory name with level and outcome', () => {
+    const event: ProcessingRequiredEvent = {
+      ...EVENT_2V2,
+      zoneName: 'Ara-Kara, City of Echoes',
+      bracket: 'mythic-plus',
+      mythicPlus: {
+        instanceId: 2660,
+        challengeModeId: 503,
+        keystoneLevel: 12,
+        affixIds: [],
+        outcome: 'depleted',
+        totalTimeMs: 2395000,
+        rating: null,
+        encounters: [],
+        deathCount: 0,
+        deathsByPlayer: {},
+        interruptsByPlayer: {}
+      }
+    }
+    expect(buildDirName(event)).toBe('2026-04-15_20-00-15_AraKaraCityofEchoes_M12_depleted')
+    expect(buildMetadata(event, []).mythicPlus?.keystoneLevel).toBe(12)
+  })
+
   it('formats a 2v2 directory name correctly', () => {
     const name = buildDirName(EVENT_2V2)
     expect(name).toBe('2026-04-15_20-00-15_NagrandArena_2v2_WIN')

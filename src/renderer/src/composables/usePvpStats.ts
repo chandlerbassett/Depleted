@@ -75,7 +75,11 @@ function toWinLoss(games: number, wins: number): WinLoss {
 // single 1-0 record dominating the list.
 const MIN_MATCHUP_GAMES = 3
 
-export function computePvpStats(recordings: Recording[]): PvpStats {
+export function computePvpStats(allRecordings: Recording[]): PvpStats {
+  // PvP stats only — Mythic+ keys share the recordings list but not these numbers.
+  const recordings = allRecordings.filter(
+    (r): r is Recording & { metadata: { bracket: ArenaBracket } } => r.metadata.bracket !== 'mythic-plus'
+  )
   let totalWins = 0
 
   const bracketCounts = new Map<ArenaBracket, { games: number; wins: number }>()
