@@ -16,7 +16,6 @@
     "preview": "electron-vite preview",
     "build:native": "bash native/build.sh",
     "build:mac": "npm run build:native && npm run build && electron-builder --mac",
-    "build:mac:universal": "UNIVERSAL=1 npm run build:native && npm run build && electron-builder --mac --universal",
     "build:win": "npm run build && electron-builder --win",
     "lint": "eslint . --ext .ts,.vue --max-warnings 0",
     "format": "prettier --write .",
