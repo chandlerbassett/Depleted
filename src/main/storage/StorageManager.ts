@@ -13,6 +13,7 @@
 // Library operations:
 //   getRecordings()          — scan storage directory, return all Recording[]
 //   deleteRecording(id)      — remove a recording directory
+//   getCoachData(id)         — a recording's coach.json, null for older recordings
 //   findOrphanedRecordings() — directories that have a recording video but no metadata.json
 
 import { promises as fs } from 'fs'
@@ -21,7 +22,8 @@ import { spawn } from 'child_process'
 import type { Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
 import type { ProcessingRequiredEvent } from '../recorder/types'
 import { runHelperCommand } from '../recorder/nativeHelper'
-import { writeMetadata, readMetadata } from './MetadataWriter'
+import { writeMetadata, readMetadata, writeCoachData, readCoachData } from './MetadataWriter'
+import type { CoachData } from '@shared/coach.types'
 
 // ---------------------------------------------------------------------------
 // Media tools — trim + thumbnail. The depleted-capture helper (AVFoundation) on macOS,
@@ -131,6 +133,7 @@ export class StorageManager {
 
     const metadata = buildMetadata(event, timeline, videoExt)
     await writeMetadata(dirPath, metadata)
+    if (event.coach !== undefined) await writeCoachData(dirPath, event.coach)
 
     await fs.unlink(event.rawPath)
 
@@ -182,6 +185,11 @@ export class StorageManager {
       throw new Error(`Invalid recording id: ${id}`)
     }
     await fs.rm(join(this.storagePath, id), { recursive: true, force: true })
+  }
+
+  async getCoachData(id: string): Promise<CoachData | null> {
+    if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return null
+    return readCoachData(join(this.storagePath, id))
   }
 
   // Returns paths of directories that contain a recording video but no metadata.json.

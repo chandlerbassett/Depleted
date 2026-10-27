@@ -138,6 +138,10 @@ const INTERRUPT_FIELD_SPELL_NAME = 9
 const INTERRUPT_FIELD_INTERRUPTED_SPELL_ID = 11
 const INTERRUPT_FIELD_INTERRUPTED_SPELL_NAME = 12
 
+// SPELL_AURA_APPLIED / SPELL_AURA_REMOVED: standard spell prefix, then auraType
+// ("BUFF" | "DEBUFF") — verified against a 12.x log
+const AURA_FIELD_TYPE = 11
+
 // ---------------------------------------------------------------------------
 // UNIT_DIED field indices
 // srcGUID, srcName, srcFlags, srcRaidFlags, destGUID, destName, destFlags, destRaidFlags, unconscious
@@ -216,6 +220,30 @@ export interface CombatantInfoEvent {
   team: number        // 0 = enemy, 1 = local player's team
   personalRating: number
   specId: number | null  // WoW spec ID (last stat field before the talents bracket), null if not available
+  // Talent picks from the first bracket: [nodeId, entryId, rank]
+  talents: Array<[number, number, number]>
+  timestamp: Date
+}
+
+// Fired for SPELL_CAST_SUCCESS by a player (not pets) — used by the coach for casts,
+// cooldown use and downtime
+export interface SpellCastEvent {
+  casterGuid: string
+  casterName: string
+  casterFlags: number
+  spellId: number
+  spellName: string
+  timestamp: Date
+}
+
+// Fired for SPELL_AURA_APPLIED / SPELL_AURA_REMOVED buffs on a player — the coach uses
+// self-buffs to see how long cooldowns were up
+export interface BuffChangeEvent {
+  casterGuid: string
+  targetGuid: string
+  spellId: number
+  spellName: string
+  applied: boolean
   timestamp: Date
 }
 
@@ -299,6 +327,10 @@ export interface ParserEventMap {
   damageDone: DamageDoneEvent
   spellHealAmount: SpellHealAmountEvent
   spellInterruptSuccess: SpellInterruptSuccessEvent
+  spellCast: SpellCastEvent
+  // SPELL_CAST_START: a hard cast began (same payload; it may still fail)
+  spellCastStart: SpellCastEvent
+  buffChange: BuffChangeEvent
   zoneChanged: ZoneChangedEvent
   challengeModeStart: ChallengeModeStartEvent
   challengeModeEnd: ChallengeModeEndEvent
@@ -405,6 +437,16 @@ export class CombatLogParser extends EventEmitter {
         break
       case 'SPELL_INTERRUPT':
         this.handleSpellInterrupt(fields, timestamp)
+        break
+      case 'SPELL_CAST_SUCCESS':
+        this.handleSpellCast('spellCast', fields, timestamp)
+        break
+      case 'SPELL_CAST_START':
+        this.handleSpellCast('spellCastStart', fields, timestamp)
+        break
+      case 'SPELL_AURA_APPLIED':
+      case 'SPELL_AURA_REMOVED':
+        this.handleBuffChange(fields, eventType === 'SPELL_AURA_APPLIED', timestamp)
         break
       case 'SPELL_HEAL':
       case 'SPELL_PERIODIC_HEAL':
@@ -554,6 +596,37 @@ export class CombatLogParser extends EventEmitter {
     })
   }
 
+  private handleSpellCast(event: 'spellCast' | 'spellCastStart', fields: string[], timestamp: Date): void {
+    const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
+    if (casterGuid === undefined || !casterGuid.startsWith('Player-')) return
+    const spellId = parseInt(fields[SPELL_FIELD_SPELL_ID] ?? '', 10)
+    if (isNaN(spellId)) return
+    this.emit(event, {
+      casterGuid,
+      casterName: sanitizeName(fields[SPELL_FIELD_CASTER_NAME]),
+      casterFlags: parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0'),
+      spellId,
+      spellName: fields[SPELL_FIELD_SPELL_NAME] ?? '',
+      timestamp
+    })
+  }
+
+  private handleBuffChange(fields: string[], applied: boolean, timestamp: Date): void {
+    if (fields[AURA_FIELD_TYPE] !== 'BUFF') return
+    const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
+    if (targetGuid === undefined || !targetGuid.startsWith('Player-')) return
+    const spellId = parseInt(fields[SPELL_FIELD_SPELL_ID] ?? '', 10)
+    if (isNaN(spellId)) return
+    this.emit('buffChange', {
+      casterGuid: fields[SPELL_FIELD_CASTER_GUID] ?? '',
+      targetGuid,
+      spellId,
+      spellName: fields[SPELL_FIELD_SPELL_NAME] ?? '',
+      applied,
+      timestamp
+    })
+  }
+
   private handleCombatantInfo(fields: string[], rawLine: string, timestamp: Date): void {
     const playerGuid = fields[COMBATANT_FIELD_GUID]
     const rawTeam = fields[COMBATANT_FIELD_TEAM]
@@ -585,7 +658,9 @@ export class CombatLogParser extends EventEmitter {
     const personalRating = parseInt(trailing[trailing.length - 2] ?? '', 10)
     if (isNaN(personalRating)) return
 
-    this.emit('combatantInfo', { playerGuid, playerName, team, personalRating, specId, timestamp })
+    const talents = parseCombatantInfoTalents(rawLine)
+
+    this.emit('combatantInfo', { playerGuid, playerName, team, personalRating, specId, talents, timestamp })
   }
 
   // Pets/totems/summons (Healing Stream Totem, Water Elemental, Xuen, Storm Earth and
@@ -862,6 +937,19 @@ function parseCombatantInfoSpecId(line: string): number | null {
     .filter((s) => s.length > 0)
   const rawSpecId = parseInt(statFields[statFields.length - 1] ?? '', 10)
   return !isNaN(rawSpecId) && rawSpecId > 0 ? rawSpecId : null
+}
+
+// Talent picks from the first bracket of a COMBATANT_INFO line:
+// "[(62085,80141,1),(62086,80142,1),…]" → [[62085, 80141, 1], …]
+function parseCombatantInfoTalents(line: string): Array<[number, number, number]> {
+  const open = line.indexOf('[')
+  const close = line.indexOf(']', open)
+  if (open === -1 || close === -1) return []
+  const talents: Array<[number, number, number]> = []
+  for (const m of line.substring(open + 1, close).matchAll(/\((\d+),(\d+),(\d+)\)/g)) {
+    talents.push([parseInt(m[1]!, 10), parseInt(m[2]!, 10), parseInt(m[3]!, 10)])
+  }
+  return talents
 }
 
 // Minimal CSV parser — handles double-quoted fields.

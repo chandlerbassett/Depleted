@@ -6,6 +6,7 @@ import { StorageManager, buildDirName, buildMetadata, ffmpegMediaTools } from '.
 import { writeMetadata } from '../../src/main/storage/MetadataWriter'
 import type { MythicPlusInfo, RecordingMetadata } from '../../src/shared/ipc.types'
 import type { ProcessingRequiredEvent } from '../../src/main/recorder/types'
+import type { CoachData } from '../../src/shared/coach.types'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -301,6 +302,21 @@ describe('StorageManager.processRecording', () => {
 
     // Recording id matches expected dir name
     expect(recording.id).toBe(KEY_ID)
+  })
+
+  it('writes coach.json beside the metadata and reads it back by id', async () => {
+    const rawPath = join(tmpDir, 'raw.mp4')
+    await fs.writeFile(rawPath, '')
+    const coach: CoachData = { version: 1, duration: 1813, spellNames: { 1: 'Filler' }, players: [] }
+    const mockRunner = vi.fn(async (_ffmpegPath: string, args: string[]) => {
+      await fs.writeFile(args[args.length - 1]!, '')
+    })
+
+    const manager = new StorageManager(tmpDir)
+    const recording = await manager.processRecording({ ...EVENT, rawPath, coach }, ffmpegMediaTools('ffmpeg', mockRunner))
+
+    expect(await manager.getCoachData(recording.id)).toEqual(coach)
+    expect(await manager.getCoachData('..')).toBeNull()
   })
 
   it('uses offset 0 when matchStartedAt is before recordingStartedAt', async () => {

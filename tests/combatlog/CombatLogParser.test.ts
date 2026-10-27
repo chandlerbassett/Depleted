@@ -5,7 +5,8 @@ import type {
   ZoneChangedEvent,
   CombatantInfoEvent,
   SpellDamageEvent,
-  SpellHealAmountEvent
+  SpellHealAmountEvent,
+  ParserEventMap
 } from '../../src/main/combatlog/CombatLogParser'
 
 // ---------------------------------------------------------------------------
@@ -95,6 +96,7 @@ describe('CombatLogParser — COMBATANT_INFO spec ID', () => {
     expect(events).toHaveLength(1)
     expect(events[0]!.specId).toBe(64)
     expect(events[0]!.personalRating).toBe(2407)
+    expect(events[0]!.talents).toEqual([[62084, 80140, 1]])
   })
 
   it('returns specId null when the stat block is empty or malformed', () => {
@@ -298,5 +300,72 @@ describe('CombatLogParser — damage done to mobs', () => {
     expect(heals).toHaveLength(1)
     expect(heals[0]!.amount).toBe(15160)
     expect(heals[0]!.overhealing).toBe(15000)
+  })
+})
+
+// Line layouts copied from a 12.x M+ log (COMBAT_LOG_VERSION 22, Advanced Combat Logging on)
+describe('CombatLogParser — casts and buffs for the coach', () => {
+  it('emits spellCast for a player SPELL_CAST_SUCCESS, with the advanced block after it', () => {
+    const parser = new CombatLogParser()
+    const casts: ParserEventMap['spellCast'][] = []
+    parser.on('spellCast', (e) => casts.push(e))
+
+    parser.processLine(
+      '10/27/2026 11:08:11.749-4  SPELL_CAST_SUCCESS,Player-3676-0EBBAA81,"Gobitron-Area52-US",0x511,0x80000000,' +
+        '0000000000000000,nil,0x80000000,0x80000000,19574,"Bestial Wrath",0x1,Player-3676-0EBBAA81,0000000000000000,' +
+        '1000322,1000322,3974,523,1663,559,817,0,2,100,100,0,1451.46,-277.46,2670,6.2682,333'
+    )
+    // Pet casts aren't the player's button presses
+    parser.processLine(
+      '10/27/2026 11:08:10.915-4  SPELL_CAST_SUCCESS,Pet-0-4209-2916-6-165189-0105533B2B,"Maeveish",0x1111,0x80000000,' +
+        '0000000000000000,nil,0x80000000,0x80000000,61684,"Dash",0x1,Pet-0-4209-2916-6-165189-0105533B2B,' +
+        'Player-3676-0EBBAA81,771998,771998,2384,2384,3326,0,0,0,2,100,100,0,1445.64,-274.53,2670,6.14'
+    )
+
+    expect(casts).toHaveLength(1)
+    expect(casts[0]).toMatchObject({
+      casterGuid: 'Player-3676-0EBBAA81',
+      casterName: 'Gobitron-Area52-US',
+      spellId: 19574,
+      spellName: 'Bestial Wrath'
+    })
+  })
+
+  it('emits spellCastStart for SPELL_CAST_START', () => {
+    const parser = new CombatLogParser()
+    const starts: ParserEventMap['spellCastStart'][] = []
+    parser.on('spellCastStart', (e) => starts.push(e))
+
+    parser.processLine(
+      '10/27/2026 11:12:51.950-4  SPELL_CAST_START,Player-3676-0EBBAA81,"Gobitron-Area52-US",0x511,0x80000000,' +
+        '0000000000000000,nil,0x80000000,0x80000000,125050,"Fetch",0x1'
+    )
+
+    expect(starts).toHaveLength(1)
+    expect(starts[0]!.spellId).toBe(125050)
+  })
+
+  it('emits buffChange for buffs on players and skips debuffs', () => {
+    const parser = new CombatLogParser()
+    const buffs: ParserEventMap['buffChange'][] = []
+    parser.on('buffChange', (e) => buffs.push(e))
+
+    parser.processLine(
+      '10/27/2026 11:08:13.148-4  SPELL_AURA_REMOVED,Player-3676-0EBBAA81,"Gobitron-Area52-US",0x511,0x80000000,' +
+        'Player-3676-0EBBAA81,"Gobitron-Area52-US",0x511,0x80000000,471878,"Howl of the Pack Leader",0x1,BUFF'
+    )
+    parser.processLine(
+      '10/27/2026 11:08:14.000-4  SPELL_AURA_APPLIED,Player-3676-0EBBAA81,"Gobitron-Area52-US",0x511,0x80000000,' +
+        'Creature-0-4229-3095-213-272687-000060BD8A,"Shadowspeaker Ip\'thosh",0x10a48,0x80000000,257284,"Hunter\'s Mark",0x8,DEBUFF'
+    )
+
+    expect(buffs).toEqual([
+      expect.objectContaining({
+        casterGuid: 'Player-3676-0EBBAA81',
+        targetGuid: 'Player-3676-0EBBAA81',
+        spellId: 471878,
+        applied: false
+      })
+    ])
   })
 })

@@ -8,6 +8,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import TimelineCanvas from './TimelineCanvas.vue'
 import MeterWidget from './MeterWidget.vue'
 import DeathLog from './DeathLog.vue'
+import CoachPanel from './CoachPanel.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, WOW_SPEC_ID_MAP } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
@@ -215,6 +216,11 @@ onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 // -------------------------------------------------------------------------
+// Coach — per-player review with jump-to-video moments
+// -------------------------------------------------------------------------
+const showCoach = ref(true)
+
+// -------------------------------------------------------------------------
 // Meters — Details!/Skada-style per-player Damage Done / Healing Done
 // -------------------------------------------------------------------------
 const showMeters = ref(false)
@@ -404,6 +410,23 @@ function fmtK(n: number): string {
         >
           —
         </p>
+      </div>
+
+      <!-- Coach -->
+      <div>
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showCoach = !showCoach"
+        >
+          <span>Coach</span>
+          <span class="text-zinc-600">{{ showCoach ? '▲' : '▼' }}</span>
+        </button>
+        <CoachPanel
+          v-if="showCoach"
+          :recording-id="recording.id"
+          :player-color="playerColor"
+          @seek="handleSeek"
+        />
       </div>
 
       <!-- Meters — Details!/Skada-style Damage Done / Healing Done -->
