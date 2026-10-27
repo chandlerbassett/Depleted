@@ -123,6 +123,9 @@ export class MythicPlusStateMachine extends EventEmitter {
   // Resolves once the in-flight finalize() has stopped the recorder — a new key that
   // starts mid-finalize waits on this before starting the recorder again.
   private finalizing: Promise<void> = Promise.resolve()
+  // Ends the running post-roll early, so a key started right after another doesn't
+  // wait for the previous key's completion-screen footage before recording.
+  private cutPostRoll: (() => void) | null = null
   private readonly watcher: CombatLogWatcher
   private readonly recorder: CaptureRecorder
   private options: MythicPlusStateMachineOptions
@@ -219,6 +222,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       this.finalize('abandoned', e.timestamp, null)
     }
     if (this.status === 'error') this.transitionTo('idle')
+    this.cutPostRoll?.()
 
     // The session is installed synchronously: the watcher hands over log lines in
     // batches, so the first boss pull (or even the END) can arrive in the same tick.
@@ -291,14 +295,24 @@ export class MythicPlusStateMachine extends EventEmitter {
       unit: outcome === 'completed' ? 'Key completed' : outcome === 'depleted' ? 'Key depleted' : 'Key abandoned'
     })
 
-    // Keep rolling briefly so the completion screen makes it into the video. Mark the
-    // session as ending now so nothing else (zone change, another END) races this.
+    // Keep rolling briefly so the completion screen makes it into the video (a reset
+    // has none, so it stops right away). Mark the session as ending now so nothing else
+    // (zone change, another END) races this.
     session.ending = true
     this.clearTimers()
-    const postRollMs = (this.options.postRollSecs ?? MYTHIC_PLUS_POST_ROLL_SECS) * 1000
-    this.finalizing = sleep(postRollMs).then(() =>
-      this.doFinalize(session, outcome, e.timestamp, e, postRollMs / 1000)
-    )
+    const postRollMs = outcome === 'abandoned' ? 0 : (this.options.postRollSecs ?? MYTHIC_PLUS_POST_ROLL_SECS) * 1000
+    const postRollStartedMs = Date.now()
+    const postRoll = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, postRollMs)
+      this.cutPostRoll = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+    })
+    this.finalizing = postRoll.then(() => {
+      this.cutPostRoll = null
+      return this.doFinalize(session, outcome, e.timestamp, e, (Date.now() - postRollStartedMs) / 1000)
+    })
   }
 
   // Immediate finalize (no post-roll) — abandon timeout or a new key starting.
@@ -688,8 +702,4 @@ function buildRawPath(dir: string, zone: string, startedAt: Date): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }

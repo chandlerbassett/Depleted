@@ -358,6 +358,38 @@ describe('MythicPlusStateMachine', () => {
     expect(processed[0]!.mythicPlus!.outcome).toBe('abandoned')
   })
 
+  it('stops right away on a reset, with no post-roll', async () => {
+    const { watcher, recorder, processed } = setup()
+    watcher.feed([
+      ...linesUpTo('CHALLENGE_MODE_START'),
+      '10/27/2026 20:10:00.0000  CHALLENGE_MODE_END,2660,0,0,0,0.000000,0.000000'
+    ])
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(recorder.stopMock).toHaveBeenCalledOnce()
+    expect(processed[0]!.mythicPlus!.outcome).toBe('abandoned')
+    expect(processed[0]!.durationSecs).toBe(595)
+  })
+
+  it('cuts the post-roll short when the next key starts', async () => {
+    const { watcher, recorder, processed } = setup()
+    watcher.feed([
+      ...linesUpTo('CHALLENGE_MODE_START'),
+      '10/27/2026 20:40:00.0000  CHALLENGE_MODE_END,2660,0,12,2395000,2650.5,2650.5'
+    ])
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(recorder.stopMock).not.toHaveBeenCalled()
+
+    watcher.feed(['10/27/2026 20:40:02.0000  CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[148,9,152,10]'])
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(recorder.stopMock).toHaveBeenCalledOnce()
+    expect(recorder.startMock).toHaveBeenCalledTimes(2)
+    expect(processed[0]!.mythicPlus!.outcome).toBe('depleted')
+    // The previous key keeps the 2s of post-roll it actually got
+    expect(processed[0]!.durationSecs).toBe(2397)
+  })
+
   it('ignores feign death and non-party deaths', async () => {
     const { watcher, processed } = setup()
     watcher.feed([
