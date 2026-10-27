@@ -363,6 +363,16 @@ function pct(t: number): string {
               </div>
             </div>
 
+            <!-- Spells top players use that this player never cast: likely a talent or
+                 item they don't have, so a side note rather than advice -->
+            <p
+              v-if="comparison.neverUsed.length > 0"
+              class="mt-2 text-[10px] text-zinc-500"
+            >
+              Top players also use {{ comparison.neverUsed.map((n) => n.name).join(', ') }}.
+              You didn't cast these, so they may come from a talent or item you don't have.
+            </p>
+
             <p
               v-if="comparison.findings.length === 0 && comparison.castMix.length === 0"
               class="text-xs text-zinc-600 py-1"
