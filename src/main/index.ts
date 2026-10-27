@@ -154,7 +154,7 @@ async function createTray(mainWindow: BrowserWindow): Promise<void> {
     icon = await app.getFileIcon(process.execPath, { size: 'small' })
   } catch { /* use empty icon */ }
   tray = new Tray(icon)
-  tray.setToolTip('WoW Arena Recorder')
+  tray.setToolTip('Depleted')
   tray.on('double-click', () => mainWindow.show())
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show', click: () => mainWindow.show() },

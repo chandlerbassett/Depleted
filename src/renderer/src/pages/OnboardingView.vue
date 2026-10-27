@@ -54,7 +54,7 @@ async function handleComplete(): Promise<void> {
       <!-- Header -->
       <div class="mb-8 text-center">
         <h1 class="text-2xl font-semibold text-white mb-1">
-          WoW Arena Recorder
+          Depleted
         </h1>
         <p class="text-sm text-zinc-400">
           Setup — step {{ step + 1 }} of {{ totalSteps }}

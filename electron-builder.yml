@@ -1,6 +1,7 @@
-appId: com.krav559108.wow-arena-recorder
-productName: WoW Arena Recorder
-copyright: Copyright © 2024 Aleksandr Kravchenko
+appId: com.chandlerbassett.depleted
+productName: Depleted
+# Based on WoW Arena Recorder (MIT) — keep the original copyright notice.
+copyright: Copyright © 2024 Aleksandr Kravchenko; © 2026 Depleted contributors
 
 # electron-vite outputs to out/; electron-builder picks it up from there.
 directories:
@@ -37,8 +38,8 @@ mac:
   extendInfo:
     # Required since macOS 10.15 for any app that captures the screen.
     NSScreenCaptureUsageDescription: >-
-      WoW Arena Recorder captures your screen to record arena matches.
-      This permission is used only while a match is in progress.
+      Depleted captures the WoW window to record Mythic+ keys and arena matches.
+      This permission is used only while a key or match is in progress.
 
 dmg:
   title: "${productName} ${version}"

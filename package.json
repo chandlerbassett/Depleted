@@ -1,7 +1,7 @@
 {
-  "name": "wow-arena-analyzer",
+  "name": "depleted",
   "version": "1.0.19",
-  "description": "WoW arena recorder for macOS and Windows — auto-records arenas via combat log",
+  "description": "Mythic+ and arena recorder for World of Warcraft on macOS — auto-records via the combat log",
   "main": "out/main/index.js",
   "author": "Aleksandr Kravchenko",
   "license": "MIT",

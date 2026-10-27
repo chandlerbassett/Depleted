@@ -1,4 +1,6 @@
-# WoW Recorder for macOS
+# Depleted.app
+
+**A Mythic+ recorder for World of Warcraft on macOS.**
 
 Automatically records your World of Warcraft **Mythic+ keys** on macOS, syncs the video with
 the combat log, and puts the moments that matter on a timeline: boss kills, wipes, party
@@ -63,13 +65,10 @@ npm run dev              # run with hot reload
 npm run build:mac        # or build a .dmg into dist/
 ```
 
-> The built app is still named **WoW Arena Recorder** for now. Renaming the bundle is on
-> the to-do list.
-
 The build isn't code-signed, so the first time you open a `.dmg` build, clear the quarantine flag:
 
 ```bash
-sudo xattr -cr "/Applications/WoW Arena Recorder.app"
+sudo xattr -cr "/Applications/Depleted.app"
 ```
 
 > ⚠️ **After every rebuild you must re-grant Screen Recording permission.** macOS ties the
@@ -91,7 +90,8 @@ and the app follows the newest one automatically.
 
 ### Companion addon (recommended)
 
-The app ships with a small addon, **ArenaRecorderCompanion**, that tells the recorder which
+The app ships with a small addon, **ArenaRecorderCompanion** (name kept from the original
+project), that tells the recorder which
 character you're playing. Install it from the onboarding screen or **Settings → Addon**, or
 copy `addon/ArenaRecorderCompanion` into
 `/Applications/World of Warcraft/_retail_/Interface/AddOns/`, then `/reload` in game.
@@ -113,7 +113,7 @@ copy `addon/ArenaRecorderCompanion` into
 | Setting | Description |
 |---------|-------------|
 | WoW Path | Your WoW installation folder (auto-detected) |
-| Storage Path | Where recordings are saved (default: `~/Movies/WoWArenaRecorder`) |
+| Storage Path | Where recordings are saved (default: `~/Movies/Depleted`) |
 | Video Bitrate | Recording quality in kbps (default: 8000) |
 | FPS | Frames per second (default: 30) |
 | Resolution | Output resolution, or `native` to match your display |
@@ -171,7 +171,7 @@ tests/
 
 ## Credits
 
-This project is built on [**WoW Arena Recorder**](https://github.com/krav559108/wowArenaAnalyzer)
+Depleted is built on [**WoW Arena Recorder**](https://github.com/krav559108/wowArenaAnalyzer)
 by Aleksandr Kravchenko (MIT licensed), which provides the capture pipeline, combat log
 parser, arena analysis and playback UI. Huge thanks to them. If you find the arena side useful,
 consider supporting the original project.
