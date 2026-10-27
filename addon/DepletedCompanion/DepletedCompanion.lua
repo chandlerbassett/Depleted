@@ -1,17 +1,18 @@
--- ArenaRecorderCompanion
+-- DepletedCompanion (formerly ArenaRecorderCompanion)
 -- 1. Writes your character's GUID, name, realm, class and spec to SavedVariables
---    so the Arena Recorder desktop app can identify your team in combat logs.
--- 2. Automatically enables combat logging when you enter an arena so the desktop
---    app always has a log to analyse — even if you forgot to enable it manually.
+--    so the Depleted desktop app can tell which party member you are.
+-- 2. Automatically enables combat logging when you enter a dungeon or arena, and
+--    when a Mythic+ key starts, so the app always has a log to follow — even if you
+--    forgot to type /combatlog.
 --
 -- SavedVariables file location:
---   WTF/Account/<AccountName>/SavedVariables/ArenaRecorderCompanion.lua
+--   WTF/Account/<AccountName>/SavedVariables/DepletedCompanion.lua
 --
--- The desktop app reads this file on startup and after each arena match.
+-- The desktop app reads this file on startup and whenever it changes.
 
-ArenaRecorderDB = ArenaRecorderDB or {}
+DepletedDB = DepletedDB or {}
 
-local ADDON_VERSION = "1.2.0"
+local ADDON_VERSION = "2.0.0"
 
 -- ---------------------------------------------------------------------------
 -- Character info
@@ -32,7 +33,7 @@ local function SaveCharacterInfo()
         specName = sn or ""
     end
 
-    ArenaRecorderDB.character = {
+    DepletedDB.character = {
         guid      = guid,
         name      = name,
         realm     = realm,
@@ -51,37 +52,37 @@ end
 -- Combat logging
 -- ---------------------------------------------------------------------------
 
--- Ensures combat logging is active. Called every time the player enters an arena
--- so recordings start from the very first event of the match.
+local PREFIX = "|cff2dd4bfDepleted|r"
+
+-- Ensures combat logging is active. Called on entering a dungeon or arena and when a
+-- key starts, so the desktop app sees CHALLENGE_MODE_START / ARENA_MATCH_START.
 local function EnsureCombatLogging()
     if not LoggingCombat() then
         LoggingCombat(true)
-        print("|cff00ff00[Arena Recorder]|r Combat logging enabled.")
+        print(PREFIX .. " Combat logging enabled.")
     end
 end
 
--- Returns true when the player is inside an arena instance.
-local function IsInArena()
+-- Returns true inside a 5-player dungeon (where Mythic+ happens) or an arena.
+local function IsInRecordableInstance()
     local _, instanceType = IsInInstance()
-    return instanceType == "arena"
+    return instanceType == "party" or instanceType == "arena"
 end
 
 -- ---------------------------------------------------------------------------
--- Slash command: /arenarecorder  or  /arc
+-- Slash command: /depleted
 -- ---------------------------------------------------------------------------
-
-local PREFIX = "|cff00aaffArena Recorder Companion|r"
 
 local function PrintAbout()
     print(" ")
-    print(PREFIX .. " v" .. ADDON_VERSION)
+    print(PREFIX .. " Companion v" .. ADDON_VERSION)
     print("|cffaaaaaa----------------------------------------|r")
-    print("This addon is a companion for the |cff00aaff Arena Recorder|r desktop app.")
+    print("This addon is a companion for the " .. PREFIX .. " desktop recorder.")
     print("It does |cffff4444two|r small things:")
     print("  |cffffff00 1.|r Saves your character GUID, name, class and spec to")
-    print("     SavedVariables so the app can identify |cff00ff00your team|r in arena logs.")
-    print("  |cffffff00 2.|r Automatically turns on combat logging when you enter")
-    print("     an arena, so no matches are ever missed.")
+    print("     SavedVariables so the app knows which party member is |cff00ff00you|r.")
+    print("  |cffffff00 2.|r Automatically turns on combat logging in dungeons,")
+    print("     arenas and when a Mythic+ key starts, so no runs are missed.")
     print("|cffaaaaaa----------------------------------------|r")
     print("|cff00ff00What it does NOT do:|r")
     print("  - Does not read game memory")
@@ -89,13 +90,12 @@ local function PrintAbout()
     print("  - Does not change any gameplay behaviour")
     print("  - Only writes data you already see (name, class, spec) to a local file")
     print("|cffaaaaaa----------------------------------------|r")
-    print("Type |cffffff00/arc|r or |cffffff00/arenarecorder|r to see this again.")
+    print("Type |cffffff00/depleted|r to see this again.")
     print(" ")
 end
 
-SLASH_ARENARECORDER1 = "/arenarecorder"
-SLASH_ARENARECORDER2 = "/arc"
-SlashCmdList["ARENARECORDER"] = PrintAbout
+SLASH_DEPLETED1 = "/depleted"
+SlashCmdList["DEPLETED"] = PrintAbout
 
 -- ---------------------------------------------------------------------------
 -- Event handling
@@ -105,20 +105,29 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+frame:RegisterEvent("CHALLENGE_MODE_START")
 
 frame:SetScript("OnEvent", function(_, event)
     -- Print a one-line status on first login so users see the addon is active.
     if event == "PLAYER_LOGIN" then
-        print(PREFIX .. " loaded. Type |cffffff00/arc|r for info.")
+        print(PREFIX .. " Companion loaded. Type |cffffff00/depleted|r for info.")
+    end
+
+    -- Key just started: logging should already be on from entering the dungeon, but
+    -- make sure, and tell the player the desktop app should now be recording.
+    if event == "CHALLENGE_MODE_START" then
+        EnsureCombatLogging()
+        print(PREFIX .. " Key started. Depleted should be recording.")
+        return
     end
 
     -- Small delay so UnitGUID / spec APIs return fresh values after zone change.
     C_Timer.After(1, function()
         SaveCharacterInfo()
 
-        -- If we just entered an arena, make sure the combat log is running.
-        -- This is the primary trigger that lets the desktop app capture the full match.
-        if event == "PLAYER_ENTERING_WORLD" and IsInArena() then
+        -- Entering a dungeon or arena: make sure the combat log is running before
+        -- the key or match starts. This is what lets the desktop app catch the start.
+        if event == "PLAYER_ENTERING_WORLD" and IsInRecordableInstance() then
             EnsureCombatLogging()
         end
     end)

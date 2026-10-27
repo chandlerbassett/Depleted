@@ -31,12 +31,12 @@ describe('getInstalledAddonVersion / getBundledAddonVersion / isInstalledAddonOu
 
   function writeToc(dir: string, version: string): void {
     mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, 'ArenaRecorderCompanion.toc'), `## Interface: 120001\n## Version: ${version}\n`)
+    writeFileSync(join(dir, 'DepletedCompanion.toc'), `## Interface: 120001\n## Version: ${version}\n`)
   }
 
   it('reads the installed .toc version', () => {
     const wowPath = join(root, 'wow')
-    writeToc(join(wowPath, '_retail_', 'Interface', 'AddOns', 'ArenaRecorderCompanion'), '1.2.0')
+    writeToc(join(wowPath, '_retail_', 'Interface', 'AddOns', 'DepletedCompanion'), '1.2.0')
     expect(getInstalledAddonVersion(wowPath)).toBe('1.2.0')
   })
 
@@ -46,29 +46,29 @@ describe('getInstalledAddonVersion / getBundledAddonVersion / isInstalledAddonOu
 
   it('reads the bundled .toc version', () => {
     const bundledDir = join(root, 'bundled')
-    writeToc(join(bundledDir, 'ArenaRecorderCompanion'), '1.3.0')
+    writeToc(join(bundledDir, 'DepletedCompanion'), '1.3.0')
     expect(getBundledAddonVersion(bundledDir)).toBe('1.3.0')
   })
 
   it('flags outdated when installed is older than bundled', () => {
     const wowPath = join(root, 'wow')
     const bundledDir = join(root, 'bundled')
-    writeToc(join(wowPath, '_retail_', 'Interface', 'AddOns', 'ArenaRecorderCompanion'), '1.1.0')
-    writeToc(join(bundledDir, 'ArenaRecorderCompanion'), '1.2.0')
+    writeToc(join(wowPath, '_retail_', 'Interface', 'AddOns', 'DepletedCompanion'), '1.1.0')
+    writeToc(join(bundledDir, 'DepletedCompanion'), '1.2.0')
     expect(isInstalledAddonOutdated(wowPath, bundledDir)).toBe(true)
   })
 
   it('does not flag when installed matches bundled', () => {
     const wowPath = join(root, 'wow')
     const bundledDir = join(root, 'bundled')
-    writeToc(join(wowPath, '_retail_', 'Interface', 'AddOns', 'ArenaRecorderCompanion'), '1.2.0')
-    writeToc(join(bundledDir, 'ArenaRecorderCompanion'), '1.2.0')
+    writeToc(join(wowPath, '_retail_', 'Interface', 'AddOns', 'DepletedCompanion'), '1.2.0')
+    writeToc(join(bundledDir, 'DepletedCompanion'), '1.2.0')
     expect(isInstalledAddonOutdated(wowPath, bundledDir)).toBe(false)
   })
 
   it('does not flag when the addon is not installed at all', () => {
     const bundledDir = join(root, 'bundled')
-    writeToc(join(bundledDir, 'ArenaRecorderCompanion'), '1.2.0')
+    writeToc(join(bundledDir, 'DepletedCompanion'), '1.2.0')
     expect(isInstalledAddonOutdated(join(root, 'wow'), bundledDir)).toBe(false)
   })
 })

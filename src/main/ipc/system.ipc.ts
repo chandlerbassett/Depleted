@@ -13,7 +13,7 @@ import { resolveFfmpegPath, checkScreenPermission as checkScreenPermissionSync }
 import { listCaptureSources } from '../recorder/sourceResolver'
 import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from '../addon/SavedVarsReader'
 import { isInstalledAddonOutdated } from '../addon/addonVersionCheck'
-import { ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants'
+import { ADDON_NAME, ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants'
 import type { AppConfig, CaptureSource } from '@shared/ipc.types'
 import type { RecorderStateMachine } from '../recorder/RecorderStateMachine'
 
@@ -151,13 +151,13 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     return listCaptureSources()
   })
 
-  // Copy the bundled ArenaRecorderCompanion addon to the WoW AddOns directory.
+  // Copy the bundled DepletedCompanion addon to the WoW AddOns directory.
   ipcMain.handle(
     'system:installAddon',
     async (_event, { wowPath }: { wowPath: string }): Promise<{ success: boolean; error?: string }> => {
       try {
-        const src = join(resolveBundledAddonDir(), 'ArenaRecorderCompanion')
-        const dest = join(wowPath, '_retail_', 'Interface', 'AddOns', 'ArenaRecorderCompanion')
+        const src = join(resolveBundledAddonDir(), ADDON_NAME)
+        const dest = join(wowPath, ADDON_RELATIVE_PATH)
         await mkdir(dirname(dest), { recursive: true })
         await cp(src, dest, { recursive: true })
         return { success: true }
@@ -249,7 +249,7 @@ export function wireAddonWindow(
     'Account',
     '*',
     'SavedVariables',
-    'ArenaRecorderCompanion.lua'
+    `${ADDON_NAME}.lua`
   ).replace(/\\/g, '/')
 
   function push(): void {

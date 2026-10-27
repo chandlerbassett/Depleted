@@ -245,7 +245,7 @@ async function handleComplete(): Promise<void> {
             Companion addon
           </h2>
           <p class="text-sm text-zinc-400 mb-6">
-            <strong class="text-zinc-200">ArenaRecorderCompanion</strong> tracks your character
+            <strong class="text-zinc-200">DepletedCompanion</strong> tracks your character
             name, class and spec — the app uses this to label your recordings. Click
             <strong class="text-zinc-200">Install</strong> to copy it directly from the app package
             into your WoW AddOns folder.
@@ -256,7 +256,7 @@ async function handleComplete(): Promise<void> {
               class="flex items-center gap-2 p-3 rounded-lg border border-green-700 bg-green-950/30 mb-4"
             >
               <span class="text-green-400">✓</span>
-              <span class="text-sm text-green-400">ArenaRecorderCompanion installed</span>
+              <span class="text-sm text-green-400">DepletedCompanion installed</span>
             </div>
           </template>
           <template v-else-if="addonState === 'fail'">
@@ -533,7 +533,7 @@ async function handleComplete(): Promise<void> {
               >
                 {{ addonState === 'ok' ? '✓' : '!' }}
               </span>
-              <span class="text-sm text-zinc-300">ArenaRecorderCompanion</span>
+              <span class="text-sm text-zinc-300">DepletedCompanion</span>
               <span
                 v-if="addonState !== 'ok'"
                 class="text-xs text-yellow-500 ml-auto"

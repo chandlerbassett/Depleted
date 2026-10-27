@@ -10,7 +10,7 @@ function makeInfo(overrides: Partial<AddonCharacterInfo> = {}): AddonCharacterIn
     class: 'Mage',
     spec: 'Fire',
     updated: new Date().toISOString(),
-    version: '1.2.0',
+    version: '2.0.0',
     ...overrides
   }
 }
@@ -40,15 +40,15 @@ describe('isAddonInfoStale', () => {
 
 describe('isAddonVersionOutdated', () => {
   it('is not outdated when the version matches MIN_ADDON_VERSION', () => {
-    expect(isAddonVersionOutdated(makeInfo({ version: '1.2.0' }))).toBe(false)
+    expect(isAddonVersionOutdated(makeInfo({ version: '2.0.0' }))).toBe(false)
   })
 
   it('is not outdated when the version is newer', () => {
-    expect(isAddonVersionOutdated(makeInfo({ version: '1.3.0' }))).toBe(false)
+    expect(isAddonVersionOutdated(makeInfo({ version: '2.1.0' }))).toBe(false)
   })
 
-  it('is outdated when the version is older', () => {
-    expect(isAddonVersionOutdated(makeInfo({ version: '1.1.0' }))).toBe(true)
+  it('is outdated when the version is older (e.g. the original ArenaRecorderCompanion 1.2.0)', () => {
+    expect(isAddonVersionOutdated(makeInfo({ version: '1.2.0' }))).toBe(true)
   })
 
   it('is outdated when there is no version at all (pre-1.2.0 install)', () => {
