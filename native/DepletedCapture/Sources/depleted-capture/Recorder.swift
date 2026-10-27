@@ -165,7 +165,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         switch type {
         case .screen: appendVideo(sampleBuffer)
         case .audio: appendAudio(sampleBuffer)
-        @unknown default: break
+        default: break  // .microphone (macOS 15+) is never requested
         }
     }
 
