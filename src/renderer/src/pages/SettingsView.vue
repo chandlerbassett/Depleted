@@ -212,7 +212,7 @@ const BITRATE_PRESETS = [
           </h3>
           <p class="text-xs text-zinc-400 mb-3">
             Not sure the app will actually capture your game? Record a quick 10-second test
-            clip without needing to queue up for a real match.
+            clip without needing to run a real key.
           </p>
           <button
             class="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors"
@@ -412,8 +412,8 @@ const BITRATE_PRESETS = [
             WoW Addon
           </h3>
           <p class="text-xs text-zinc-400 mb-3">
-            The companion addon saves your character's GUID so the app can correctly
-            identify your team in arena logs. After installing, enable it in-game and reload UI.
+            The companion addon tells Depleted which character you're playing. After
+            installing, enable it in-game and reload UI.
           </p>
           <!-- Already installed badge -->
           <div

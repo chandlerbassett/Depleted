@@ -15,8 +15,6 @@ import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from
 import { isInstalledAddonOutdated } from '../addon/addonVersionCheck'
 import { ADDON_NAME, ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants'
 import type { AppConfig, CaptureSource } from '@shared/ipc.types'
-import type { RecorderStateMachine } from '../recorder/RecorderStateMachine'
-
 // Where the addon bundled with this build lives — packaged builds ship it under
 // resourcesPath; in dev it's just the repo's addon/ folder (electron-builder hasn't run).
 export function resolveBundledAddonDir(): string {
@@ -135,15 +133,6 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     return { path: canceled || filePaths.length === 0 ? null : (filePaths[0] ?? null) }
   })
 
-  // Show a native file picker for WoW combat log (.txt) files.
-  ipcMain.handle('system:pickLogFile', async (): Promise<{ path: string | null }> => {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [{ name: 'Combat Log', extensions: ['txt'] }]
-    })
-    return { path: canceled || filePaths.length === 0 ? null : (filePaths[0] ?? null) }
-  })
-
   // List window/screen capture sources for the Settings manual-override picker.
   // Auto-detection (WoW window by title) happens separately in sourceResolver.ts at
   // recording-start time — this handler is only for populating the picker UI.
@@ -236,8 +225,7 @@ let addonWatcher: FSWatcher | null = null
 
 export function wireAddonWindow(
   configStore: Store<AppConfig>,
-  win: BrowserWindow,
-  stateMachine?: RecorderStateMachine
+  win: BrowserWindow
 ): void {
   addonWatcher?.close().catch(() => {})
 
@@ -254,12 +242,6 @@ export function wireAddonWindow(
 
   function push(): void {
     const info = readAddonCharacterInfo(wowPath)
-    // Keep the recorder's notion of "who am I" current even if the addon's
-    // SavedVariables only appears/updates after the app (and recording pipeline)
-    // already started — otherwise team resolution stays broken for the rest of the
-    // session. See RecorderStateMachine.updateLocalPlayer.
-    stateMachine?.updateLocalPlayer(info?.fullName ?? null, info?.guid ?? null)
-
     if (win.isDestroyed()) return
     // OR the SavedVariables-reported version with a direct .toc-vs-.toc file comparison
     // — the latter also catches "addon needs updating" even when WoW hasn't been

@@ -318,7 +318,7 @@ export class WindowCaptureRecorder extends EventEmitter implements CaptureRecord
   }
 
   // Takes the specific window this start()/stop() call owns, rather than reading the
-  // shared this.hiddenWindow field — Solo Shuffle can call stop() for round N and
+  // shared this.hiddenWindow field — back-to-back recordings can call stop() for round N and
   // start() for round N+1 close enough together that round N's async teardown would
   // otherwise run after this.hiddenWindow has already been overwritten with round
   // N+1's window, destroying the wrong one (round N+1's capture would then hang until

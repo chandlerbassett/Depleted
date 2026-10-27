@@ -93,8 +93,8 @@ export class CombatLogWatcher extends EventEmitter {
 
         this.currentFile = mostRecent
         const fileSize = (() => { try { return statSync(mostRecent).size } catch { return 0 } })()
-        // Read the last 50 KB at startup to catch a ZONE_CHANGE / ARENA_MATCH_START that
-        // was written before this process started (user was already in arena on launch).
+        // Read the last 50 KB at startup to catch a ZONE_CHANGE / CHALLENGE_MODE_START
+        // that was written just before this process started.
         const lookbackBytes = 50 * 1024
         const startOffset = Math.max(0, fileSize - lookbackBytes)
         this.fileOffsets.set(mostRecent, startOffset)

@@ -131,7 +131,7 @@ async function handleComplete(): Promise<void> {
           </h2>
           <p class="text-sm text-zinc-400 mb-5">
             Advanced Combat Logging must be enabled in WoW — without it the app won't receive
-            the arena data it needs to start and stop recordings.
+            the Mythic+ data it needs to start and stop recordings.
           </p>
           <div class="bg-zinc-900 border border-zinc-700 rounded-lg p-4 mb-5 space-y-3">
             <p class="text-xs text-zinc-400 font-medium uppercase tracking-wider">
@@ -306,7 +306,7 @@ async function handleComplete(): Promise<void> {
           </h2>
           <p class="text-sm text-zinc-400 mb-5">
             <template v-if="platform === 'win32'">
-              FFmpeg trims and generates thumbnails for your recordings after each match. Download
+              FFmpeg trims and generates thumbnails for your recordings after each key. Download
               it from
               <button
                 class="text-blue-400 hover:text-blue-300 underline"
@@ -448,7 +448,7 @@ async function handleComplete(): Promise<void> {
             You are ready
           </h2>
           <p class="text-sm text-zinc-400 mb-6">
-            All checks passed. The app will automatically record your arena matches.
+            All checks passed. Depleted will automatically record your Mythic+ keys.
           </p>
 
           <div class="space-y-2 mb-6">

@@ -25,18 +25,6 @@ export function useMainView() {
     recordingsStore.remove(id)
   }
 
-  async function deleteGroup(ids: string[]): Promise<void> {
-    // For new-format solo-shuffle groups, all round ids share the same session dir prefix
-    // (e.g. "2026-04-27_14-30_Zone_SoloShuffle/R1_WIN"). Delete the parent dir directly.
-    const sessionDirs = new Set(ids.map((id) => id.split('/')[0]!))
-    if (ids.length > 0 && ids.every((id) => id.includes('/')) && sessionDirs.size === 1) {
-      await window.electron.invoke('storage:deleteRecording', { id: [...sessionDirs][0]! })
-    } else {
-      await Promise.all(ids.map((id) => window.electron.invoke('storage:deleteRecording', { id })))
-    }
-    for (const id of ids) recordingsStore.remove(id)
-  }
-
   async function openFolder(id: string): Promise<void> {
     await window.electron.invoke('storage:openFolder', { id })
   }
@@ -77,5 +65,5 @@ export function useMainView() {
     for (const unsub of unsubs) unsub()
   })
 
-  return { deleteRecording, deleteGroup, openFolder }
+  return { deleteRecording, openFolder }
 }
