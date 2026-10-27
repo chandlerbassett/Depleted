@@ -1,134 +1,110 @@
-# WoW Arena Recorder
+# WoW Recorder for macOS
 
-Automatically records your World of Warcraft arena matches. Detects when you enter an arena, starts recording, and saves a trimmed video with a timeline of key events — CC, defensives, interrupts, deaths.
+Automatically records your World of Warcraft **Mythic+ keys** on macOS, syncs the video with
+the combat log, and puts the moments that matter on a timeline: boss kills, wipes, party
+deaths, interrupts. Click a marker to jump straight to it.
 
-Supports **2v2, 3v3, and Rated Solo Shuffle** (Midnight / patch 12.x format).
+The goal is a native-feeling macOS take on what [Warcraft Recorder](https://warcraftrecorder.com/)
+does on Windows. Arena recording (2v2, 3v3, Solo Shuffle) from the original project still works.
 
-> 🧪 **Early beta.** This is actively developed and tested on a limited set of hardware —
-> capture behavior (especially audio) can vary across GPUs/drivers. If something doesn't
-> work, please [open an issue](../../issues/new/choose) with your OS/GPU details — that
-> kind of feedback is exactly what's needed to stabilize it for more setups.
+> 🚧 **Early and in active development.** Mythic+ support is new and hasn't yet been
+> verified against a full real-world key. Expect rough edges.
 
 ---
 
-## Support the project
+## What it does today
 
-If this app is useful to you, consider supporting its development:
-[**Donate**](https://www.donationalerts.com/r/alex_mu7)
+**Mythic+**
+- Starts recording when the key is activated (`CHALLENGE_MODE_START`) and stops a few seconds
+  after it ends (`CHALLENGE_MODE_END`), so the completion screen is included
+- Marks every boss pull as a **kill** or **wipe**
+- Marks **party deaths**, each with a recap of the last 10 seconds of damage taken
+- Marks **interrupts** and counts them per player
+- Saves each run with its key level, affixes, outcome (**completed / depleted / abandoned**),
+  timer and rating change
+- If you leave the dungeon and don't return within 3 minutes, the key is saved as
+  *abandoned* rather than thrown away
 
-Donations and your support help and motivate me to keep developing this project. Thank you!
+**Arena** (from the original project)
+- 2v2, 3v3 and Solo Shuffle, with CC, defensives, interrupts, trinkets, deaths, meters and a
+  "mistakes" panel
+
+Recordings appear in the app under the **Mythic+** tab (or the matching arena tab). Open one
+to watch it with its event timeline.
+
+## Roadmap
+
+1. ~~Record M+ keys on the existing capture pipeline~~ ✅
+2. Polish the M+ view: run list with timer/upgrade level, per-boss breakdown, damage meters
+3. Replace capture with native **ScreenCaptureKit + VideoToolbox** (hardware H.264/HEVC,
+   lower CPU on long keys, a pre-roll buffer so the countdown isn't missed)
+4. "Good / bad moment" detection: avoidable damage, missed kicks, defensive usage on deaths
 
 ---
 
 ## Requirements
 
-### macOS
-- macOS 10.12 or later
-- [FFmpeg](https://ffmpeg.org) — install via Homebrew: `brew install ffmpeg`
-- Screen Recording permission (the app will prompt you during onboarding)
+- macOS 11 (Big Sur) or later, Apple Silicon or Intel
+- [FFmpeg](https://ffmpeg.org): `brew install ffmpeg` (used to trim recordings and make thumbnails)
+- Screen Recording permission (the app prompts you during onboarding)
+- **Advanced Combat Logging** turned on in WoW (see below)
 
-### Windows
-- Windows 10 x64 or later
-- [FFmpeg](https://ffmpeg.org/download.html) — download a build (e.g. from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)), extract and either add `bin/` to your system PATH or place `ffmpeg.exe` at `C:\ffmpeg\bin\ffmpeg.exe`
+The codebase still builds for Windows, but macOS is the focus and the only platform being tested.
 
 ---
 
-## Installation
+## Install (from source)
 
-### Download a release (recommended)
+There are no published releases of this version yet. To build and run it locally:
 
-Go to the [Releases](../../releases) page and download:
+```bash
+npm install
+npm run dev              # run with hot reload
+npm run build:mac        # or build a .dmg into dist/
+```
 
-- **macOS** — `WoW Arena Recorder-x.x.x-universal.dmg` (works on both Apple Silicon and Intel)
-- **Windows** — `WoW Arena Recorder Setup x.x.x.exe`
+> The built app is still named **WoW Arena Recorder** for now. Renaming the bundle is on
+> the to-do list.
 
-### macOS
-1. Open the `.dmg` and drag **WoW Arena Recorder** into `/Applications`
-2. There is no Apple Developer profile behind this build, so macOS will block it on first launch. Before opening the app for the first time, remove the quarantine flag by running this command in Terminal:
-   ```bash
-   sudo xattr -cr "/Applications/WoW Arena Recorder.app"
-   ```
-3. After that, double-click the app normally — macOS will open it without warnings
+The build isn't code-signed, so the first time you open a `.dmg` build, clear the quarantine flag:
 
-> ⚠️ **Every time you update the app you must re-grant Screen Recording permission:**
-> 1. Open **System Settings → Privacy & Security → Screen Recording**
-> 2. Find **WoW Arena Recorder** in the list and click the **–** (minus) button to remove it entirely — do **not** just flip its toggle off, that's not enough
-> 3. Quit and relaunch the app
-> 4. The app will re-add itself to the list — **now** flip its toggle **on** to grant permission
->
-> This is required because macOS ties the permission to the app's code signature, which changes with every new build.
+```bash
+sudo xattr -cr "/Applications/WoW Arena Recorder.app"
+```
 
-### Windows
-1. Run the installer `.exe`
-2. Follow the setup wizard — you can choose the install directory
+> ⚠️ **After every rebuild you must re-grant Screen Recording permission.** macOS ties the
+> permission to the app's code signature, which changes with each build:
+> 1. **System Settings → Privacy & Security → Screen Recording**
+> 2. Select the app and click **–** to remove it (just toggling it off isn't enough)
+> 3. Quit and relaunch the app. It re-adds itself, and you can then turn the toggle **on**
 
 ---
 
-## In-Game Setting (required)
+## In-game setup
 
-Advanced Combat Logging must be enabled in WoW, otherwise the app won't receive the data it needs.
+### Advanced Combat Logging (required)
 
-**Esc → Options → System → Network tab → check "Advanced Combat Logging"**
+**Esc → Options → System → Network → check "Advanced Combat Logging"**
 
-This setting persists across sessions — you only need to set it once.
+You only need to set this once. WoW writes combat logs to `_retail_/Logs/WoWCombatLog-*.txt`,
+and the app follows the newest one automatically.
 
----
+### Companion addon (recommended)
 
-## WoW Addon (required)
-
-The app ships with a companion addon called **ArenaRecorderCompanion**. It reads your character's name, class, and spec, and writes them to WoW's SavedVariables so the recorder knows who you are.
-
-**Install the addon:**
-
-The easiest way is through the app itself — on the onboarding screen (or in Settings → Addon) click **Install Addon**. The app will copy it directly into your WoW AddOns folder.
-
-**Manual install:**
-
-Copy the `ArenaRecorderCompanion` folder into:
-- **macOS** — `/Applications/World of Warcraft/_retail_/Interface/AddOns/`
-- **Windows** — `C:\Program Files (x86)\World of Warcraft\_retail_\Interface\AddOns\`
-
-**After installing:**
-
-1. Launch World of Warcraft
-2. Type `/reload` in chat (or log in/out)
-3. The app status bar should show **Addon connected**
-
-> Without the addon the recorder still works, but "could use" defensive suggestions on death events will not filter for your character specifically.
+The app ships with a small addon, **ArenaRecorderCompanion**, that tells the recorder which
+character you're playing. Install it from the onboarding screen or **Settings → Addon**, or
+copy `addon/ArenaRecorderCompanion` into
+`/Applications/World of Warcraft/_retail_/Interface/AddOns/`, then `/reload` in game.
 
 ---
 
-## First Launch & Onboarding
+## How recording works
 
-On first launch the app walks you through setup:
-
-1. **WoW folder** — auto-detected; click Browse if WoW is installed in a non-default location
-2. **Screen Recording permission** *(macOS only)* — the app will trigger the system prompt; grant access in System Settings → Privacy & Security → Screen Recording, then return to the app
-3. **Addon** — install ArenaRecorderCompanion (see above)
-4. **FFmpeg** — the app checks that FFmpeg is reachable; install it if the check fails
-
-After completing onboarding, settings are saved and the app goes straight to the main view on future launches.
-
----
-
-## How Recording Works
-
-1. Open the app before queuing
-2. Queue for any rated arena bracket
-3. The app watches your combat log and **automatically starts recording** when you zone into an arena
-4. When the match ends it stops recording, trims the video, generates a thumbnail, and adds it to the list
-5. Click any recording to watch it with the event timeline
-
-### Mythic+ (early)
-
-Keystones are recorded the same way, with no extra setup:
-
-1. Recording starts when the key is activated (`CHALLENGE_MODE_START`)
-2. Boss pulls are marked as kills or wipes (`ENCOUNTER_START` / `ENCOUNTER_END`), along with party deaths and interrupts
-3. Recording stops a few seconds after the key ends (`CHALLENGE_MODE_END`). If you leave the dungeon and don't come back within 3 minutes, the key is saved as abandoned
-4. Runs show up under the **Mythic+** tab with key level and outcome (completed / depleted / abandoned)
-
-**Solo Shuffle** records the entire 6-round session as one file and splits the timeline per round.
+1. Open the app before you start the key (or queue for arena)
+2. The app watches the combat log and starts recording on its own
+3. When the key or match ends, the app stops recording, trims the video, makes a thumbnail
+   and adds the run to the list
+4. Click a recording to watch it, and click timeline markers to jump to them
 
 ---
 
@@ -136,91 +112,66 @@ Keystones are recorded the same way, with no extra setup:
 
 | Setting | Description |
 |---------|-------------|
-| WoW Path | Path to your WoW installation folder |
-| Storage Path | Where recordings are saved (default: `~/Movies/WoWArenaRecorder` on macOS, `Videos\WoWArenaRecorder` on Windows) |
+| WoW Path | Your WoW installation folder (auto-detected) |
+| Storage Path | Where recordings are saved (default: `~/Movies/WoWArenaRecorder`) |
 | Video Bitrate | Recording quality in kbps (default: 8000) |
 | FPS | Frames per second (default: 30) |
-| Resolution | Output resolution or `native` to match your display |
-| Capture Window | Which window to record — auto-detects the WoW window by default (macOS and Windows); pick manually if multiple WoW clients are open |
-| Auto Cleanup | Automatically delete old recordings after N days or when storage exceeds N GB |
+| Resolution | Output resolution, or `native` to match your display |
+| Capture Window | Which window to record. Auto-detects WoW by default |
+| Auto Cleanup | Delete old recordings after N days or once storage passes N GB |
 
-Game audio is captured automatically alongside the video (system loopback) — no separate audio device setup or third-party tools required, on either platform.
-
----
-
-## Known Limitations
-
-- **macOS is not code-signed** — you must manually remove the quarantine flag on first
-  install (see above), and Screen Recording permission must be re-granted after every
-  update (macOS ties it to the app's code signature, which changes each build).
-- **System audio capture** relies on Electron/Chromium's loopback support, which is
-  newer and less battle-tested than video capture — if a recording has no audio or the
-  app fails to start capturing, please report it (see below) with your OS version and
-  GPU.
-- Tested primarily on Apple Silicon Macs and a limited set of Windows GPUs — other
-  hardware/driver combinations are less exercised.
+Game audio is captured automatically through system loopback, so no extra audio tools are needed.
 
 ---
 
-## Reporting Issues / Feedback
+## Known limitations
 
-This project needs feedback from more hardware/setups than one developer can test alone.
-[Open an issue](../../issues/new/choose) using the bug report template, and please
-include:
-
-- OS version (e.g. macOS 15.1, Windows 11 23H2) and GPU (e.g. Apple M2, AMD RX 6700 XT)
-- App version (Settings → About, or the installer filename)
-- Whether it's a capture problem (no video/audio, fails to start) or something else
-  (wrong team detection, missing spells, UI issue)
-- Steps to reproduce, and — if relevant — the console output from `npm run dev` (or the
-  in-app error banner text)
+- **Big files on long keys.** At the default 8 Mbps, a 35-minute key is roughly 2 GB. Capture
+  currently uses Chromium's MediaRecorder with software VP8/WebM encoding, which also costs CPU
+  while WoW is running. Step 3 of the roadmap replaces this.
+- **The first few seconds of a key can be missed**, because recording starts once the app
+  reads the key-start line from the log.
+- **No damage-done meter for M+ yet.** The parser currently only tracks damage aimed at players
+  (an arena-era filter).
+- **The M+ log format hasn't been checked against a real Midnight key yet.** The test log is
+  synthetic.
+- The build isn't code-signed (see Install above).
 
 ---
 
 ## Development
 
 ```bash
-# Install dependencies
 npm install
-
-# Start in dev mode (hot reload)
-npm run dev
-
-# Run tests
-npm test
-
-# Type check
-npx tsc --noEmit
-
-# Production build
-npm run build:mac        # macOS DMG
-npm run build:win        # Windows NSIS installer
+npm run dev          # dev mode with hot reload
+npm test             # vitest
+npm run lint
+npm run build        # production build (no packaging)
+npm run build:mac    # macOS .dmg
 ```
 
 ### Project structure
 
 ```
 src/
-  main/          — Electron main process (combat log, recorder, storage, IPC)
+  main/
+    combatlog/   — log watcher + parser (arena and Mythic+ events)
+    recorder/    — capture, RecorderStateMachine (arena), MythicPlusStateMachine
+    storage/     — trimming, thumbnails, metadata, recordings library
+    ipc/         — main ↔ renderer channels
   renderer/src/  — Vue 3 + Pinia UI
-  shared/        — Types and constants shared between main and renderer
+  shared/        — types and constants shared by main and renderer
 addon/
   ArenaRecorderCompanion/  — WoW addon (Lua)
 tests/
-  fixtures/      — Sample combat log files used by parser tests
+  fixtures/      — sample combat logs (2v2, Solo Shuffle, Mythic+)
 ```
 
 ---
 
-## Releases
+## Credits
 
-Releases are built automatically by GitHub Actions on every version tag push.  
-To publish a new version:
-
-```bash
-# Bump version in package.json, then:
-git tag v1.2.3
-git push origin main --tags
-```
-
-GitHub Actions builds a universal macOS DMG and a Windows x64 installer and attaches them to the release automatically.
+This project is built on [**WoW Arena Recorder**](https://github.com/krav559108/wowArenaAnalyzer)
+by Aleksandr Kravchenko (MIT licensed), which provides the capture pipeline, combat log
+parser, arena analysis and playback UI. Huge thanks to them. If you find the arena side useful,
+consider supporting the original project.
