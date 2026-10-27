@@ -28,10 +28,8 @@ mac:
       arch:
         - universal   # fat binary: arm64 + x64 in one .app
   # The native capture helper (npm run build:native) → Contents/Resources/bin.
-  # Listing extraResources here replaces the top-level list, so repeat the addon.
+  # Added to the top-level extraResources (the addon), not replacing them.
   extraResources:
-    - from: addon
-      to: addon
     - from: native/bin
       to: bin
       filter:
