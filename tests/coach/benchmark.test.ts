@@ -97,11 +97,15 @@ describe('compareWithTop', () => {
     expect(f.detail).toContain('about every 30s')
   })
 
-  it('flags a cooldown never pressed, and a late opener', () => {
+  it("notes a cooldown never pressed without telling the player to use it", () => {
+    // It may be a trinket or talent the player doesn't have (issue #16)
     const never = compareWithTop(key([]), 'Player-1', bench())!
-    expect(never.findings[0]!.title).toBe('Never pressed Bestial Wrath')
-    expect(never.findings[0]!.at).toBe(20)
+    expect(never.findings.filter((f) => f.title.includes('Bestial Wrath'))).toEqual([])
+    expect(never.cooldowns.map((cd) => cd.name)).not.toContain('Bestial Wrath')
+    expect(never.neverUsed.map((n) => n.name)).toContain('Bestial Wrath')
+  })
 
+  it('flags a late opener', () => {
     const late = times(60, 30, DURATION).map((t): [number, number] => [t, WRATH])
     const c = compareWithTop(key(late), 'Player-1', bench())!
     expect(c.findings.map((f) => f.title)).toContain('Late Bestial Wrath in the opener')

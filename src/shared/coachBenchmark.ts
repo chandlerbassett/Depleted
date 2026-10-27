@@ -78,6 +78,10 @@ export interface BenchmarkComparison {
   castsPerMin: StatComparison
   cooldowns: CooldownComparison[]
   castMix: CastMixEntry[]
+  // Spells most top runs use that this player never cast at all. Usually a talent or
+  // item (an on-use trinket) they don't have, which the log can't confirm, so these
+  // are a side note, never a finding.
+  neverUsed: Array<{ spellId: number; name: string; usedBy: number }>
   findings: Finding[]
   topRuns: TopRunLink[]
 }
@@ -134,6 +138,7 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
   const yours = usesBySpell(player.casts)
   const cooldowns: CooldownComparison[] = []
   const castMix: CastMixEntry[] = []
+  const neverUsed: BenchmarkComparison['neverUsed'] = []
   for (const [spellId, s] of stats) {
     const usedBy = s.uses.length / runs.length
     if (usedBy < USED_BY_SHARE) continue
@@ -147,7 +152,10 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
       typicalGap <= minGap * ON_COOLDOWN_REGULARITY &&
       medianOf(s.utilisation) >= ON_COOLDOWN_UTILISATION
 
-    if (isCooldown) {
+    if (mine.length === 0) {
+      // Only note the ones that matter: cooldowns and spells cast often enough to count
+      if (isCooldown || medianOf(s.rates) >= CORE_PER_MIN) neverUsed.push({ spellId, name: name(spellId), usedBy })
+    } else if (isCooldown) {
       // Scale top players' uses to this key's length, so a slower key expects more
       const topRate = medianOf(s.rates)
       cooldowns.push({
@@ -170,6 +178,7 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
   }
   cooldowns.sort((a, b) => b.topUses - b.yourUses - (a.topUses - a.yourUses) || a.name.localeCompare(b.name))
   castMix.sort((a, b) => b.top - b.you - (a.top - a.you))
+  neverUsed.sort((a, b) => b.usedBy - a.usedBy || a.name.localeCompare(b.name))
 
   return {
     runs: runs.length,
@@ -179,6 +188,7 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
     castsPerMin,
     cooldowns,
     castMix: castMix.slice(0, MAX_CAST_MIX),
+    neverUsed,
     findings: buildFindings(cooldowns, yours, pulls, firstPull, duration),
     topRuns: [...runs]
       .sort((a, b) => b.amount - a.amount)
@@ -203,20 +213,10 @@ function buildFindings(
   const findings: Finding[] = []
   const most = (cd: CooldownComparison): string => (cd.usedBy >= 0.9 ? 'Top players' : 'Most top players')
 
+  // Cooldowns never pressed aren't here: see neverUsed
   for (const cd of cooldowns) {
     const expected = Math.round(cd.topUses)
     const mine = yours.get(cd.spellId) ?? []
-
-    if (mine.length === 0) {
-      findings.push({
-        kind: 'benchmark',
-        at: firstPull,
-        title: `Never pressed ${cd.name}`,
-        detail: `${most(cd)} pressed it ~${expected} times in a key this long, about every ${fmtGap(cd.topInterval)}. It may come from a talent or item you don't have.`,
-        weight: 40 + expected * 5
-      })
-      continue
-    }
 
     if (mine.length < cd.topUses * FEWER_USES_RATIO && expected - mine.length >= 2) {
       const gap = longestWait(mine, pulls, firstPull, duration)
