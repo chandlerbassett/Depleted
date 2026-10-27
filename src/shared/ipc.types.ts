@@ -219,6 +219,9 @@ export type StatsSite = 'raiderio' | 'warcraftlogs' | 'armory'
 // region suffix (same-region names log as "Name-Realm", not "Name-Realm-EU").
 export type WowRegion = 'eu' | 'us'
 
+// Video codec for native macOS capture (hardware encoded via VideoToolbox).
+export type VideoCodec = 'h264' | 'hevc'
+
 // ---------------------------------------------------------------------------
 // App configuration stored in electron-store
 // ---------------------------------------------------------------------------
@@ -228,6 +231,7 @@ export interface AppConfig {
   storagePath: string
   videoBitrate: number // kbps
   videoFps: 30 | 60
+  videoCodec: VideoCodec
   // desktopCapturer source name to capture, or 'auto' to auto-detect the WoW window
   // by title. Persisted by name (not source id — ids aren't stable across restarts).
   captureSourceHint: string

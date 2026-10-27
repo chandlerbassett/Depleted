@@ -40,6 +40,7 @@ export function registerTestModeIpc(
       await recorder.start(outputPath, {
         bitrateKbps: configStore.get('videoBitrate'),
         fps: configStore.get('videoFps'),
+        codec: configStore.get('videoCodec'),
         sourceHint: configStore.get('captureSourceHint'),
         resolution: configStore.get('videoResolution')
       })

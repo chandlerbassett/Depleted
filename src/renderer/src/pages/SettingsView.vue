@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useSettings } from '@/composables/useSettings'
+import { useSettings, MAX_CUSTOM_BITRATE_MBPS } from '@/composables/useSettings'
 import { STATS_SITES, STATS_SITE_LABELS } from '@/utils/characterLinks'
 import TestModeModal from '@/components/TestModeModal.vue'
 
@@ -10,9 +10,11 @@ import { ref } from 'vue'
 const {
   config,
   loading,
+  platform,
   restartRequired,
   bitratePreset,
   customBitrate,
+  setCodec,
   captureSources,
   sourcesLoading,
   addonAlreadyInstalled,
@@ -69,10 +71,15 @@ async function handleInstallAddon(): Promise<void> {
 }
 
 const BITRATE_PRESETS = [
-  { value: 'low', label: 'Low', hint: '4 Mbps' },
-  { value: 'medium', label: 'Medium', hint: '8 Mbps' },
-  { value: 'high', label: 'High', hint: '16 Mbps' },
+  { value: 'low', label: 'Good', hint: '30 Mbps' },
+  { value: 'medium', label: 'High', hint: '50 Mbps' },
+  { value: 'high', label: 'Very high', hint: '80 Mbps' },
   { value: 'custom', label: 'Custom', hint: '' },
+] as const
+
+const CODECS = [
+  { value: 'hevc', label: 'HEVC (H.265)', hint: 'better quality per Mbps' },
+  { value: 'h264', label: 'H.264', hint: 'plays everywhere' },
 ] as const
 </script>
 
@@ -263,13 +270,43 @@ const BITRATE_PRESETS = [
               <input
                 :value="customBitrate"
                 type="number"
-                min="1000"
-                max="50000"
-                step="1000"
+                min="1"
+                :max="MAX_CUSTOM_BITRATE_MBPS"
+                step="1"
                 class="w-28 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 text-xs focus:outline-none focus:border-zinc-500"
                 @change="customBitrate = Number(($event.target as HTMLInputElement).value)"
               >
-              <span class="text-xs text-zinc-500">kbps</span>
+              <span class="text-xs text-zinc-500">Mbps (up to {{ MAX_CUSTOM_BITRATE_MBPS }})</span>
+            </div>
+            <p class="text-xs text-zinc-600 mt-1.5">
+              About {{ Math.round(config.videoBitrate * 0.45 / 1000) }} GB per hour of recording.
+            </p>
+          </div>
+
+          <!-- Codec -->
+          <div
+            v-if="platform === 'darwin'"
+            class="mb-4"
+          >
+            <p class="text-xs text-zinc-400 mb-2">
+              Codec
+              <span class="text-zinc-600 ml-1">both use the Apple silicon hardware encoder</span>
+            </p>
+            <div class="flex gap-2">
+              <button
+                v-for="codec in CODECS"
+                :key="codec.value"
+                class="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+                :class="
+                  config.videoCodec === codec.value
+                    ? 'bg-blue-600 border-blue-500 text-white'
+                    : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                "
+                @click="setCodec(codec.value)"
+              >
+                {{ codec.label }}
+                <span class="text-xs opacity-60 ml-1">{{ codec.hint }}</span>
+              </button>
             </div>
           </div>
 

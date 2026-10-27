@@ -75,6 +75,8 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
       String(options.fps ?? DEFAULT_FPS),
       '--bitrate-kbps',
       String(options.bitrateKbps ?? DEFAULT_BITRATE_KBPS),
+      '--codec',
+      options.codec ?? 'h264',
       '--resolution',
       options.resolution && options.resolution.length > 0 ? options.resolution : 'native'
     ]

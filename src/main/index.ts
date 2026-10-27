@@ -36,6 +36,7 @@ import {
   DEFAULT_STORAGE_PATH,
   DEFAULT_VIDEO_BITRATE_KBPS,
   DEFAULT_VIDEO_FPS,
+  DEFAULT_VIDEO_CODEC,
   DEFAULT_CAPTURE_SOURCE_HINT,
   DEFAULT_VIDEO_RESOLUTION,
   DEFAULT_MINIMIZE_TO_TRAY,
@@ -57,6 +58,7 @@ const configStore = new Store<AppConfig>({
     storagePath: DEFAULT_STORAGE_PATH,
     videoBitrate: DEFAULT_VIDEO_BITRATE_KBPS,
     videoFps: DEFAULT_VIDEO_FPS,
+    videoCodec: DEFAULT_VIDEO_CODEC,
     captureSourceHint: DEFAULT_CAPTURE_SOURCE_HINT,
     videoResolution: DEFAULT_VIDEO_RESOLUTION,
     autoCleanupDays: null,
@@ -91,6 +93,7 @@ function createPipeline(): {
   const recorderOptions = {
     bitrateKbps: configStore.get('videoBitrate'),
     fps: configStore.get('videoFps'),
+    codec: configStore.get('videoCodec'),
     sourceHint: configStore.get('captureSourceHint'),
     resolution: configStore.get('videoResolution')
   }
@@ -235,12 +238,13 @@ app.whenReady().then(() => {
   const { recorder, stateMachine, storageManager } = createPipeline()
 
   // Keep recorder options in sync with config changes (e.g. window selection in Settings).
-  const recorderConfigKeys = ['videoBitrate', 'videoFps', 'captureSourceHint', 'videoResolution'] as const
+  const recorderConfigKeys = ['videoBitrate', 'videoFps', 'videoCodec', 'captureSourceHint', 'videoResolution'] as const
   for (const key of recorderConfigKeys) {
     configStore.onDidChange(key, () => {
       const opts = {
         bitrateKbps: configStore.get('videoBitrate'),
         fps: configStore.get('videoFps'),
+        codec: configStore.get('videoCodec'),
         sourceHint: configStore.get('captureSourceHint'),
         resolution: configStore.get('videoResolution')
       }

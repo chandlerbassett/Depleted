@@ -4,17 +4,19 @@
 // an app restart to take effect in the recording pipeline.
 
 import { ref, computed, onMounted } from 'vue'
-import type { AppConfig, CaptureSource, StatsSite, WowRegion } from '@shared/ipc.types'
+import type { AppConfig, CaptureSource, StatsSite, VideoCodec, WowRegion } from '@shared/ipc.types'
 import { useStatsLinkStore } from '@/stores/statsLinkStore'
 import { normalizeStatsSite } from '@/utils/characterLinks'
 
 export type BitratePreset = 'low' | 'medium' | 'high' | 'custom'
 
 const BITRATE_PRESETS: Record<Exclude<BitratePreset, 'custom'>, number> = {
-  low: 4000,
-  medium: 8000,
-  high: 16000
+  low: 30000,
+  medium: 50000,
+  high: 80000
 }
+
+export const MAX_CUSTOM_BITRATE_MBPS = 100
 
 function detectPreset(bitrate: number): BitratePreset {
   for (const [key, value] of Object.entries(BITRATE_PRESETS)) {
@@ -75,21 +77,39 @@ export function useSettings() {
   // Video quality
   // -------------------------------------------------------------------------
 
+  // Picking Custom keeps the current bitrate and shows the input, even when that
+  // bitrate happens to match a preset.
+  const customSelected = ref(false)
+
   const bitratePreset = computed<BitratePreset>({
-    get: () => (config.value !== null ? detectPreset(config.value.videoBitrate) : 'medium'),
+    get: () => {
+      if (config.value === null) return 'medium'
+      return customSelected.value ? 'custom' : detectPreset(config.value.videoBitrate)
+    },
     set: (preset) => {
-      if (preset === 'custom' || config.value === null) return
+      if (config.value === null) return
+      if (preset === 'custom') {
+        customSelected.value = true
+        return
+      }
+      customSelected.value = false
       void set('videoBitrate', BITRATE_PRESETS[preset])
     }
   })
 
+  // In Mbps for the input; stored as kbps.
   const customBitrate = computed<number>({
-    get: () => config.value?.videoBitrate ?? 8000,
-    set: (kbps) => {
-      if (config.value === null) return
-      void set('videoBitrate', kbps)
+    get: () => Math.round((config.value?.videoBitrate ?? 30000) / 1000),
+    set: (mbps) => {
+      if (config.value === null || !Number.isFinite(mbps)) return
+      const clamped = Math.min(MAX_CUSTOM_BITRATE_MBPS, Math.max(1, Math.round(mbps)))
+      void set('videoBitrate', clamped * 1000)
     }
   })
+
+  async function setCodec(codec: VideoCodec): Promise<void> {
+    await set('videoCodec', codec)
+  }
 
   async function setFps(fps: 30 | 60): Promise<void> {
     await set('videoFps', fps)
@@ -243,6 +263,7 @@ export function useSettings() {
     restartRequired,
     bitratePreset,
     customBitrate,
+    setCodec,
     captureSources,
     sourcesLoading,
     addonAlreadyInstalled,
