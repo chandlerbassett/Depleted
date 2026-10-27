@@ -2,6 +2,8 @@
 // Main process: ipcMain.handle / webContents.send
 // Renderer: ipcRenderer.invoke / ipcRenderer.on (via contextBridge)
 
+import type { CoachData } from './coach.types'
+
 // ---------------------------------------------------------------------------
 // Bracket and result types
 // ---------------------------------------------------------------------------
@@ -150,6 +152,7 @@ export interface IpcCommands {
   'storage:getRecordings': { params: void; result: Recording[] }
   'storage:deleteRecording': { params: { id: string }; result: void }
   'storage:openFolder': { params: { id: string }; result: void }
+  'storage:getCoachData': { params: { id: string }; result: CoachData | null }
 
   // Config
   'config:get': { params: { key: string }; result: unknown }

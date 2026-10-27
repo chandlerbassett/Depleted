@@ -4,6 +4,7 @@
 //   storage:getRecordings    — returns all Recording[] sorted newest first
 //   storage:deleteRecording  — deletes a recording directory by id
 //   storage:openFolder       — opens a recording directory in Finder
+//   storage:getCoachData     — a recording's coach.json, or null
 //
 // Push events (webContents.send — fired from index.ts):
 //   storage:recordingProcessed   — new recording is ready
@@ -22,6 +23,10 @@ export function registerStorageIpc(storageManager: StorageManager): void {
 
   ipcMain.handle('storage:deleteRecording', async (_event, params: { id: string }) => {
     await storageManager.deleteRecording(params.id)
+  })
+
+  ipcMain.handle('storage:getCoachData', async (_event, params: { id: string }) => {
+    return storageManager.getCoachData(params.id)
   })
 
   ipcMain.handle('storage:openFolder', async (_event, params: { id: string }) => {

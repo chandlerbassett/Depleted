@@ -24,6 +24,7 @@ import type {
   TimelineEvent
 } from '@shared/ipc.types'
 import {
+  WOW_SPEC_ID_MAP,
   DEATH_RECAP_WINDOW_SECS,
   MYTHIC_PLUS_ABANDON_TIMEOUT_SECS,
   MYTHIC_PLUS_IDLE_TIMEOUT_SECS,
@@ -38,6 +39,8 @@ import type {
   EncounterEndEvent,
   EncounterStartEvent,
   LogActivityEvent,
+  BuffChangeEvent,
+  SpellCastEvent,
   SpellDamageEvent,
   SpellHealAmountEvent,
   SpellInterruptSuccessEvent,
@@ -45,6 +48,7 @@ import type {
   ZoneChangedEvent
 } from '../combatlog/CombatLogParser'
 import type { CaptureRecorder, RecorderOptions } from './CaptureRecorder'
+import { CoachCollector } from '../coach/CoachCollector'
 import type { ProcessingRequiredEvent, StateMachineEventMap } from './types'
 
 // ---------------------------------------------------------------------------
@@ -98,6 +102,8 @@ interface KeySession {
   dmgTakenByName: Map<string, number>
   dmgDoneByName: Map<string, number>
   healDoneByName: Map<string, number>
+  // Casts, buffs and per-second damage/healing for the coach (coach.json)
+  coach: CoachCollector
   abandonTimer: ReturnType<typeof setTimeout> | null
   // Last log line seen (log time) and when we saw it (wall clock), for the idle check
   lastLogTimestamp: Date
@@ -177,6 +183,9 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.watcher.onParser('spellDamage', (e) => this.onSpellDamage(e))
     this.watcher.onParser('damageDone', (e) => this.onDamageDone(e))
     this.watcher.onParser('spellHealAmount', (e) => this.onSpellHeal(e))
+    this.watcher.onParser('spellCast', (e) => this.onSpellCast(e, false))
+    this.watcher.onParser('spellCastStart', (e) => this.onSpellCast(e, true))
+    this.watcher.onParser('buffChange', (e) => this.onBuffChange(e))
   }
 
   private bindRecorderEvents(): void {
@@ -230,6 +239,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       dmgTakenByName: new Map(),
       dmgDoneByName: new Map(),
       healDoneByName: new Map(),
+      coach: new CoachCollector(),
       abandonTimer: null,
       lastLogTimestamp: e.timestamp,
       lastLogWallMs: Date.now(),
@@ -363,6 +373,15 @@ export class MythicPlusStateMachine extends EventEmitter {
       interruptsByPlayer: Object.fromEntries(session.interruptsByPlayer)
     }
 
+    const coach = session.coach.build(leadSecs, durationSecs)
+    // Spec names for the party, from COMBATANT_INFO — the replay view colors and labels
+    // players with these
+    const knownSpecs: Record<string, string> = {}
+    for (const p of coach.players) {
+      const spec = p.specId !== null ? WOW_SPEC_ID_MAP[p.specId] : undefined
+      if (spec !== undefined) knownSpecs[p.name] = spec.spec
+    }
+
     const event: ProcessingRequiredEvent = {
       rawPath: finalPath,
       zoneName: session.start.zoneName,
@@ -371,12 +390,13 @@ export class MythicPlusStateMachine extends EventEmitter {
       matchStartedAt: videoStartedAt,
       recordingStartedAt,
       timeline,
-      knownSpecs: {},
+      knownSpecs,
       teamComp: [...session.roster.values()],
       playerDamageDone: Object.fromEntries(session.dmgDoneByName),
       playerDamageTaken: Object.fromEntries(session.dmgTakenByName),
       playerHealingDone: Object.fromEntries(session.healDoneByName),
-      mythicPlus
+      mythicPlus,
+      coach
     }
 
     if (isCurrent()) {
@@ -505,6 +525,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     if (session === null) return
     if (e.playerName) session.roster.set(e.playerGuid, e.playerName)
     else if (!session.roster.has(e.playerGuid)) session.roster.set(e.playerGuid, '')
+    session.coach.setCombatant(e.playerGuid, e.playerName, e.specId, e.talents)
   }
 
   private onUnitDied(e: UnitDiedEvent): void {
@@ -516,6 +537,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.learnPartyMember(e.unitGuid, e.unitName)
     const relSecs = this.relSecs(e.timestamp)
     session.deathsByPlayer.set(e.unitName, (session.deathsByPlayer.get(e.unitName) ?? 0) + 1)
+    session.coach.addDeath(e.unitGuid, e.unitName, relSecs)
 
     const hits = session.recentDamageByGuid.get(e.unitGuid) ?? []
     const deathSummary = hits
@@ -592,6 +614,26 @@ export class MythicPlusStateMachine extends EventEmitter {
     const effective = e.amount - (e.overhealing ?? 0)
     if (effective <= 0) return
     session.healDoneByName.set(e.casterName, (session.healDoneByName.get(e.casterName) ?? 0) + effective)
+    session.coach.addHealing(e.casterGuid, e.casterName, effective, this.relSecs(e.timestamp))
+  }
+
+  private onSpellCast(e: SpellCastEvent, isStart: boolean): void {
+    const session = this.activeSession()
+    if (session === null) return
+    if (!session.roster.has(e.casterGuid)) {
+      if (!isPartyPlayer(e.casterFlags)) return
+      this.learnPartyMember(e.casterGuid, e.casterName)
+    }
+    const relSecs = this.relSecs(e.timestamp)
+    if (isStart) session.coach.addCastStart(e.casterGuid, e.casterName, relSecs)
+    else session.coach.addCast(e.casterGuid, e.casterName, e.spellId, e.spellName, relSecs)
+  }
+
+  private onBuffChange(e: BuffChangeEvent): void {
+    const session = this.activeSession()
+    if (session === null) return
+    if (e.casterGuid !== e.targetGuid || !session.roster.has(e.targetGuid)) return
+    session.coach.addBuff(e.targetGuid, e.spellId, e.spellName, e.applied, this.relSecs(e.timestamp))
   }
 
   private onDamageDone(e: DamageDoneEvent): void {
@@ -602,6 +644,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       this.learnPartyMember(e.casterGuid, e.casterName)
     }
     session.dmgDoneByName.set(e.casterName, (session.dmgDoneByName.get(e.casterName) ?? 0) + e.amount)
+    session.coach.addDamage(e.casterGuid, e.casterName, e.amount, this.relSecs(e.timestamp))
   }
 
   // ---------------------------------------------------------------------------

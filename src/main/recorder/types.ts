@@ -1,6 +1,7 @@
 // Events the recording state machine emits, and the payload StorageManager turns into a
 // stored recording.
 
+import type { CoachData } from '@shared/coach.types'
 import type { MythicPlusInfo, RecorderStatus, RecordingResult, TimelineEvent } from '@shared/ipc.types'
 
 // Emitted when a key's recording is complete and ready for post-processing
@@ -26,6 +27,8 @@ export interface ProcessingRequiredEvent {
   playerDamageTaken: Record<string, number>
   playerHealingDone: Record<string, number>
   mythicPlus: MythicPlusInfo
+  // Per-player casts, buffs and per-second damage/healing — saved as coach.json
+  coach?: CoachData
 }
 
 export interface StateMachineEventMap {

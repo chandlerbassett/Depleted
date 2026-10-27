@@ -224,6 +224,31 @@ describe('MythicPlusStateMachine', () => {
     expect(e.playerDamageTaken).toEqual({ 'Tankguy-Illidan-US': 100000 })
   })
 
+  it('collects casts, buffs and specs for the coach', async () => {
+    const { watcher, processed } = setup()
+    const tank = 'Player-1329-0A000001,"Tankguy-Illidan-US",0x511,0x0'
+    const extra = [
+      '10/27/2026 20:00:06.0000  COMBATANT_INFO,Player-1329-0A000001,1,100,200,300,400,0,0,0,500,500,500,0,0,0,' +
+        '600,600,600,0,700,250,[(10,20,1),(11,21,2)],(0,0,0,0),[],[],[],0,0,0,0',
+      `10/27/2026 20:00:30.0000  SPELL_CAST_SUCCESS,${tank},0000000000000000,nil,0x80000000,0x80000000,49028,"Dancing Rune Weapon",0x20`,
+      `10/27/2026 20:00:30.0000  SPELL_AURA_APPLIED,${tank},Player-1329-0A000001,"Tankguy-Illidan-US",0x511,0x0,49028,"Dancing Rune Weapon",0x20,BUFF`,
+      `10/27/2026 20:00:38.0000  SPELL_AURA_REMOVED,${tank},Player-1329-0A000001,"Tankguy-Illidan-US",0x511,0x0,49028,"Dancing Rune Weapon",0x20,BUFF`
+    ]
+    const keyStart = LINES.findIndex((l) => l.includes('  CHALLENGE_MODE_START,'))
+    watcher.feed([...LINES.slice(0, keyStart + 1), ...extra, ...LINES.slice(keyStart + 1)])
+    await vi.runAllTimersAsync()
+
+    const e = processed[0]!
+    expect(e.knownSpecs).toEqual({ 'Tankguy-Illidan-US': 'Blood' })
+    const tankData = e.coach!.players.find((p) => p.name === 'Tankguy-Illidan-US')!
+    expect(tankData.specId).toBe(250)
+    expect(tankData.talents).toEqual([[10, 20, 1], [11, 21, 2]])
+    expect(tankData.casts).toEqual([[25, 49028]])
+    expect(tankData.buffs).toEqual([[49028, 25, 33]])
+    expect(tankData.deaths).toEqual([68])
+    expect(e.coach!.spellNames[49028]).toBe('Dancing Rune Weapon')
+  })
+
   it('shifts the timeline when the recorder starts after the key', async () => {
     const { watcher, processed } = setup({ recorderLagMs: 3000 })
     watcher.feed(LINES)

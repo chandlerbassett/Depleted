@@ -31,6 +31,9 @@ removed.
   timer and score
 - **DPS and HPS meters** for the party, with pet damage credited to its owner
 - Click a party member's name to open them on **Raider.IO**, **Warcraft Logs** or the Armory
+- A **Coach** panel for any party member, any class: time spent casting, gaps with no casts
+  mid-pull, throughput cooldowns that sat ready, stretches where their damage share dropped,
+  and which defensives looked ready when they died. Every moment jumps the video to it
 - If you leave the dungeon and don't return within 3 minutes, the key is saved as
   *abandoned* rather than thrown away
 
@@ -43,6 +46,8 @@ Recordings appear in the list on the left. Open one to watch it with its event t
 3. ~~Replace capture with native **ScreenCaptureKit + VideoToolbox**~~ ✅ (still to do: a pre-roll
    buffer so the countdown isn't missed)
 4. "Good / bad moment" detection: avoidable damage, missed kicks, defensive usage on deaths
+   (started: the Coach panel)
+5. Coach comparisons with top Warcraft Logs players of the same spec, dungeon and key level
 
 ---
 
