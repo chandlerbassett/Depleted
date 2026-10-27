@@ -30,7 +30,7 @@ async function handleUpdate(): Promise<void> {
 
       <div v-if="status === 'idle' || status === 'installing'">
         <p class="text-xs text-zinc-400 mb-4">
-          Your installed ArenaRecorderCompanion addon is out of date. Updating it fixes how
+          Your installed DepletedCompanion addon is out of date. Updating it fixes how
           the app tells "connected" from a stale session — install the new version, then
           type <span class="text-zinc-200 font-mono">/reload</span> in WoW (or log out and
           back in) for it to take effect.

@@ -7,9 +7,9 @@
 
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { ADDON_RELATIVE_PATH } from '@shared/constants'
+import { ADDON_NAME, ADDON_RELATIVE_PATH } from '@shared/constants'
 
-const TOC_FILENAME = 'ArenaRecorderCompanion.toc'
+const TOC_FILENAME = `${ADDON_NAME}.toc`
 
 function extractTocVersion(tocPath: string): string | null {
   if (!existsSync(tocPath)) return null
@@ -27,7 +27,7 @@ export function getInstalledAddonVersion(wowPath: string): string | null {
 }
 
 export function getBundledAddonVersion(bundledAddonDir: string): string | null {
-  return extractTocVersion(join(bundledAddonDir, 'ArenaRecorderCompanion', TOC_FILENAME))
+  return extractTocVersion(join(bundledAddonDir, ADDON_NAME, TOC_FILENAME))
 }
 
 export function compareVersions(a: string, b: string): number {

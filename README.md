@@ -90,11 +90,19 @@ and the app follows the newest one automatically.
 
 ### Companion addon (recommended)
 
-The app ships with a small addon, **ArenaRecorderCompanion** (name kept from the original
-project), that tells the recorder which
-character you're playing. Install it from the onboarding screen or **Settings → Addon**, or
-copy `addon/ArenaRecorderCompanion` into
-`/Applications/World of Warcraft/_retail_/Interface/AddOns/`, then `/reload` in game.
+The app ships with a small addon, **DepletedCompanion**, that:
+
+- tells the recorder which character you're playing
+- turns on combat logging automatically when you enter a dungeon or arena, and when a key
+  starts, so you never lose a run to a forgotten `/combatlog`
+- prints "Key started. Depleted should be recording." in chat when a key begins
+
+Install it from the onboarding screen or **Settings → Addon**, or copy
+`addon/DepletedCompanion` into `/Applications/World of Warcraft/_retail_/Interface/AddOns/`,
+then `/reload` in game. Type `/depleted` in game for info.
+
+> Upgrading from the original **ArenaRecorderCompanion**? Install DepletedCompanion and delete
+> the old `ArenaRecorderCompanion` folder from your AddOns.
 
 ---
 
@@ -162,7 +170,7 @@ src/
   renderer/src/  — Vue 3 + Pinia UI
   shared/        — types and constants shared by main and renderer
 addon/
-  ArenaRecorderCompanion/  — WoW addon (Lua)
+  DepletedCompanion/  — WoW addon (Lua)
 tests/
   fixtures/      — sample combat logs (2v2, Solo Shuffle, Mythic+)
 ```

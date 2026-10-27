@@ -451,7 +451,7 @@ const BITRATE_PRESETS = [
             v-if="addonInstallStatus === 'done'"
             class="text-xs text-green-400 mt-2"
           >
-            ArenaRecorderCompanion installed. Enable it in WoW → AddOns and /reload.
+            DepletedCompanion installed. Enable it in WoW → AddOns and /reload.
           </p>
 
           <!-- Manual install toggle -->
@@ -468,10 +468,10 @@ const BITRATE_PRESETS = [
             v-if="showManualInstall && addonInstallStatus !== 'done'"
             class="mt-3 p-3 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-zinc-400 space-y-2"
           >
-            <p>Copy the <code class="bg-zinc-800 px-1 rounded">ArenaRecorderCompanion</code> folder into your WoW AddOns directory:</p>
+            <p>Copy the <code class="bg-zinc-800 px-1 rounded">DepletedCompanion</code> folder into your WoW AddOns directory:</p>
             <ol class="list-decimal list-inside space-y-2 text-zinc-500">
               <li>
-                Open the addon source folder and copy <code class="bg-zinc-800 px-1 rounded">ArenaRecorderCompanion</code>
+                Open the addon source folder and copy <code class="bg-zinc-800 px-1 rounded">DepletedCompanion</code>
                 <button
                   class="ml-2 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
                   @click="() => window.electron.invoke('system:openAddonSource')"

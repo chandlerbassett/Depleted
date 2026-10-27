@@ -1160,16 +1160,18 @@ export const COMBAT_LOG_RELATIVE_PATH = '_retail_/Logs/WoWCombatLog.txt'
 export const DEFAULT_CAPTURE_SOURCE_HINT = 'auto'
 export const DEFAULT_VIDEO_RESOLUTION = 'native'
 export const DEFAULT_MINIMIZE_TO_TRAY = true
-export const ADDON_RELATIVE_PATH = '_retail_/Interface/AddOns/ArenaRecorderCompanion'
+// Companion addon folder / SavedVariables file name (was ArenaRecorderCompanion before 2.0.0)
+export const ADDON_NAME = 'DepletedCompanion'
+export const ADDON_RELATIVE_PATH = `_retail_/Interface/AddOns/${ADDON_NAME}`
 
 // Bump whenever the addon's SavedVariables contract changes in a way the app depends
-// on (e.g. new fields it reads). ArenaRecorderCompanion.lua writes its own version into
-// ArenaRecorderDB.character.version — if that's missing or older than this, the
+// on (e.g. new fields it reads). DepletedCompanion.lua writes its own version into
+// DepletedDB.character.version — if that's missing or older than this, the
 // installed addon predates a feature the app needs and the user should be prompted to
 // update it (see system:getAddonStatus's needsUpdate flag).
-export const MIN_ADDON_VERSION = '1.2.0'
+export const MIN_ADDON_VERSION = '2.0.0'
 
-// How stale ArenaRecorderDB.character.updated (written on PLAYER_LOGIN /
+// How stale DepletedDB.character.updated (written on PLAYER_LOGIN /
 // PLAYER_ENTERING_WORLD / spec change) can be before "connected" is no longer trusted.
 // WoW only flushes SavedVariables to disk on logout/reload/exit, but the in-memory
 // `updated` timestamp itself only changes on those frequent in-game events, so this

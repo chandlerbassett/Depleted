@@ -1,7 +1,7 @@
-// Reads the ArenaRecorderCompanion SavedVariables file and extracts player info.
+// Reads the DepletedCompanion SavedVariables file and extracts player info.
 //
 // File location:
-//   {wowPath}/_retail_/WTF/Account/*/SavedVariables/ArenaRecorderCompanion.lua
+//   {wowPath}/_retail_/WTF/Account/*/SavedVariables/DepletedCompanion.lua
 //
 // The account directory name is not predictable (it's a Battle.net account ID),
 // so we glob for all accounts and return the most recently modified match.
@@ -9,7 +9,7 @@
 import { readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import glob from 'glob'
-import { ADDON_STALE_MS, MIN_ADDON_VERSION } from '@shared/constants'
+import { ADDON_NAME, ADDON_STALE_MS, MIN_ADDON_VERSION } from '@shared/constants'
 
 export interface AddonCharacterInfo {
   guid: string       // e.g. "Player-1329-0A8F36D7"
@@ -22,7 +22,7 @@ export interface AddonCharacterInfo {
   // recent this is is used to distinguish "addon connected" from a stale on-disk
   // snapshot from a session that ended days ago (see ADDON_STALE_MS).
   updated: string | null
-  // Addon's own ArenaRecorderCompanion.lua version, if the installed copy is new
+  // Addon's own DepletedCompanion.lua version, if the installed copy is new
   // enough to write it (added in 1.2.0) — null for older installs.
   version: string | null
 }
@@ -35,7 +35,7 @@ export function readAddonCharacterInfo(wowPath: string): AddonCharacterInfo | nu
     'Account',
     '*',
     'SavedVariables',
-    'ArenaRecorderCompanion.lua'
+    `${ADDON_NAME}.lua`
   ).replace(/\\/g, '/')
 
   const files = glob.sync(pattern)
@@ -62,7 +62,7 @@ export function readAddonCharacterInfo(wowPath: string): AddonCharacterInfo | nu
 
 // Parses the Lua SavedVariables table with simple string extraction.
 // Handles the format written by WoW's SavedVariables serialiser:
-//   ArenaRecorderDB = {
+//   DepletedDB = {
 //     ["character"] = {
 //       ["guid"] = "Player-1329-XXXXXXXX",
 //       ...
