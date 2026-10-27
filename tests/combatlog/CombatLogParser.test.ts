@@ -509,3 +509,51 @@ describe('CombatLogParser — "nil" caster/target names are treated as absent', 
     expect(events[0]!.casterName).toBe('')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Damage done to mobs (Mythic+ DPS meter) — lines from a real 12.x key
+// ---------------------------------------------------------------------------
+
+describe('CombatLogParser — damage done to mobs', () => {
+  const HUNTER = 'Player-3676-0EBBAA81'
+  const MOB = 'Creature-0-4229-3095-213-272687-000060BD8A,"Shadowspeaker Ip\'thosh",0x10a48,0x80000000'
+  const lines = {
+    autoShot: `10/27/2026 11:08:10.973-4  RANGE_DAMAGE,${HUNTER},"Gobitron-Area52-US",0x511,0x80000000,${MOB},75,"Auto Shot",0x1,Creature-0-4229-3095-213-272687-000060BD8A,0000000000000000,43287914,43388700,0,0,1470,0,0,0,0,10312,10312,0,1484.17,-276.06,2670,3.1183,92,17289,23980,-1,1,0,0,0,nil,nil,nil,ST`,
+    moonfire: `10/27/2026 11:08:08.987-4  SPELL_DAMAGE,Player-3675-0AEBA165,"Rikumita-MoonGuard-US",0x40514,0x80000000,${MOB},164812,"Moonfire",0x40,Creature-0-4229-3095-213-272687-000060BD8A,0000000000000000,43384284,43388700,0,0,1470,0,0,0,0,10312,10312,0,1484.17,-276.06,2670,3.1416,92,4416,4287,-1,64,0,0,0,nil,nil,nil,ST`,
+    // Pet summoned before the log started: its owner is only known from the advanced block
+    petSwing: `10/27/2026 11:08:13.640-4  SWING_DAMAGE,Pet-0-4209-2916-6-165189-0105533B2B,"Maeveish",0x1111,0x80000000,${MOB},Pet-0-4209-2916-6-165189-0105533B2B,${HUNTER},771998,771998,2384,2384,3326,0,0,0,2,100,100,0,1479.65,-274.91,2670,6.0350,333,1996,2768,-1,1,0,0,0,nil,nil,nil`,
+    petSpell: `10/27/2026 11:08:14.776-4  SPELL_DAMAGE,Pet-0-4209-2916-6-165189-0105533B2B,"Maeveish",0x1111,0x80000000,${MOB},344572,"Bestial Wrath",0x1,Creature-0-4229-3095-213-272687-000060BD8A,0000000000000000,43163452,43388700,0,0,1470,0,0,0,0,10312,10312,0,1484.17,-276.06,2670,3.1183,92,77000,50318,-1,1,0,0,0,1,nil,nil,ST`,
+    killingBlow: `10/27/2026 11:08:15.000-4  SPELL_DAMAGE,Player-3675-0AEBA165,"Rikumita-MoonGuard-US",0x40514,0x80000000,${MOB},164812,"Moonfire",0x40,Creature-0-4229-3095-213-272687-000060BD8A,0000000000000000,0,43388700,0,0,1470,0,0,0,0,10312,10312,0,1484.17,-276.06,2670,3.1416,92,5000,4287,1200,64,0,0,0,nil,nil,nil,ST`
+  }
+
+  it('emits damageDone for players and their pets, net of overkill, without touching spellDamage', () => {
+    const parser = new CombatLogParser()
+    const done: { casterName: string; amount: number }[] = []
+    const playerDamage: SpellDamageEvent[] = []
+    parser.on('damageDone', (e) => done.push({ casterName: e.casterName, amount: e.amount }))
+    parser.on('spellDamage', (e) => playerDamage.push(e))
+
+    feedLines(parser, Object.values(lines))
+
+    expect(done).toEqual([
+      { casterName: 'Gobitron-Area52-US', amount: 17289 },
+      { casterName: 'Rikumita-MoonGuard-US', amount: 4416 },
+      { casterName: 'Gobitron-Area52-US', amount: 1996 },
+      { casterName: 'Gobitron-Area52-US', amount: 77000 },
+      { casterName: 'Rikumita-MoonGuard-US', amount: 3800 }
+    ])
+    expect(playerDamage).toHaveLength(0)
+  })
+
+  it('reports overhealing on heals', () => {
+    const parser = new CombatLogParser()
+    const heals: SpellHealAmountEvent[] = []
+    parser.on('spellHealAmount', (e) => heals.push(e))
+    parser.processLine(
+      `10/27/2026 11:08:13.220-4  SPELL_HEAL,Player-3676-0EBEE14D,"Satyshamy-Area52-US",0x514,0x80000000,Pet-0-4209-2916-6-165189-0105533B2B,"Maeveish",0x1111,0x80000000,73921,"Healing Rain",0x8,Pet-0-4209-2916-6-165189-0105533B2B,${HUNTER},771998,771998,2384,2384,3326,0,0,0,2,100,100,0,1477.63,-273.45,2670,5.6553,333,15160,15160,15000,0,1`
+    )
+    expect(heals).toHaveLength(1)
+    expect(heals[0]!.amount).toBe(15160)
+    expect(heals[0]!.overhealing).toBe(15000)
+  })
+})

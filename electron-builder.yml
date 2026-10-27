@@ -15,6 +15,8 @@ files:
 extraResources:
   - from: addon
     to: addon
+  - from: resources/tray
+    to: tray
 
 afterSign: build/afterSign.js
 

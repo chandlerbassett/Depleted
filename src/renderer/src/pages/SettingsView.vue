@@ -603,7 +603,7 @@ const BITRATE_PRESETS = [
               </button>
             </div>
             <p class="text-xs text-zinc-600 mt-1.5">
-              Clicking a player name in the match view or My PVP Hub opens their stats here.
+              Clicking a player name in a recording opens their profile here.
             </p>
           </div>
         </section>

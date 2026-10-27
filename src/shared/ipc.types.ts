@@ -313,7 +313,7 @@ export interface IpcEvents {
 
 // External character-stats site used for the "view my stats" links in the Team panel
 // and the My PVP Hub "Your Characters" list.
-export type StatsSite = 'arenacoach' | 'seramate' | 'checkpvp' | 'drustvar' | 'armory'
+export type StatsSite = 'raiderio' | 'warcraftlogs' | 'armory'
 
 // WoW region — used to resolve a character's realm when the combat log name has no
 // region suffix (same-region names log as "Name-Realm", not "Name-Realm-EU").

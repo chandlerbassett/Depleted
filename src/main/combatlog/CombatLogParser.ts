@@ -131,9 +131,25 @@ function parseSpellDamageAmount(fields: string[]): number {
 function parseSwingDamageAmount(fields: string[]): number {
   return parseInt(fields[fields.length - 10] ?? '', 10)
 }
+// Overkill sits two fields after the amount (amount, baseAmount, overkill, …); -1 when none
+function parseSpellOverkill(fields: string[]): number {
+  return Math.max(0, parseInt(fields[fields.length - 9] ?? '', 10) || 0)
+}
+function parseSwingOverkill(fields: string[]): number {
+  return Math.max(0, parseInt(fields[fields.length - 8] ?? '', 10) || 0)
+}
 function parseHealAmount(fields: string[]): number {
   return parseInt(fields[fields.length - 5] ?? '', 10)
 }
+// Heal suffix: amount, baseAmount, overhealing, absorbed, critical
+function parseOverhealing(fields: string[]): number {
+  return Math.max(0, parseInt(fields[fields.length - 3] ?? '', 10) || 0)
+}
+
+// Advanced-logging block: unitGUID, ownerGUID, … right after the prefix. For SPELL_*
+// events it starts after the 3 spell fields; SWING_DAMAGE has no spell fields.
+const SPELL_ADVANCED_UNIT_GUID = 11
+const SWING_ADVANCED_UNIT_GUID = 8
 
 // WoW's combat log writes the literal string "nil" for fields it can't resolve a real
 // value for (e.g. a caster whose original identity is no longer trackable, commonly
@@ -310,6 +326,17 @@ export interface SpellDamageEvent {
   timestamp: Date
 }
 
+// Fired for damage a player (or their pet/guardian) does to a non-player — mobs and
+// bosses in Mythic+. Kept separate from spellDamage, which arena uses for
+// player-vs-player damage only. amount excludes overkill.
+export interface DamageDoneEvent {
+  casterGuid: string
+  casterName: string
+  casterFlags: number
+  amount: number
+  timestamp: Date
+}
+
 // Fired for SPELL_HEAL / SPELL_PERIODIC_HEAL — used for team healing charts and
 // per-target "healing received" tracking (death recap).
 export interface SpellHealAmountEvent {
@@ -320,6 +347,8 @@ export interface SpellHealAmountEvent {
   spellId?: number
   spellName?: string
   amount: number
+  // Part of amount that landed on a full-health target
+  overhealing?: number
   timestamp: Date
 }
 
@@ -464,6 +493,7 @@ export interface ParserEventMap {
   healerCast: HealerCastEvent
   combatantInfo: CombatantInfoEvent
   spellDamage: SpellDamageEvent
+  damageDone: DamageDoneEvent
   spellHealAmount: SpellHealAmountEvent
   spellAbsorb: SpellAbsorbEvent
   spellInterruptSuccess: SpellInterruptSuccessEvent
@@ -618,6 +648,11 @@ export class CombatLogParser extends EventEmitter {
       case 'SPELL_DAMAGE':
       case 'SPELL_PERIODIC_DAMAGE':
         this.handleSpellDamage(fields, timestamp)
+        break
+      case 'RANGE_DAMAGE':
+        // Hunter Auto Shot. Same layout as SPELL_DAMAGE; only counted toward damage done
+        // so arena's player-vs-player damage stays as it was.
+        this.handleSpellDamage(fields, timestamp, false)
         break
       case 'SWING_DAMAGE':
         this.handleSwingDamage(fields, timestamp)
@@ -1018,6 +1053,30 @@ export class CombatLogParser extends EventEmitter {
     return { guid: casterGuid, name: casterName }
   }
 
+  // The advanced-logging block names a unit and its owner (ownerGUID is all zeros for
+  // unowned units). Recording player-owned ones lets resolveEffectiveCaster credit pets
+  // that were summoned before the log started (hunter and warlock pets, mostly).
+  private learnOwner(fields: string[], unitGuidIndex: number): void {
+    const unitGuid = fields[unitGuidIndex]
+    const ownerGuid = fields[unitGuidIndex + 1]
+    if (unitGuid === undefined || ownerGuid === undefined) return
+    if (!ownerGuid.startsWith('Player-') || unitGuid.startsWith('Player-')) return
+    if (this.summonOwners.get(unitGuid) !== ownerGuid) this.summonOwners.set(unitGuid, ownerGuid)
+  }
+
+  private emitDamageDone(fields: string[], casterGuid: string, casterName: string, amount: number, timestamp: Date): void {
+    if (isNaN(amount) || amount <= 0) return
+    const effective = this.resolveEffectiveCaster(casterGuid, casterName)
+    if (!effective.guid.startsWith('Player-')) return
+    this.emit('damageDone', {
+      casterGuid: effective.guid,
+      casterName: effective.name,
+      casterFlags: parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0'),
+      amount,
+      timestamp
+    })
+  }
+
   // SPELL_SUMMON fires when a player creates a pet/totem/guardian — caster is the
   // owning player, target is the newly created summon's GUID. Standard 11-field prefix,
   // no advanced-logging suffix (verified against real logs).
@@ -1041,6 +1100,7 @@ export class CombatLogParser extends EventEmitter {
     // Emit heal amount event for ALL heals (including self) — used for team heal charts
     // and per-target healing-received tracking (death recap). Redirect pet/totem heals
     // (Healing Stream Totem, Earthliving, etc.) to their owning player.
+    this.learnOwner(fields, SPELL_ADVANCED_UNIT_GUID)
     const amount = parseHealAmount(fields)
     if (!isNaN(amount) && amount > 0) {
       const effective = this.resolveEffectiveCaster(casterGuid, casterName)
@@ -1052,6 +1112,7 @@ export class CombatLogParser extends EventEmitter {
         spellId: isNaN(spellId) ? undefined : spellId,
         spellName,
         amount,
+        overhealing: Math.min(amount, parseOverhealing(fields)),
         timestamp
       })
     }
@@ -1074,15 +1135,22 @@ export class CombatLogParser extends EventEmitter {
     this.emit('spellAbsorb', { casterGuid, casterName, amount, timestamp })
   }
 
-  private handleSpellDamage(fields: string[], timestamp: Date): void {
+  private handleSpellDamage(fields: string[], timestamp: Date, emitPlayerDamage = true): void {
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
     const casterName = sanitizeName(fields[SPELL_FIELD_CASTER_NAME])
     const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
     const targetName = sanitizeName(fields[SPELL_FIELD_TARGET_NAME])
     if (casterGuid === undefined || targetGuid === undefined) return
 
-    // Only track damage between players (Pet/NPC hits are excluded by GUID prefix)
-    if (!targetGuid.startsWith('Player-')) return
+    // For SPELL_DAMAGE the advanced block describes the target
+    this.learnOwner(fields, SPELL_ADVANCED_UNIT_GUID)
+
+    if (!targetGuid.startsWith('Player-')) {
+      this.emitDamageDone(fields, casterGuid, casterName, parseSpellDamageAmount(fields) - parseSpellOverkill(fields), timestamp)
+      return
+    }
+    // spellDamage only tracks damage between players (Pet/NPC hits are excluded by GUID prefix)
+    if (!emitPlayerDamage) return
 
     const rawSpellId = fields[SPELL_FIELD_SPELL_ID]
     const spellId = rawSpellId !== undefined ? parseInt(rawSpellId, 10) : NaN
@@ -1118,7 +1186,14 @@ export class CombatLogParser extends EventEmitter {
     const targetName = sanitizeName(fields[SPELL_FIELD_TARGET_NAME])
     if (casterGuid === undefined || targetGuid === undefined) return
 
-    if (!targetGuid.startsWith('Player-')) return
+    // For SWING_DAMAGE the advanced block describes the attacker, so this is how pets
+    // summoned before logging started get tied to their owner
+    this.learnOwner(fields, SWING_ADVANCED_UNIT_GUID)
+
+    if (!targetGuid.startsWith('Player-')) {
+      this.emitDamageDone(fields, casterGuid, casterName, parseSwingDamageAmount(fields) - parseSwingOverkill(fields), timestamp)
+      return
+    }
 
     const amount = parseSwingDamageAmount(fields)
     if (isNaN(amount) || amount <= 0) return
