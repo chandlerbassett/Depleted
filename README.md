@@ -119,6 +119,15 @@ After completing onboarding, settings are saved and the app goes straight to the
 4. When the match ends it stops recording, trims the video, generates a thumbnail, and adds it to the list
 5. Click any recording to watch it with the event timeline
 
+### Mythic+ (early)
+
+Keystones are recorded the same way, with no extra setup:
+
+1. Recording starts when the key is activated (`CHALLENGE_MODE_START`)
+2. Boss pulls are marked as kills or wipes (`ENCOUNTER_START` / `ENCOUNTER_END`), along with party deaths and interrupts
+3. Recording stops a few seconds after the key ends (`CHALLENGE_MODE_END`). If you leave the dungeon and don't come back within 3 minutes, the key is saved as abandoned
+4. Runs show up under the **Mythic+** tab with key level and outcome (completed / depleted / abandoned)
+
 **Solo Shuffle** records the entire 6-round session as one file and splits the timeline per round.
 
 ---

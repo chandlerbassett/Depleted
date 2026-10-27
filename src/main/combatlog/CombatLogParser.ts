@@ -1,4 +1,4 @@
-// Parses WoW combat log lines and emits typed arena events.
+// Parses WoW combat log lines and emits typed arena and Mythic+ events.
 // Line format: "M/D HH:MM:SS.mmm  EVENT_TYPE,field1,field2,..."
 // Two spaces separate the timestamp from the event data.
 //
@@ -37,6 +37,35 @@ const STATS_FIELD_RATING_AFTER = 14
 // ---------------------------------------------------------------------------
 const ZONE_FIELD_INSTANCE_ID = 0
 const ZONE_FIELD_ZONE_NAME = 1
+
+// ---------------------------------------------------------------------------
+// Mythic+ / encounter field indices (0-indexed, after the event type field)
+//   CHALLENGE_MODE_START,"zoneName",instanceID,challengeModeID,keystoneLevel,[affixIDs]
+//   CHALLENGE_MODE_END,instanceID,success,keystoneLevel,totalTimeMs[,oldRating,newRating]
+//   ENCOUNTER_START,encounterID,"name",difficultyID,groupSize,instanceID
+//   ENCOUNTER_END,encounterID,"name",difficultyID,groupSize,success[,fightTimeMs]
+// Verify against a real Midnight M+ log — trailing fields have changed across patches.
+// ---------------------------------------------------------------------------
+const CM_START_FIELD_ZONE_NAME = 0
+const CM_START_FIELD_INSTANCE_ID = 1
+const CM_START_FIELD_CHALLENGE_MODE_ID = 2
+const CM_START_FIELD_KEYSTONE_LEVEL = 3
+const CM_START_FIELD_AFFIXES = 4
+
+const CM_END_FIELD_INSTANCE_ID = 0
+const CM_END_FIELD_SUCCESS = 1
+const CM_END_FIELD_KEYSTONE_LEVEL = 2
+const CM_END_FIELD_TOTAL_TIME_MS = 3
+const CM_END_FIELD_OLD_RATING = 4
+const CM_END_FIELD_NEW_RATING = 5
+
+const ENCOUNTER_FIELD_ID = 0
+const ENCOUNTER_FIELD_NAME = 1
+const ENCOUNTER_FIELD_DIFFICULTY_ID = 2
+const ENCOUNTER_FIELD_GROUP_SIZE = 3
+const ENCOUNTER_START_FIELD_INSTANCE_ID = 4
+const ENCOUNTER_END_FIELD_SUCCESS = 4
+const ENCOUNTER_END_FIELD_FIGHT_TIME_MS = 5
 
 // ---------------------------------------------------------------------------
 // ARENA_MATCH_START field indices
@@ -271,6 +300,8 @@ export interface SpellDamageEvent {
   casterFlags: number
   targetGuid: string
   targetName: string
+  // Raw unit flags for the target — lets Mythic+ pick out party members
+  targetFlags?: number
   spellId?: number    // undefined for SWING_DAMAGE
   spellName: string   // 'Auto Attack' for SWING_DAMAGE
   amount: number
@@ -354,6 +385,53 @@ export interface UnitHealthEvent {
   timestamp: Date
 }
 
+// Fired for every ZONE_CHANGE, arena or not. Mythic+ uses it to notice the player
+// leaving the dungeon mid-key (arena keeps using arenaZoneEntered/arenaZoneLeft).
+export interface ZoneChangedEvent {
+  instanceId: number
+  zoneName: string
+  timestamp: Date
+}
+
+export interface ChallengeModeStartEvent {
+  zoneName: string
+  instanceId: number
+  challengeModeId: number
+  keystoneLevel: number
+  affixIds: number[]
+  timestamp: Date
+}
+
+export interface ChallengeModeEndEvent {
+  instanceId: number
+  success: boolean
+  keystoneLevel: number
+  // 0 when the key was abandoned/reset rather than completed
+  totalTimeMs: number
+  oldRating?: number
+  newRating?: number
+  timestamp: Date
+}
+
+export interface EncounterStartEvent {
+  encounterId: number
+  encounterName: string
+  difficultyId: number
+  groupSize: number
+  instanceId: number
+  timestamp: Date
+}
+
+export interface EncounterEndEvent {
+  encounterId: number
+  encounterName: string
+  difficultyId: number
+  groupSize: number
+  success: boolean
+  fightTimeMs?: number
+  timestamp: Date
+}
+
 // Re-exported so callers can test hostility without coupling to the bit value.
 export { UNIT_FLAG_REACTION_HOSTILE }
 
@@ -381,6 +459,11 @@ export interface ParserEventMap {
   spellAbsorb: SpellAbsorbEvent
   spellInterruptSuccess: SpellInterruptSuccessEvent
   precognitionGained: PrecognitionGainedEvent
+  zoneChanged: ZoneChangedEvent
+  challengeModeStart: ChallengeModeStartEvent
+  challengeModeEnd: ChallengeModeEndEvent
+  encounterStart: EncounterStartEvent
+  encounterEnd: EncounterEndEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -481,6 +564,18 @@ export class CombatLogParser extends EventEmitter {
       case 'ARENA_MATCH_START':
         this.handleArenaMatchStart(fields, timestamp)
         break
+      case 'CHALLENGE_MODE_START':
+        this.handleChallengeModeStart(fields, timestamp)
+        break
+      case 'CHALLENGE_MODE_END':
+        this.handleChallengeModeEnd(fields, timestamp)
+        break
+      case 'ENCOUNTER_START':
+        this.handleEncounterStart(fields, timestamp)
+        break
+      case 'ENCOUNTER_END':
+        this.handleEncounterEnd(fields, timestamp)
+        break
       case 'ARENA_MATCH_END':
         this.handleArenaMatchEnd(fields, timestamp)
         break
@@ -535,6 +630,8 @@ export class CombatLogParser extends EventEmitter {
 
     if (isNaN(instanceId)) return
 
+    this.emit('zoneChanged', { instanceId, zoneName, timestamp })
+
     const isArena = ARENA_ZONE_IDS.has(instanceId)
 
     if (isArena) {
@@ -561,6 +658,83 @@ export class CombatLogParser extends EventEmitter {
       this.session = null
       this.emit('arenaZoneLeft', { timestamp })
     }
+  }
+
+  private handleChallengeModeStart(fields: string[], timestamp: Date): void {
+    const instanceId = parseInt(fields[CM_START_FIELD_INSTANCE_ID] ?? '', 10)
+    const keystoneLevel = parseInt(fields[CM_START_FIELD_KEYSTONE_LEVEL] ?? '', 10)
+    if (isNaN(instanceId) || isNaN(keystoneLevel)) return
+
+    const challengeModeId = parseInt(fields[CM_START_FIELD_CHALLENGE_MODE_ID] ?? '', 10)
+    // parseCsvFields doesn't understand brackets, so "[9,10,147]" arrives split across
+    // several fields — rejoin everything from the affix field onwards.
+    const affixIds = fields
+      .slice(CM_START_FIELD_AFFIXES)
+      .join(',')
+      .replace(/[[\]]/g, '')
+      .split(',')
+      .map((s) => parseInt(s, 10))
+      .filter((n) => !isNaN(n))
+
+    this.emit('challengeModeStart', {
+      zoneName: fields[CM_START_FIELD_ZONE_NAME] ?? '',
+      instanceId,
+      challengeModeId: isNaN(challengeModeId) ? 0 : challengeModeId,
+      keystoneLevel,
+      affixIds,
+      timestamp
+    })
+  }
+
+  private handleChallengeModeEnd(fields: string[], timestamp: Date): void {
+    const instanceId = parseInt(fields[CM_END_FIELD_INSTANCE_ID] ?? '', 10)
+    if (isNaN(instanceId)) return
+
+    const keystoneLevel = parseInt(fields[CM_END_FIELD_KEYSTONE_LEVEL] ?? '', 10)
+    const totalTimeMs = parseInt(fields[CM_END_FIELD_TOTAL_TIME_MS] ?? '', 10)
+    const oldRating = parseFloat(fields[CM_END_FIELD_OLD_RATING] ?? '')
+    const newRating = parseFloat(fields[CM_END_FIELD_NEW_RATING] ?? '')
+
+    this.emit('challengeModeEnd', {
+      instanceId,
+      success: fields[CM_END_FIELD_SUCCESS] === '1',
+      keystoneLevel: isNaN(keystoneLevel) ? 0 : keystoneLevel,
+      totalTimeMs: isNaN(totalTimeMs) ? 0 : totalTimeMs,
+      oldRating: isNaN(oldRating) ? undefined : oldRating,
+      newRating: isNaN(newRating) ? undefined : newRating,
+      timestamp
+    })
+  }
+
+  private handleEncounterStart(fields: string[], timestamp: Date): void {
+    const encounterId = parseInt(fields[ENCOUNTER_FIELD_ID] ?? '', 10)
+    if (isNaN(encounterId)) return
+
+    this.emit('encounterStart', {
+      encounterId,
+      encounterName: fields[ENCOUNTER_FIELD_NAME] ?? '',
+      difficultyId: parseInt(fields[ENCOUNTER_FIELD_DIFFICULTY_ID] ?? '', 10) || 0,
+      groupSize: parseInt(fields[ENCOUNTER_FIELD_GROUP_SIZE] ?? '', 10) || 0,
+      instanceId: parseInt(fields[ENCOUNTER_START_FIELD_INSTANCE_ID] ?? '', 10) || 0,
+      timestamp
+    })
+  }
+
+  private handleEncounterEnd(fields: string[], timestamp: Date): void {
+    const encounterId = parseInt(fields[ENCOUNTER_FIELD_ID] ?? '', 10)
+    if (isNaN(encounterId)) return
+
+    const fightTimeMs = parseInt(fields[ENCOUNTER_END_FIELD_FIGHT_TIME_MS] ?? '', 10)
+
+    this.emit('encounterEnd', {
+      encounterId,
+      encounterName: fields[ENCOUNTER_FIELD_NAME] ?? '',
+      difficultyId: parseInt(fields[ENCOUNTER_FIELD_DIFFICULTY_ID] ?? '', 10) || 0,
+      groupSize: parseInt(fields[ENCOUNTER_FIELD_GROUP_SIZE] ?? '', 10) || 0,
+      success: fields[ENCOUNTER_END_FIELD_SUCCESS] === '1',
+      fightTimeMs: isNaN(fightTimeMs) ? undefined : fightTimeMs,
+      timestamp
+    })
   }
 
   private handleArenaMatchStart(fields: string[], timestamp: Date): void {
@@ -900,6 +1074,7 @@ export class CombatLogParser extends EventEmitter {
     if (isNaN(amount) || amount <= 0) return
 
     const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
+    const targetFlags = parseHexFlags(fields[SPELL_FIELD_TARGET_FLAGS] ?? '0')
     // Redirect pet/summon damage (Xuen, Storm Earth and Fire clones, Water Elemental,
     // etc.) to the owning player — see resolveEffectiveCaster.
     const effective = this.resolveEffectiveCaster(casterGuid, casterName)
@@ -910,6 +1085,7 @@ export class CombatLogParser extends EventEmitter {
       casterFlags,
       targetGuid,
       targetName,
+      targetFlags,
       spellId: !isNaN(spellId) ? spellId : undefined,
       spellName,
       amount,
@@ -931,6 +1107,7 @@ export class CombatLogParser extends EventEmitter {
     if (isNaN(amount) || amount <= 0) return
 
     const casterFlags = parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0')
+    const targetFlags = parseHexFlags(fields[SPELL_FIELD_TARGET_FLAGS] ?? '0')
     const effective = this.resolveEffectiveCaster(casterGuid, casterName)
 
     this.emit('spellDamage', {
@@ -939,6 +1116,7 @@ export class CombatLogParser extends EventEmitter {
       casterFlags,
       targetGuid,
       targetName,
+      targetFlags,
       spellId: undefined,
       spellName: 'Auto Attack',
       amount,

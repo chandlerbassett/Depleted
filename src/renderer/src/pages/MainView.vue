@@ -20,7 +20,7 @@ const { selected } = storeToRefs(recordingsStore)
 const { deleteRecording, deleteGroup, openFolder } = useMainView()
 
 const settingsOpen = ref(false)
-const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish' | 'hub'>('2v2')
+const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish' | 'mythic-plus' | 'hub'>('2v2')
 
 // -------------------------------------------------------------------------
 // Live recording elapsed-time indicator — ticks once per second while
@@ -56,6 +56,7 @@ const BRACKET_TABS = [
   { key: '3v3' as const, label: '3v3' },
   { key: 'solo-shuffle' as const, label: 'Shuffle' },
   { key: 'skirmish' as const, label: 'Skirmish' },
+  { key: 'mythic-plus' as const, label: 'Mythic+' },
 ] as const
 
 const { recordings } = storeToRefs(recordingsStore)

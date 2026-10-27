@@ -75,6 +75,14 @@ watch(
 
 const result = computed(() => props.recording.metadata.result)
 const bracket = computed(() => props.recording.metadata.bracket)
+const mythicPlus = computed(() => props.recording.metadata.mythicPlus)
+// Arena shows WIN/LOSS; a key shows its level and how it ended.
+const resultLabel = computed(() => {
+  const mp = mythicPlus.value
+  if (mp === undefined) return result.value
+  const outcome = mp.outcome === 'completed' ? 'Completed' : mp.outcome === 'depleted' ? 'Depleted' : 'Abandoned'
+  return `+${mp.keystoneLevel} ${outcome}`
+})
 const zone = computed(() => props.recording.metadata.zone)
 const formattedDuration = computed(() => fmtSecs(props.recording.metadata.duration))
 const formattedDate = computed(() => formatDate(props.recording.metadata.date))
@@ -187,9 +195,13 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   'cc-break': 'CC Break',
   'death-player': 'Death',
   'death-enemy': 'Kill',
+  'boss-kill': 'Boss kill',
+  'boss-wipe': 'Wipe',
+  'key-start': 'Key start',
+  'key-end': 'Key end',
 }
 
-const legendItems = [
+const arenaLegendItems = [
   { type: 'death-player', label: 'Death' },
   { type: 'death-enemy', label: 'Kill' },
   { type: 'cc', label: 'CC' },
@@ -199,11 +211,23 @@ const legendItems = [
   { type: 'trinket', label: 'Trinket' },
 ] as const
 
+const mythicPlusLegendItems = [
+  { type: 'death-player', label: 'Death' },
+  { type: 'boss-kill', label: 'Boss kill' },
+  { type: 'boss-wipe', label: 'Wipe' },
+  { type: 'interrupt', label: 'Interrupt' },
+] as const
+
+const legendItems = computed(() =>
+  bracket.value === 'mythic-plus' ? mythicPlusLegendItems : arenaLegendItems
+)
+
 const bracketLabel: Record<string, string> = {
   '2v2': '2v2',
   '3v3': '3v3',
   'solo-shuffle': 'Solo Shuffle',
   'skirmish': 'Skirmish',
+  'mythic-plus': 'Mythic+',
 }
 
 const CLASS_COLORS: Record<string, string> = {
@@ -599,6 +623,7 @@ function playerRating(name: string): number | undefined {
             'bg-purple-900 text-purple-300': bracket === '3v3',
             'bg-amber-900 text-amber-300': bracket === 'solo-shuffle',
             'bg-zinc-800 text-zinc-400': bracket === 'skirmish',
+            'bg-teal-900 text-teal-300': bracket === 'mythic-plus',
           }"
         >
           {{ bracketLabel[bracket] ?? bracket }}
@@ -607,7 +632,7 @@ function playerRating(name: string): number | undefined {
           class="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
           :class="result === 'WIN' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-400'"
         >
-          {{ result }}
+          {{ resultLabel }}
         </span>
         <template v-if="rating !== null">
           <span class="text-xs text-zinc-400 flex-shrink-0">

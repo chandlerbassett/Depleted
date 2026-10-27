@@ -23,6 +23,8 @@ import { registerTestModeIpc } from './ipc/testMode.ipc'
 import { CombatLogWatcher } from './combatlog/CombatLogWatcher'
 import { WindowCaptureRecorder } from './recorder/WindowCaptureRecorder'
 import { RecorderStateMachine } from './recorder/RecorderStateMachine'
+import type { ProcessingRequiredEvent } from './recorder/RecorderStateMachine'
+import { MythicPlusStateMachine } from './recorder/MythicPlusStateMachine'
 import { StorageManager } from './storage/StorageManager'
 import { readAddonCharacterInfo } from './addon/SavedVarsReader'
 import { resolveFfmpegPath } from './system/ffmpeg'
@@ -74,6 +76,7 @@ function createPipeline(): {
   watcher: CombatLogWatcher
   recorder: WindowCaptureRecorder
   stateMachine: RecorderStateMachine
+  mythicPlusMachine: MythicPlusStateMachine
   storageManager: StorageManager
 } {
   const wowPath = configStore.get('wowPath')
@@ -84,21 +87,26 @@ function createPipeline(): {
   const watcher = new CombatLogWatcher({ dir: logsDir, glob: COMBAT_LOG_GLOB })
   const recorder = new WindowCaptureRecorder()
   const localPlayer = readAddonCharacterInfo(wowPath)
+  const recorderOptions = {
+    bitrateKbps: configStore.get('videoBitrate'),
+    fps: configStore.get('videoFps'),
+    sourceHint: configStore.get('captureSourceHint'),
+    resolution: configStore.get('videoResolution')
+  }
   const stateMachine = new RecorderStateMachine(watcher, recorder, {
     rawRecordingsDir: rawDir,
     localPlayerName: localPlayer?.fullName ?? null,
     localPlayerGuid: localPlayer?.guid ?? null,
-    recorder: {
-      bitrateKbps: configStore.get('videoBitrate'),
-      fps: configStore.get('videoFps'),
-      sourceHint: configStore.get('captureSourceHint'),
-      resolution: configStore.get('videoResolution')
-    }
+    recorder: recorderOptions
+  })
+  const mythicPlusMachine = new MythicPlusStateMachine(watcher, recorder, {
+    rawRecordingsDir: rawDir,
+    recorder: recorderOptions
   })
   const storageManager = new StorageManager(storagePath)
 
-  // Subscribe to post-processing events from the state machine
-  stateMachine.on('processingRequired', (event) => {
+  // Post-processing is the same for arena matches and Mythic+ keys
+  const onProcessingRequired = (event: ProcessingRequiredEvent): void => {
     let ffmpegPath: string
     try {
       ffmpegPath = resolveFfmpegPath()
@@ -120,12 +128,14 @@ function createPipeline(): {
       .catch((err: Error) => {
         console.error('[Main] Post-processing failed:', err.message)
       })
-  })
+  }
+  stateMachine.on('processingRequired', onProcessingRequired)
+  mythicPlusMachine.on('processingRequired', onProcessingRequired)
 
   watcher.start()
   console.warn(`[Main] Combat log watcher started: ${logsDir}/${COMBAT_LOG_GLOB}`)
 
-  return { watcher, recorder, stateMachine, storageManager }
+  return { watcher, recorder, stateMachine, mythicPlusMachine, storageManager }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +174,7 @@ function destroyTray(): void {
 
 function createWindow(
   stateMachine: RecorderStateMachine,
+  mythicPlusMachine: MythicPlusStateMachine,
   storageManager: StorageManager
 ): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -200,7 +211,7 @@ function createWindow(
   })
 
   // Wire per-window push events (ipcMain.handle is registered once at startup)
-  wireRecorderWindow(stateMachine, mainWindow)
+  wireRecorderWindow([stateMachine, mythicPlusMachine], mainWindow)
   wireStorageWindow(storageManager, mainWindow)
   wireAddonWindow(configStore, mainWindow, stateMachine)
 
@@ -222,27 +233,29 @@ app.whenReady().then(() => {
   registerConfigIpc(configStore)
   registerLogAnalysisIpc(configStore)
 
-  const { recorder, stateMachine, storageManager } = createPipeline()
+  const { recorder, stateMachine, mythicPlusMachine, storageManager } = createPipeline()
 
   // Keep recorder options in sync with config changes (e.g. window selection in Settings).
   const recorderConfigKeys = ['videoBitrate', 'videoFps', 'captureSourceHint', 'videoResolution'] as const
   for (const key of recorderConfigKeys) {
     configStore.onDidChange(key, () => {
-      stateMachine.updateRecorderOptions({
+      const opts = {
         bitrateKbps: configStore.get('videoBitrate'),
         fps: configStore.get('videoFps'),
         sourceHint: configStore.get('captureSourceHint'),
         resolution: configStore.get('videoResolution')
-      })
+      }
+      stateMachine.updateRecorderOptions(opts)
+      mythicPlusMachine.updateRecorderOptions(opts)
     })
   }
 
   // Register ipcMain.handle commands once — re-registration throws in Electron.
-  registerRecorderIpc(stateMachine)
+  registerRecorderIpc([stateMachine, mythicPlusMachine])
   registerStorageIpc(storageManager)
   registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 
-  const mainWindow = createWindow(stateMachine, storageManager)
+  const mainWindow = createWindow(stateMachine, mythicPlusMachine, storageManager)
 
   // Create tray on startup if the setting is enabled, and react to changes.
   if (configStore.get('minimizeToTray')) {
@@ -260,7 +273,7 @@ app.whenReady().then(() => {
     // On macOS: clicking the dock icon shows the window even if it was hidden to tray.
     const wins = BrowserWindow.getAllWindows()
     if (wins.length === 0) {
-      createWindow(stateMachine, storageManager)
+      createWindow(stateMachine, mythicPlusMachine, storageManager)
     } else {
       wins[0]?.show()
     }

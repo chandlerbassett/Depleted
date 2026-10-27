@@ -11,7 +11,14 @@
 
 import { EventEmitter } from 'events'
 import { join } from 'path'
-import type { ArenaBracket, ArenaResult, RecorderStatus, TimelineEvent } from '@shared/ipc.types'
+import type {
+  ArenaBracket,
+  ArenaResult,
+  MythicPlusInfo,
+  RecorderStatus,
+  RecordingBracket,
+  TimelineEvent
+} from '@shared/ipc.types'
 import {
   SPELL_CLASS_MAP,
   DR_CATEGORY,
@@ -72,7 +79,8 @@ export interface StateMachineOptions {
 export interface ProcessingRequiredEvent {
   rawPath: string
   zoneName: string
-  bracket: ArenaBracket
+  bracket: RecordingBracket
+  // WIN/LOSS for arena; for Mythic+, WIN = key completed (see mythicPlus.outcome)
   result: ArenaResult
   durationSecs: number
   // Exact time the ARENA_MATCH_START event was received
@@ -117,6 +125,8 @@ export interface ProcessingRequiredEvent {
   // For multi-round sessions: how many processingRequired events share this rawPath.
   // StorageManager deletes the raw file only after all rounds have been processed.
   totalRoundsInSession?: number
+  // Mythic+ only (MythicPlusStateMachine)
+  mythicPlus?: MythicPlusInfo
 }
 
 export interface StateMachineEventMap {
