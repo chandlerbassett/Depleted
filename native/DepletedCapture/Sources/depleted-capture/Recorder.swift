@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreGraphics
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
@@ -79,6 +80,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         config.height = Int(size.height)
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.fps))
         config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        // Convert to sRGB / BT.709 to match the file's color tags. Left at its defaults,
+        // ScreenCaptureKit hands over pixels in the window's own color space (WoW's is
+        // BT.2020 primaries), which players then read as BT.709, so it looks washed out.
+        config.colorSpaceName = CGColorSpace.sRGB
+        config.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
         config.queueDepth = 8
         config.showsCursor = true
         config.capturesAudio = true
@@ -110,6 +116,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             AVVideoWidthKey: Int(size.width),
             AVVideoHeightKey: Int(size.height),
             AVVideoCompressionPropertiesKey: compression,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ],
         ]
         guard writer.canApply(outputSettings: videoSettings, forMediaType: .video) else {
             fail("This Mac can't encode \(options.codec.rawValue) at \(Int(size.width))x\(Int(size.height))")
