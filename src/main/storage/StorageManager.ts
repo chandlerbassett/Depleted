@@ -2,7 +2,7 @@
 //
 // Post-processing flow (triggered by RecorderStateMachine.processingRequired):
 //   1. Build output directory name and create it
-//   2. Trim raw video to exact arena duration (FFmpeg -c copy)
+//   2. Trim raw video to exact match/key duration (no re-encode; see MediaTools)
 //   3. Generate thumbnail from the trimmed video
 //   4. Write metadata.json
 //   5. Delete the raw (untrimmed) file
@@ -20,11 +20,47 @@ import { join, extname } from 'path'
 import { spawn } from 'child_process'
 import type { Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
 import type { ProcessingRequiredEvent } from '../recorder/RecorderStateMachine'
+import { runHelperCommand } from '../recorder/nativeHelper'
 import { writeMetadata, readMetadata } from './MetadataWriter'
 
 // ---------------------------------------------------------------------------
-// FFmpeg runner — injectable for testing
+// Media tools — trim + thumbnail. The depleted-capture helper (AVFoundation) on macOS,
+// FFmpeg elsewhere.
 // ---------------------------------------------------------------------------
+
+export interface MediaTools {
+  trim(inputPath: string, outputPath: string, offsetSecs: number, durationSecs: number): Promise<void>
+  thumbnail(videoPath: string, thumbnailPath: string): Promise<void>
+}
+
+export function nativeMediaTools(helperPath: string): MediaTools {
+  return {
+    trim: async (inputPath, outputPath, offsetSecs, durationSecs) => {
+      await runHelperCommand(helperPath, [
+        'trim',
+        '--input',
+        inputPath,
+        '--output',
+        outputPath,
+        '--start',
+        offsetSecs.toFixed(3),
+        '--duration',
+        String(durationSecs)
+      ])
+    },
+    thumbnail: async (videoPath, thumbnailPath) => {
+      await runHelperCommand(helperPath, ['thumbnail', '--input', videoPath, '--output', thumbnailPath, '--at', '5'])
+    }
+  }
+}
+
+export function ffmpegMediaTools(ffmpegPath: string, runner: FfmpegRunner = defaultFfmpegRunner): MediaTools {
+  return {
+    trim: (inputPath, outputPath, offsetSecs, durationSecs) =>
+      trimVideo(runner, ffmpegPath, inputPath, outputPath, offsetSecs, durationSecs),
+    thumbnail: (videoPath, thumbnailPath) => generateThumbnail(runner, ffmpegPath, videoPath, thumbnailPath)
+  }
+}
 
 export type FfmpegRunner = (ffmpegPath: string, args: string[]) => Promise<void>
 
@@ -61,14 +97,12 @@ export const defaultFfmpegRunner: FfmpegRunner = (
 
 export class StorageManager {
   private readonly storagePath: string
-  private readonly runner: FfmpegRunner
   // Tracks how many rounds still need to be processed for each raw file path.
   // The raw file is deleted only when all rounds sharing it have been processed.
   private readonly rawProcessingCounts = new Map<string, number>()
 
-  constructor(storagePath: string, runner: FfmpegRunner = defaultFfmpegRunner) {
+  constructor(storagePath: string) {
     this.storagePath = storagePath
-    this.runner = runner
   }
 
   // -------------------------------------------------------------------------
@@ -80,15 +114,14 @@ export class StorageManager {
   // timeline is empty in Stage 5 and populated in Stage 8.
   async processRecording(
     event: ProcessingRequiredEvent,
-    ffmpegPath: string,
+    media: MediaTools,
     timeline: TimelineEvent[] = []
   ): Promise<Recording> {
     const dirName = buildDirName(event)
     // dirName may be 'sessionDir/roundDir' for solo-shuffle or a flat name for other brackets.
     const dirPath = join(this.storagePath, ...dirName.split('/'))
-    // WindowCaptureRecorder names the raw file with the actual negotiated container
-    // extension (mp4 preferred, webm fallback) — mirror that for the trimmed output.
-    // FFmpeg's `-c copy` trim (below) is container-agnostic either way.
+    // The raw file's extension is the container the recorder produced (always mp4 from
+    // the native helper; mp4 or webm from MediaRecorder) — mirror it for the trimmed output.
     const videoExt = extname(event.rawPath).replace(/^\./, '') || 'mp4'
     const videoPath = join(dirPath, `recording.${videoExt}`)
     const thumbnailPath = join(dirPath, 'thumbnail.jpg')
@@ -100,15 +133,8 @@ export class StorageManager {
       (event.matchStartedAt.getTime() - event.recordingStartedAt.getTime()) / 1000
     )
 
-    await trimVideo(
-      this.runner,
-      ffmpegPath,
-      event.rawPath,
-      videoPath,
-      offsetSecs,
-      event.durationSecs
-    )
-    await generateThumbnail(this.runner, ffmpegPath, videoPath, thumbnailPath)
+    await media.trim(event.rawPath, videoPath, offsetSecs, event.durationSecs)
+    await media.thumbnail(videoPath, thumbnailPath)
 
     const metadata = buildMetadata(event, timeline, videoExt)
     await writeMetadata(dirPath, metadata)

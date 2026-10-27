@@ -33,25 +33,13 @@ import {
   type CaptureErrorPayload
 } from '@shared/captureIpc.types'
 import { resolveCaptureSource } from './sourceResolver'
+import type { CaptureRecorder, RecorderEventMap, RecorderOptions } from './CaptureRecorder'
+
+export type { RecorderOptions } from './CaptureRecorder'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface RecorderOptions {
-  // Persisted capture-source name (desktopCapturer source.name), or 'auto'/undefined
-  // for WoW-window auto-detect. Source ids aren't stable across restarts, so we
-  // resolve by name each time — see sourceResolver.ts.
-  sourceHint?: string
-  bitrateKbps?: number
-  fps?: number
-  resolution?: string
-  startupTimeoutMs?: number
-}
-
-export interface RecorderEventMap {
-  unexpectedStop: { code: null; outputPath: string; stderrTail: string[] }
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -66,7 +54,7 @@ const STOP_FLUSH_TIMEOUT_MS = 5_000
 // WindowCaptureRecorder
 // ---------------------------------------------------------------------------
 
-export class WindowCaptureRecorder extends EventEmitter {
+export class WindowCaptureRecorder extends EventEmitter implements CaptureRecorder {
   private hiddenWindow: BrowserWindow | null = null
   private writeStream: WriteStream | null = null
   private writeChain: Promise<void> = Promise.resolve()

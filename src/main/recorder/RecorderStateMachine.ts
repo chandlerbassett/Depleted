@@ -34,7 +34,7 @@ import {
 import { getClassDefensives, type WowClass } from '@shared/classAbilities'
 import { detectMistakes, type AuraWindow, type DetectedMistake } from '../analysis/mistakeDetector'
 import type { CombatLogWatcher } from '../combatlog/CombatLogWatcher'
-import type { RecorderOptions, WindowCaptureRecorder } from './WindowCaptureRecorder'
+import type { CaptureRecorder, RecorderOptions } from './CaptureRecorder'
 import type {
   ArenaZoneEnteredEvent,
   ArenaMatchStartEvent,
@@ -70,7 +70,7 @@ export interface StateMachineOptions {
   // matching. null = unknown (addon not connected) — falls back to name matching, then
   // to the unreliable ARENA_MATCH_START field.
   localPlayerGuid: string | null
-  // Options forwarded to WindowCaptureRecorder.start()
+  // Options forwarded to recorder.start()
   recorder?: RecorderOptions
 }
 
@@ -307,10 +307,10 @@ export class RecorderStateMachine extends EventEmitter {
   private currentMatchLocalRating: number | null = null
 
   private readonly watcher: CombatLogWatcher
-  private readonly recorder: WindowCaptureRecorder
+  private readonly recorder: CaptureRecorder
   private options: StateMachineOptions
 
-  constructor(watcher: CombatLogWatcher, recorder: WindowCaptureRecorder, options: StateMachineOptions) {
+  constructor(watcher: CombatLogWatcher, recorder: CaptureRecorder, options: StateMachineOptions) {
     super()
     this.watcher = watcher
     this.recorder = recorder

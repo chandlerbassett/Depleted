@@ -16,7 +16,6 @@ const {
   addonState,
   addonInstalling,
   addonInstallError,
-  brewState,
   ffmpegState,
   ffmpegPath,
   showFfmpegSection,
@@ -30,7 +29,6 @@ const {
   openSystemPreferences,
   checkAddon,
   installAddon,
-  checkBrew,
   checkFfmpeg,
   next,
   back,
@@ -303,7 +301,7 @@ async function handleComplete(): Promise<void> {
               FFmpeg
             </template>
             <template v-else>
-              Homebrew &amp; FFmpeg
+              Video tools
             </template>
           </h2>
           <p class="text-sm text-zinc-400 mb-5">
@@ -320,66 +318,12 @@ async function handleComplete(): Promise<void> {
               <code class="text-xs bg-zinc-800 px-1 rounded">C:\ffmpeg\bin\</code>.
             </template>
             <template v-else>
-              FFmpeg trims and generates thumbnails for your recordings after each match. It must
-              be installed via Homebrew.
+              Nothing to install. Depleted records, trims and makes thumbnails with macOS's own
+              ScreenCaptureKit and hardware video encoder.
             </template>
           </p>
 
-          <!-- macOS only: Sub-step A — Homebrew -->
-          <div
-            v-if="platform !== 'win32'"
-            class="mb-5"
-          >
-            <p class="text-sm font-medium text-zinc-300 mb-2">
-              Step A — Homebrew
-            </p>
-            <template v-if="brewState === 'ok'">
-              <div
-                class="flex items-center gap-2 p-2.5 rounded-lg border border-green-700 bg-green-950/30"
-              >
-                <span class="text-green-400">✓</span>
-                <span class="text-sm text-green-400">Homebrew is installed</span>
-              </div>
-            </template>
-            <template v-else-if="brewState === 'fail'">
-              <p class="text-sm text-zinc-400 mb-2">
-                Homebrew is not installed. Run this command in Terminal:
-              </p>
-              <div class="relative">
-                <code
-                  class="block text-xs font-mono bg-zinc-900 border border-zinc-700 p-2.5 rounded-lg text-zinc-300 break-all"
-                >
-                  /bin/bash -c "$(curl -fsSL
-                  https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-                </code>
-              </div>
-              <p class="text-xs text-zinc-500 mt-2">
-                Or visit <button
-                  class="text-blue-400 hover:text-blue-300 underline"
-                  @click="() => window.electron.invoke('system:openUrl', { url: 'https://brew.sh' })"
-                >
-                  brew.sh
-                </button> for instructions.
-              </p>
-              <button
-                class="btn-secondary mt-3"
-                @click="checkBrew"
-              >
-                Check again
-              </button>
-            </template>
-            <template v-else>
-              <button
-                class="btn-secondary"
-                :disabled="brewState === 'checking'"
-                @click="checkBrew"
-              >
-                {{ brewState === 'checking' ? 'Checking…' : 'Check Homebrew' }}
-              </button>
-            </template>
-          </div>
-
-          <!-- FFmpeg check (always shown on Windows; shown after Homebrew ok on macOS) -->
+          <!-- FFmpeg check (Windows only; macOS uses the built-in capture helper) -->
           <template v-if="showFfmpegSection">
             <div :class="platform !== 'win32' ? 'border-t border-zinc-800 pt-5' : ''">
               <p
@@ -542,6 +486,7 @@ async function handleComplete(): Promise<void> {
               </span>
             </div>
             <div
+              v-if="platform === 'win32'"
               class="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800"
             >
               <span class="text-green-400 text-base">✓</span>

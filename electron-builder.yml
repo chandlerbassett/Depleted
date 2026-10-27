@@ -27,6 +27,17 @@ mac:
     - target: dmg
       arch:
         - universal   # fat binary: arm64 + x64 in one .app
+  # The native capture helper (npm run build:native) → Contents/Resources/bin.
+  # Added to the top-level extraResources (the addon), not replacing them.
+  extraResources:
+    - from: native/bin
+      to: bin
+      filter:
+        - depleted-capture
+  # The helper is already a fat binary, so it's identical in the x64 and arm64 halves
+  # of a universal build; @electron/universal refuses to merge that unless told to.
+  x64ArchFiles: Contents/Resources/bin/depleted-capture
+  minimumSystemVersion: "13.0"
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   hardenedRuntime: false

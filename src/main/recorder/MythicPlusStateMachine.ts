@@ -1,6 +1,6 @@
 // Mythic+ recording state machine: idle → recording → processing → idle.
 //
-// Runs alongside RecorderStateMachine (arena) and shares the same WindowCaptureRecorder.
+// Runs alongside RecorderStateMachine (arena) and shares the same recorder.
 // The two never overlap in practice — you can't be in an arena and a keystone at once —
 // but each checks recorder.isRecording() before starting so neither can clobber the other.
 //
@@ -45,7 +45,7 @@ import type {
   UnitDiedEvent,
   ZoneChangedEvent
 } from '../combatlog/CombatLogParser'
-import type { RecorderOptions, WindowCaptureRecorder } from './WindowCaptureRecorder'
+import type { CaptureRecorder, RecorderOptions } from './CaptureRecorder'
 import type { ProcessingRequiredEvent, StateMachineEventMap } from './RecorderStateMachine'
 
 // ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ import type { ProcessingRequiredEvent, StateMachineEventMap } from './RecorderSt
 export interface MythicPlusStateMachineOptions {
   // Directory for raw (untrimmed) recordings before post-processing
   rawRecordingsDir: string
-  // Options forwarded to WindowCaptureRecorder.start()
+  // Options forwarded to recorder.start()
   recorder?: RecorderOptions
   // Overridable for tests
   postRollSecs?: number
@@ -118,12 +118,12 @@ export class MythicPlusStateMachine extends EventEmitter {
   // starts mid-finalize waits on this before starting the recorder again.
   private finalizing: Promise<void> = Promise.resolve()
   private readonly watcher: CombatLogWatcher
-  private readonly recorder: WindowCaptureRecorder
+  private readonly recorder: CaptureRecorder
   private options: MythicPlusStateMachineOptions
 
   constructor(
     watcher: CombatLogWatcher,
-    recorder: WindowCaptureRecorder,
+    recorder: CaptureRecorder,
     options: MythicPlusStateMachineOptions
   ) {
     super()

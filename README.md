@@ -9,15 +9,17 @@ deaths, interrupts. Click a marker to jump straight to it.
 The goal is a native-feeling macOS take on what [Warcraft Recorder](https://warcraftrecorder.com/)
 does on Windows. Arena recording (2v2, 3v3, Solo Shuffle) from the original project still works.
 
-> 🚧 **Early and in active development.** Mythic+ support is new and hasn't yet been
-> verified against a full real-world key. Expect rough edges.
+> 🚧 **Early and in active development.** Mythic+ log parsing has been checked against real
+> 12.x keys, but full recordings haven't been tested end to end yet. Expect rough edges.
 
 ---
 
 ## What it does today
 
 **Mythic+**
-- Starts recording when the key is activated (`CHALLENGE_MODE_START`) and stops a few seconds
+- Records the WoW window and game audio with ScreenCaptureKit, encoded to H.264 MP4 on the
+  Mac's hardware video encoder, so recording costs very little CPU while you play
+- Starts recording when the key is activated (`CHALLENGE_MODE_START`) and stops about 18 seconds
   after it ends (`CHALLENGE_MODE_END`), so the completion screen is included
 - Marks every boss pull as a **kill** or **wipe**
 - Marks **party deaths**, each with a recap of the last 10 seconds of damage taken
@@ -38,20 +40,23 @@ to watch it with its event timeline.
 
 1. ~~Record M+ keys on the existing capture pipeline~~ ✅
 2. Polish the M+ view: run list with timer/upgrade level, per-boss breakdown, damage meters
-3. Replace capture with native **ScreenCaptureKit + VideoToolbox** (hardware H.264/HEVC,
-   lower CPU on long keys, a pre-roll buffer so the countdown isn't missed)
+3. ~~Replace capture with native **ScreenCaptureKit + VideoToolbox**~~ ✅ (still to do: a pre-roll
+   buffer so the countdown isn't missed)
 4. "Good / bad moment" detection: avoidable damage, missed kicks, defensive usage on deaths
 
 ---
 
 ## Requirements
 
-- macOS 11 (Big Sur) or later, Apple Silicon or Intel
-- [FFmpeg](https://ffmpeg.org): `brew install ffmpeg` (used to trim recordings and make thumbnails)
+- macOS 13 (Ventura) or later, Apple Silicon or Intel
+- Xcode Command Line Tools to build from source (`xcode-select --install`)
 - Screen Recording permission (the app prompts you during onboarding)
 - **Advanced Combat Logging** turned on in WoW (see below)
 
-The codebase still builds for Windows, but macOS is the focus and the only platform being tested.
+Nothing else to install: capture, encoding, trimming and thumbnails all use macOS's own
+ScreenCaptureKit and AVFoundation, through a small Swift helper the app bundles
+(`native/DepletedCapture`). The codebase still builds for Windows (where it falls back to
+Chromium capture and needs FFmpeg), but macOS is the focus and the only platform being tested.
 
 ---
 
@@ -61,8 +66,9 @@ There are no published releases of this version yet. To build and run it locally
 
 ```bash
 npm install
+npm run build:native     # builds the Swift capture helper into native/bin/
 npm run dev              # run with hot reload
-npm run build:mac        # or build a .dmg into dist/
+npm run build:mac        # or build a .dmg into dist/ (builds the helper too)
 ```
 
 The build isn't code-signed, so the first time you open a `.dmg` build, clear the quarantine flag:
@@ -134,15 +140,14 @@ Game audio is captured automatically through system loopback, so no extra audio 
 
 ## Known limitations
 
-- **Big files on long keys.** At the default 8 Mbps, a 35-minute key is roughly 2 GB. Capture
-  currently uses Chromium's MediaRecorder with software VP8/WebM encoding, which also costs CPU
-  while WoW is running. Step 3 of the roadmap replaces this.
+- **Big files on long keys.** At the default 8 Mbps, a 35-minute key is roughly 2 GB. Lower
+  the bitrate in Settings if that's too much; the hardware encoder holds up well at 5-6 Mbps.
 - **The first few seconds of a key can be missed**, because recording starts once the app
   reads the key-start line from the log.
 - **No damage-done meter for M+ yet.** The parser currently only tracks damage aimed at players
   (an arena-era filter).
-- **The M+ log format hasn't been checked against a real Midnight key yet.** The test log is
-  synthetic.
+- **A key completed over time may still be labeled completed.** The log's success flag
+  doesn't say whether the timer was beaten.
 - The build isn't code-signed (see Install above).
 
 ---
@@ -151,6 +156,7 @@ Game audio is captured automatically through system loopback, so no extra audio 
 
 ```bash
 npm install
+npm run build:native # Swift capture helper (macOS)
 npm run dev          # dev mode with hot reload
 npm test             # vitest
 npm run lint
@@ -164,11 +170,13 @@ npm run build:mac    # macOS .dmg
 src/
   main/
     combatlog/   — log watcher + parser (arena and Mythic+ events)
-    recorder/    — capture, RecorderStateMachine (arena), MythicPlusStateMachine
+    recorder/    — NativeCaptureRecorder (macOS helper), RecorderStateMachine (arena), MythicPlusStateMachine
     storage/     — trimming, thumbnails, metadata, recordings library
     ipc/         — main ↔ renderer channels
   renderer/src/  — Vue 3 + Pinia UI
   shared/        — types and constants shared by main and renderer
+native/
+  DepletedCapture/    — Swift helper: ScreenCaptureKit capture, hardware encode, trim, thumbnail
 addon/
   DepletedCompanion/  — WoW addon (Lua)
 tests/

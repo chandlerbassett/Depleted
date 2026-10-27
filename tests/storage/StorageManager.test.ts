@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { StorageManager, buildDirName, buildMetadata } from '../../src/main/storage/StorageManager'
+import { StorageManager, buildDirName, buildMetadata, ffmpegMediaTools } from '../../src/main/storage/StorageManager'
 import { writeMetadata } from '../../src/main/storage/MetadataWriter'
 import type { RecordingMetadata } from '../../src/shared/ipc.types'
 import type { ProcessingRequiredEvent } from '../../src/main/recorder/RecorderStateMachine'
@@ -342,8 +342,8 @@ describe('StorageManager.processRecording', () => {
       }
     })
 
-    const manager = new StorageManager(tmpDir, mockRunner)
-    const recording = await manager.processRecording(event, '/usr/local/bin/ffmpeg')
+    const manager = new StorageManager(tmpDir)
+    const recording = await manager.processRecording(event, ffmpegMediaTools('/usr/local/bin/ffmpeg', mockRunner))
 
     // Two FFmpeg calls: trim and thumbnail
     expect(mockRunner).toHaveBeenCalledTimes(2)
@@ -387,26 +387,26 @@ describe('StorageManager.processRecording', () => {
       if (output !== undefined) await fs.writeFile(output, 'fake output')
     })
 
-    const manager = new StorageManager(tmpDir, mockRunner)
+    const manager = new StorageManager(tmpDir)
 
     // Process rounds 1 and 2 of a 3-round session sharing the same raw file
     await manager.processRecording(
       { ...EVENT_SS_R3, rawPath, roundNumber: 1, totalRoundsInSession: 3 },
-      '/usr/local/bin/ffmpeg'
+      ffmpegMediaTools('/usr/local/bin/ffmpeg', mockRunner)
     )
     // Raw file still exists after round 1
     await expect(fs.access(rawPath)).resolves.toBeUndefined()
 
     await manager.processRecording(
       { ...EVENT_SS_R3, rawPath, roundNumber: 2, totalRoundsInSession: 3 },
-      '/usr/local/bin/ffmpeg'
+      ffmpegMediaTools('/usr/local/bin/ffmpeg', mockRunner)
     )
     // Raw file still exists after round 2
     await expect(fs.access(rawPath)).resolves.toBeUndefined()
 
     await manager.processRecording(
       { ...EVENT_SS_R3, rawPath, roundNumber: 3, totalRoundsInSession: 3 },
-      '/usr/local/bin/ffmpeg'
+      ffmpegMediaTools('/usr/local/bin/ffmpeg', mockRunner)
     )
     // Raw file deleted after last round
     await expect(fs.access(rawPath)).rejects.toThrow()
@@ -430,8 +430,8 @@ describe('StorageManager.processRecording', () => {
       if (output !== undefined) await fs.writeFile(output, '')
     })
 
-    const manager = new StorageManager(tmpDir, mockRunner)
-    await manager.processRecording(event, '/usr/local/bin/ffmpeg')
+    const manager = new StorageManager(tmpDir)
+    await manager.processRecording(event, ffmpegMediaTools('/usr/local/bin/ffmpeg', mockRunner))
 
     // Offset clamped to 0: args[0] = '-ss', args[1] = '0.000'
     expect(capturedArgs[0]?.[1]).toBe('0.000')

@@ -1,7 +1,7 @@
 // FFmpeg binary resolution + macOS Screen Recording permission check.
 //
-// FFmpeg is no longer used for live capture (see WindowCaptureRecorder) — only for
-// post-processing (StorageManager: trim + thumbnail), identically on both platforms.
+// FFmpeg is only used on Windows, for post-processing (StorageManager: trim + thumbnail).
+// macOS does capture and post-processing with the native helper (native/DepletedCapture).
 
 import { execSync } from 'child_process'
 import { systemPreferences } from 'electron'
