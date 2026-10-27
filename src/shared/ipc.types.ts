@@ -6,10 +6,11 @@
 // Bracket and result types
 // ---------------------------------------------------------------------------
 
-export type ArenaBracket = '2v2' | '3v3' | 'solo-shuffle' | 'skirmish'
-// Everything a recording can be: an arena bracket, or a Mythic+ key.
-export type RecordingBracket = ArenaBracket | 'mythic-plus'
-export type ArenaResult = 'WIN' | 'LOSS'
+// Depleted records Mythic+ keys only. Recordings from the arena era (other brackets)
+// may still be on disk; StorageManager skips them.
+export type RecordingBracket = 'mythic-plus'
+// WIN = key completed, LOSS = depleted or abandoned (MythicPlusInfo.outcome has the detail)
+export type RecordingResult = 'WIN' | 'LOSS'
 
 export type RecorderStatus = 'idle' | 'waiting' | 'recording' | 'processing' | 'error'
 
@@ -18,17 +19,8 @@ export type RecorderStatus = 'idle' | 'waiting' | 'recording' | 'processing' | '
 // ---------------------------------------------------------------------------
 
 export type TimelineEventType =
-  | 'arena-start'
-  | 'arena-end'
   | 'death-player'
-  | 'death-enemy'
-  | 'cc'
-  | 'defensive'
-  | 'offensive'
   | 'interrupt'
-  | 'cc-break'
-  | 'trinket'
-  // Mythic+ only
   | 'key-start'
   | 'key-end'
   | 'boss-kill'
@@ -63,10 +55,6 @@ export interface TimelineEvent {
   casterName?: string   // who cast the spell
   targetName?: string   // who was targeted
   target?: 'player' | 'enemy'
-  isHealerCC?: boolean  // CC whose target is a confirmed healer
-  unusedDefensives?: string[]  // defensives that were off cooldown at time of death (local player only)
-  isMistake?: boolean   // flagged as a mistake (e.g. DR-immune CC, bad interrupt)
-  mistakeReason?: string // human-readable reason, e.g. "DR immune", "Bad interrupt"
   deathSummary?: DeathHit[]  // last 10 seconds of incoming damage (death events only)
   deathHealing?: DeathHit[]  // last 10 seconds of healing received (death events only)
   deathCCTaken?: DeathCastEvent[]  // CC applied to the dying player in the last 10 seconds
@@ -80,26 +68,6 @@ export interface TimelineEvent {
   casterHpPct?: number
 }
 
-export type MistakeSeverity = 'HIGH' | 'MEDIUM' | 'LOW'
-
-// A single post-match mistake finding (see src/main/analysis/mistakeDetector.ts).
-export interface DetectedMistake {
-  id: string
-  severity: MistakeSeverity
-  title: string
-  tip: string
-  timestamp: number
-  spellId?: number
-  spellName?: string
-  targetName?: string
-  // Name of the player this mistake is "about" — i.e. who should learn from it (usually
-  // the caster who committed the mistake), used to power the Mistakes panel's per-player
-  // filter. Distinct from targetName, which is whoever/whatever was affected by the cast
-  // (an enemy CC'd into immunity, a healer left free, etc.) and isn't always the same
-  // person as the one who made the mistake.
-  player?: string
-}
-
 // ---------------------------------------------------------------------------
 // Recording metadata (written to metadata.json, read back by storage layer)
 // ---------------------------------------------------------------------------
@@ -108,7 +76,7 @@ export interface RecordingMetadata {
   date: string // ISO 8601
   zone: string
   bracket: RecordingBracket
-  result: ArenaResult
+  result: RecordingResult
   duration: number // seconds
   // Video container extension without the dot, e.g. "mp4" or "webm" — depends on which
   // MediaRecorder mimeType WindowCaptureRecorder negotiated (mp4 preferred, webm
@@ -117,33 +85,15 @@ export interface RecordingMetadata {
   playerName: string    // local player fullName (Name-Realm), empty if addon not connected
   playerClass: string
   playerSpec: string
+  // Party roster
   teamComp: string[]
-  enemyComp: string[]
-  // name → spec string derived from COMBATANT_INFO specId (populated at match start)
+  // name → spec string
   knownSpecs: Record<string, string>
-  // names of confirmed healers (from SPELL_HEAL cross-heals + specId)
-  healerNames: string[]
-  rating: { before: number; after: number } | null
-  // name → personal rating from COMBATANT_INFO (populated at match start)
-  playerRatings?: Record<string, number>
-  // name → total damage absorbed by shields this player cast (SPELL_ABSORBED)
-  playerAbsorb?: Record<string, number>
-  // Per-player meters (Details!/Skada-style bar charts) — name → total for the match/round
+  // Per-player meters (Details!/Skada-style bar charts) — name → total for the key
   playerDamageDone?: Record<string, number>
   playerDamageTaken?: Record<string, number>
   playerHealingDone?: Record<string, number>
-  // Post-match mistake analysis (see src/main/analysis/mistakeDetector.ts)
-  mistakes?: DetectedMistake[]
-  // Per-second cumulative damage for line charts (index = second from match start)
-  teamDmgBySecond?: number[]
-  enemyDmgBySecond?: number[]
-  teamHealBySecond?: number[]
-  enemyHealBySecond?: number[]
-  // Solo Shuffle only
-  round?: number
-  sessionId?: string
-  // Mythic+ only
-  mythicPlus?: MythicPlusInfo
+  mythicPlus: MythicPlusInfo
   events: TimelineEvent[]
 }
 
@@ -187,49 +137,6 @@ export interface Recording {
 }
 
 // ---------------------------------------------------------------------------
-// Log analysis types
-// ---------------------------------------------------------------------------
-
-export interface ArenaPlayerStats {
-  guid: string
-  name: string
-  team: number        // 0 = local player's team, 1 = enemy team
-  ratingBefore: number
-  ratingAfter: number
-  isHealer: boolean
-  className: string   // inferred from spell events, empty if no tracked spells observed
-  specName: string    // inferred from spec-unique spell events, empty if undetermined
-}
-
-export interface MatchAnalysisSummary {
-  playerDeaths: number
-  enemyDeaths: number
-  ccCount: number
-  interruptCount: number
-  defensiveCount: number
-  offensiveCount: number
-  ccBreakCount: number
-}
-
-export interface MatchAnalysis {
-  id: string
-  bracket: ArenaBracket
-  zone: string
-  result: ArenaResult
-  duration: number
-  date: string
-  playerName: string
-  ratingBefore?: number
-  ratingAfter?: number
-  round?: number
-  sessionId?: string
-  events: TimelineEvent[]
-  summary: MatchAnalysisSummary
-  playerTeam: ArenaPlayerStats[]
-  enemyTeam: ArenaPlayerStats[]
-}
-
-// ---------------------------------------------------------------------------
 // Command channels: ipcMain.handle / ipcRenderer.invoke (request/response)
 // ---------------------------------------------------------------------------
 
@@ -248,10 +155,6 @@ export interface IpcCommands {
   'config:get': { params: { key: string }; result: unknown }
   'config:set': { params: { key: string; value: unknown }; result: void }
   'config:getAll': { params: void; result: AppConfig }
-
-  // Log file analysis
-  'logAnalysis:parseFile': { params: { filePath: string }; result: MatchAnalysis[] }
-  'logAnalysis:getCache': { params: void; result: { filePath: string; matches: MatchAnalysis[] } | null }
 
   // Addon connection status
   'system:getAddonStatus': {
@@ -280,14 +183,13 @@ export interface IpcCommands {
   'system:checkWowPath': { params: { path: string }; result: { valid: boolean } }
   'system:openSystemPreferences': { params: void; result: void }
   'system:pickFolder': { params: void; result: { path: string | null } }
-  'system:pickLogFile': { params: void; result: { path: string | null } }
   'system:openUrl': { params: { url: string }; result: { success: boolean; error?: string } }
   'system:relaunch': { params: void; result: void }
   'system:getPlatform': { params: void; result: { platform: string } }
 
   // Test mode — records a short clip of the capture source so the user can verify
-  // the app will work before an actual match, without needing a full arena game.
-  // Rejects if a real match recording is already in progress (stateMachine not idle).
+  // the app will work before running a key.
+  // Rejects if a key is already being recorded (stateMachine not idle).
   'testMode:start': { params: void; result: { success: boolean; error?: string; videoPath?: string } }
   // Deletes the last test recording's file + containing directory.
   'testMode:cleanup': { params: void; result: void }
@@ -300,7 +202,6 @@ export interface IpcCommands {
 export interface IpcEvents {
   'recorder:statusChanged': { status: RecorderStatus; zone?: string }
   'recorder:error': { message: string }
-  'combatlog:arenaDetected': { zone: string; bracket: ArenaBracket }
   // Fired after a recording is successfully post-processed
   'storage:recordingProcessed': { recording: Recording }
   // Fired on startup when orphaned recording directories are found
@@ -311,8 +212,7 @@ export interface IpcEvents {
   'testMode:countdown': { secondsRemaining: number }
 }
 
-// External character-stats site used for the "view my stats" links in the Team panel
-// and the My PVP Hub "Your Characters" list.
+// External character-stats site opened when a player name is clicked in a recording.
 export type StatsSite = 'raiderio' | 'warcraftlogs' | 'armory'
 
 // WoW region — used to resolve a character's realm when the combat log name has no

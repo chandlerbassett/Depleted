@@ -1,8 +1,8 @@
 ## Interface: 120001
 ## Title: |cff2dd4bfDepleted|r Companion
-## Notes: Companion for the Depleted desktop recorder. Saves your character info and auto-enables combat logging in Mythic+ and arenas. Type /depleted for info. Does NOT read game memory, intercept packets, or modify gameplay in any way.
+## Notes: Companion for the Depleted desktop recorder. Saves your character info and auto-enables combat logging in Mythic+. Type /depleted for info. Does NOT read game memory, intercept packets, or modify gameplay in any way.
 ## Author: Depleted
-## Version: 2.0.0
+## Version: 2.1.0
 ## SavedVariables: DepletedDB
 
 DepletedCompanion.lua

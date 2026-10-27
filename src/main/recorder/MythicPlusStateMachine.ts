@@ -1,8 +1,7 @@
 // Mythic+ recording state machine: idle → recording → processing → idle.
 //
-// Runs alongside RecorderStateMachine (arena) and shares the same recorder.
-// The two never overlap in practice — you can't be in an arena and a keystone at once —
-// but each checks recorder.isRecording() before starting so neither can clobber the other.
+// Shares the recorder with test mode, so it checks recorder.isRecording() before
+// starting rather than clobbering a test clip.
 //
 // State transitions:
 //   idle       → recording  : challengeModeStart — recorder.start() is called here
@@ -12,8 +11,7 @@
 //   processing → idle       : recorder stopped, processingRequired emitted
 //   any        → error      : recorder crashes or start/stop fails
 //
-// Unlike arena, nothing is aborted on zone exit: a key is 30+ minutes of footage, so an
-// abandoned key is still saved (outcome 'abandoned') rather than thrown away.
+// Nothing is aborted on zone exit: a key is 30+ minutes of footage, so an abandoned key is still saved (outcome 'abandoned') rather than thrown away.
 
 import { EventEmitter } from 'events'
 import { join } from 'path'
@@ -47,7 +45,7 @@ import type {
   ZoneChangedEvent
 } from '../combatlog/CombatLogParser'
 import type { CaptureRecorder, RecorderOptions } from './CaptureRecorder'
-import type { ProcessingRequiredEvent, StateMachineEventMap } from './RecorderStateMachine'
+import type { ProcessingRequiredEvent, StateMachineEventMap } from './types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -198,10 +196,10 @@ export class MythicPlusStateMachine extends EventEmitter {
 
   private onKeyStart(e: ChallengeModeStartEvent): void {
     // If we hold the recorder for a previous key it's ours to stop; if something else
-    // holds it (arena, test mode), leave it alone.
+    // holds it (test mode), leave it alone.
     const ownsRecorder = this.session !== null
     if (!ownsRecorder && this.recorder.isRecording()) {
-      console.warn('[MythicPlus] Recorder already busy (arena or test mode) — not recording this key')
+      console.warn('[MythicPlus] Recorder already busy (test mode) — not recording this key')
       return
     }
 
@@ -368,27 +366,16 @@ export class MythicPlusStateMachine extends EventEmitter {
     const event: ProcessingRequiredEvent = {
       rawPath: finalPath,
       zoneName: session.start.zoneName,
-      bracket: 'mythic-plus',
       result: outcome === 'completed' ? 'WIN' : 'LOSS',
       durationSecs,
       matchStartedAt: videoStartedAt,
       recordingStartedAt,
       timeline,
       knownSpecs: {},
-      healerNames: [],
       teamComp: [...session.roster.values()],
-      enemyComp: [],
-      playerRatings: {},
-      playerAbsorb: {},
       playerDamageDone: Object.fromEntries(session.dmgDoneByName),
       playerDamageTaken: Object.fromEntries(session.dmgTakenByName),
       playerHealingDone: Object.fromEntries(session.healDoneByName),
-      detectedMistakes: [],
-      teamDmgBySecond: [],
-      enemyDmgBySecond: [],
-      teamHealBySecond: [],
-      enemyHealBySecond: [],
-      // No before/after pair for M+ (see MythicPlusInfo.score), so leave the arena rating unset.
       mythicPlus
     }
 
@@ -582,7 +569,7 @@ export class MythicPlusStateMachine extends EventEmitter {
 
     // Sliding death-recap window per party member. Hits arrive in time order, so trim
     // from the front rather than re-filtering the whole array on every hit (M+ logs are
-    // far busier than arena).
+    // busy).
     const relSecs = this.relSecs(e.timestamp)
     const hits = session.recentDamageByGuid.get(e.targetGuid) ?? []
     hits.push({

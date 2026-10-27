@@ -1,36 +1,8 @@
-// Parses WoW combat log lines and emits typed arena and Mythic+ events.
+// Parses WoW combat log lines and emits typed Mythic+ events.
 // Line format: "M/D/YYYY HH:MM:SS.mmm-4  EVENT_TYPE,field1,field2,..." (see parseWowTimestamp)
 // Two spaces separate the timestamp from the event data.
-//
-// IMPORTANT: Field indices for ARENA_MATCH_STATS must be verified against
-// each WoW patch's combat log format. See STATS_FIELD_* constants below.
 
 import { EventEmitter } from 'events'
-import type { ArenaBracket, ArenaResult } from '@shared/ipc.types'
-import {
-  ARENA_ZONE_IDS,
-  ARENA_ZONE_NAMES,
-  BRACKET_FIELD_MAP,
-  SOLO_SHUFFLE_ROUNDS_PER_SESSION,
-  SPELL_IDS_CC,
-  SPELL_IDS_DEFENSIVE,
-  SPELL_IDS_OFFENSIVE,
-  SPELL_IDS_INTERRUPT,
-  SPELL_IDS_CC_BREAK,
-  SPELL_IDS_TRINKET,
-  SPELL_IDS_IMMUNITY
-} from '@shared/constants'
-
-// ---------------------------------------------------------------------------
-// ARENA_MATCH_STATS field indices (0-indexed, after the event type field).
-// Verify these against the active patch's combat log format.
-// Approximate layout: GUID, name, realm, teamIndex, teamName, score, ..., ratingBefore, ratingAfter
-// ---------------------------------------------------------------------------
-const STATS_FIELD_PLAYER_GUID = 0
-const STATS_FIELD_PLAYER_NAME = 1
-const STATS_FIELD_TEAM = 3        // 0 = local player's team, 1 = enemy — verify per patch
-const STATS_FIELD_RATING_BEFORE = 13
-const STATS_FIELD_RATING_AFTER = 14
 
 // ---------------------------------------------------------------------------
 // ZONE_CHANGE field indices
@@ -69,28 +41,13 @@ const ENCOUNTER_END_FIELD_SUCCESS = 4
 const ENCOUNTER_END_FIELD_FIGHT_TIME_MS = 5
 
 // ---------------------------------------------------------------------------
-// ARENA_MATCH_START field indices
-// ---------------------------------------------------------------------------
-const MATCH_START_FIELD_INSTANCE_ID = 0
-const MATCH_START_FIELD_BRACKET = 2
-// Field 3: which team the logging player is on (0 or 1). Used to derive WIN/LOSS from
-// ARENA_MATCH_END's winningTeam, since the logging player is not always on team 0.
-const MATCH_START_FIELD_LOCAL_TEAM = 3
-
-// ---------------------------------------------------------------------------
 // COMBATANT_INFO field indices (simple prefix fields — before the bracket sections)
 // ---------------------------------------------------------------------------
 const COMBATANT_FIELD_GUID = 0
-const COMBATANT_FIELD_TEAM = 1  // 0 = enemy team, 1 = local player's team (matches localTeam)
+const COMBATANT_FIELD_TEAM = 1
 
 // ---------------------------------------------------------------------------
-// ARENA_MATCH_END field indices
-// ---------------------------------------------------------------------------
-const MATCH_END_FIELD_WINNING_TEAM = 0
-const MATCH_END_FIELD_DURATION = 1
-
-// ---------------------------------------------------------------------------
-// SPELL_CAST_SUCCESS / SPELL_HEAL field indices
+// Spell event field indices
 // Standard WoW prefix layout: srcGUID, srcName, srcFlags, srcRaidFlags,
 // dstGUID, dstName, dstFlags, dstRaidFlags, spellId, spellName, spellSchool
 // ---------------------------------------------------------------------------
@@ -172,29 +129,14 @@ function parseSwingDamageIsCritical(fields: string[]): boolean {
 
 
 // ---------------------------------------------------------------------------
-// SPELL_ABSORBED field indices — verified against a real Midnight combat log.
-// Layout: attackerPrefix(4), victimPrefix(4), damagingSpellId/Name/School(3),
-//         absorbCasterPrefix(4), absorbSpellId/Name/School(3), amount, extraAmount, critical
-// e.g. "SPELL_ABSORBED,<attacker>,<victim>,88625,"Holy Word: Chastise",0x2,
-//       <shieldCaster>,1246768,"Power Word: Shield",0x2,20199,24545,nil"
-// ---------------------------------------------------------------------------
-const ABSORBED_FIELD_CASTER_GUID = 11
-const ABSORBED_FIELD_CASTER_NAME = 12
-const ABSORBED_FIELD_AMOUNT = 18
-
-// ---------------------------------------------------------------------------
 // SPELL_INTERRUPT field indices
-// Same prefix layout as SPELL_CAST_SUCCESS, followed by:
+// Standard spell prefix, followed by:
 //   interruptSpellId, interruptSpellName, school, interruptedSpellId, interruptedSpellName, interruptedSchool
 // ---------------------------------------------------------------------------
 const INTERRUPT_FIELD_SPELL_ID = 8
 const INTERRUPT_FIELD_SPELL_NAME = 9
 const INTERRUPT_FIELD_INTERRUPTED_SPELL_ID = 11
 const INTERRUPT_FIELD_INTERRUPTED_SPELL_NAME = 12
-
-// Precognition buff — applied when an interrupt is used on a player who wasn't casting
-// (or was immune). Used to detect bad/wasted interrupts.
-const PRECOGNITION_SPELL_ID = 377362
 
 // ---------------------------------------------------------------------------
 // UNIT_DIED field indices
@@ -204,15 +146,6 @@ const UNIT_DIED_FIELD_DEST_GUID = 4
 const UNIT_DIED_FIELD_DEST_NAME = 5
 const UNIT_DIED_FIELD_DEST_FLAGS = 6
 
-// ---------------------------------------------------------------------------
-// UNIT_HEALTH field indices (Advanced Combat Logging only)
-// srcGUID, srcName, srcFlags, srcRaidFlags, destGUID, destName, destFlags, destRaidFlags, hp, maxHp
-// ---------------------------------------------------------------------------
-const UNIT_HEALTH_FIELD_UNIT_GUID = 4
-const UNIT_HEALTH_FIELD_UNIT_NAME = 5
-const UNIT_HEALTH_FIELD_HP = 8
-const UNIT_HEALTH_FIELD_MAX_HP = 9
-
 // WoW combat log unit flag bit — set when the unit is on the hostile/enemy team.
 const UNIT_FLAG_REACTION_HOSTILE = 0x40
 
@@ -220,97 +153,8 @@ const UNIT_FLAG_REACTION_HOSTILE = 0x40
 // Event payload types
 // ---------------------------------------------------------------------------
 
-export interface ArenaZoneEnteredEvent {
-  zoneId: number
-  zoneName: string
-  timestamp: Date
-}
-
-export interface ArenaZoneLeftEvent {
-  timestamp: Date
-}
-
-export interface ArenaMatchStartEvent {
-  instanceId: number
-  zoneName: string
-  bracket: ArenaBracket
-  // Which WoW team slot the logging player is on (0 or 1).
-  // Use this to determine which COMBATANT_INFO team value maps to "our team".
-  localTeam: number
-  timestamp: Date
-}
-
-export interface SpellAuraEvent {
-  casterGuid: string
-  casterName: string
-  targetGuid: string
-  targetName: string
-  targetFlags: number
-  spellId: number
-  spellName: string
-  timestamp: Date
-}
-
-export interface ArenaMatchEndEvent {
-  // Raw team index (0 or 1) that won, straight from the log. WIN/LOSS is NOT derived
-  // here — ARENA_MATCH_START's "localTeam" field does not reliably identify which team
-  // the logging player is on (verified against real logs: it stays constant across an
-  // entire session regardless of actual per-match team assignment). Callers must resolve
-  // the player's real team from COMBATANT_INFO (which does vary correctly per match) —
-  // see RecorderStateMachine.resolveLocalTeam.
-  winningTeam: number
-  durationSecs: number
-  timestamp: Date
-}
-
-export interface SoloShuffleRoundEndEvent {
-  roundNumber: number
-  result: ArenaResult
-  durationSecs: number
-  sessionId: string
-  timestamp: Date
-}
-
-export interface SoloShuffleSessionEndEvent {
-  sessionId: string
-  totalRounds: number
-  ratingBefore: number
-  ratingAfter: number
-  playerGuid: string
-  playerName: string
-  timestamp: Date
-}
-
-export interface SpellCastEvent {
-  casterGuid: string
-  casterName: string
-  targetGuid: string
-  targetName: string
-  // Raw WoW unit flags for the spell target. Use UNIT_FLAG_REACTION_HOSTILE (0x40) to
-  // determine whether the target is an enemy (hostile) or a teammate (friendly).
-  targetFlags: number
-  spellId: number
-  spellName: string
-  eventCategory: 'cc' | 'defensive' | 'offensive' | 'interrupt' | 'cc-break' | 'trinket'
-  timestamp: Date
-}
-
-export interface ArenaMatchStatsEntryEvent {
-  playerGuid: string
-  playerName: string
-  team: number  // 0 = local player's team, 1 = enemy team (STATS_FIELD_TEAM — verify per patch)
-  ratingBefore: number
-  ratingAfter: number
-  timestamp: Date
-}
-
-export interface HealerCastEvent {
-  casterGuid: string
-  casterName: string
-  timestamp: Date
-}
-
-// Fired for SPELL_DAMAGE, SWING_DAMAGE, SPELL_PERIODIC_DAMAGE — used for death summary and team charts
+// Fired for SPELL_DAMAGE, SWING_DAMAGE, SPELL_PERIODIC_DAMAGE on a player — used for
+// damage taken and the death recap
 export interface SpellDamageEvent {
   casterGuid: string
   casterName: string
@@ -327,8 +171,7 @@ export interface SpellDamageEvent {
 }
 
 // Fired for damage a player (or their pet/guardian) does to a non-player — mobs and
-// bosses in Mythic+. Kept separate from spellDamage, which arena uses for
-// player-vs-player damage only. amount excludes overkill.
+// bosses. amount excludes overkill.
 export interface DamageDoneEvent {
   casterGuid: string
   casterName: string
@@ -337,8 +180,8 @@ export interface DamageDoneEvent {
   timestamp: Date
 }
 
-// Fired for SPELL_HEAL / SPELL_PERIODIC_HEAL — used for team healing charts and
-// per-target "healing received" tracking (death recap).
+// Fired for SPELL_HEAL / SPELL_PERIODIC_HEAL — used for healing done and per-target
+// "healing received" tracking (death recap).
 export interface SpellHealAmountEvent {
   casterGuid: string
   casterName: string
@@ -349,16 +192,6 @@ export interface SpellHealAmountEvent {
   amount: number
   // Part of amount that landed on a full-health target
   overhealing?: number
-  timestamp: Date
-}
-
-// Fired for SPELL_ABSORBED — damage prevented by a shield. casterGuid/casterName here is
-// the player who CAST the shield (not the attacker or the shielded victim) — used to
-// attribute "shielding done" to the shield's owner, same shape as spellHealAmount.
-export interface SpellAbsorbEvent {
-  casterGuid: string
-  casterName: string
-  amount: number
   timestamp: Date
 }
 
@@ -374,14 +207,6 @@ export interface SpellInterruptSuccessEvent {
   spellName: string
   interruptedSpellId: number
   interruptedSpellName: string
-  timestamp: Date
-}
-
-// Fired when Precognition (377362) is applied to a player — indicates someone wasted
-// an interrupt on them while they weren't casting an interruptible spell.
-export interface PrecognitionGainedEvent {
-  playerGuid: string
-  playerName: string
   timestamp: Date
 }
 
@@ -405,18 +230,8 @@ export interface UnitDiedEvent {
   timestamp: Date
 }
 
-// Fired for UNIT_HEALTH events (requires Advanced Combat Logging in WoW).
-// Provides current HP snapshot per unit — used to attach HP% to death summary hits.
-export interface UnitHealthEvent {
-  unitGuid: string
-  unitName: string
-  hp: number
-  maxHp: number
-  timestamp: Date
-}
-
-// Fired for every ZONE_CHANGE, arena or not. Mythic+ uses it to notice the player
-// leaving the dungeon mid-key (arena keeps using arenaZoneEntered/arenaZoneLeft).
+// Fired for every ZONE_CHANGE. Mythic+ uses it to notice the player leaving the
+// dungeon mid-key.
 export interface ZoneChangedEvent {
   instanceId: number
   zoneName: string
@@ -478,26 +293,12 @@ export { UNIT_FLAG_REACTION_HOSTILE }
 // ---------------------------------------------------------------------------
 
 export interface ParserEventMap {
-  arenaZoneEntered: ArenaZoneEnteredEvent
-  arenaZoneLeft: ArenaZoneLeftEvent
-  arenaMatchStart: ArenaMatchStartEvent
-  arenaMatchEnd: ArenaMatchEndEvent
-  soloShuffleRoundEnd: SoloShuffleRoundEndEvent
-  soloShuffleSessionEnd: SoloShuffleSessionEndEvent
-  spellCast: SpellCastEvent
-  spellAuraApplied: SpellAuraEvent
-  spellAuraRemoved: SpellAuraEvent
   unitDied: UnitDiedEvent
-  unitHealth: UnitHealthEvent
-  arenaMatchStatsEntry: ArenaMatchStatsEntryEvent
-  healerCast: HealerCastEvent
   combatantInfo: CombatantInfoEvent
   spellDamage: SpellDamageEvent
   damageDone: DamageDoneEvent
   spellHealAmount: SpellHealAmountEvent
-  spellAbsorb: SpellAbsorbEvent
   spellInterruptSuccess: SpellInterruptSuccessEvent
-  precognitionGained: PrecognitionGainedEvent
   zoneChanged: ZoneChangedEvent
   challengeModeStart: ChallengeModeStartEvent
   challengeModeEnd: ChallengeModeEndEvent
@@ -507,27 +308,10 @@ export interface ParserEventMap {
 }
 
 // ---------------------------------------------------------------------------
-// Internal parser state for the current arena session
-// ---------------------------------------------------------------------------
-
-interface SessionState {
-  sessionId: string
-  zoneId: number
-  zoneName: string
-  bracket: ArenaBracket | null
-  isSoloShuffle: boolean
-  localTeam: number   // 0 or 1 — which team the logging player is on (from ARENA_MATCH_START)
-  // Solo Shuffle only
-  roundCount: number
-  roundResults: ArenaResult[]
-}
-
-// ---------------------------------------------------------------------------
 // CombatLogParser
 // ---------------------------------------------------------------------------
 
 export class CombatLogParser extends EventEmitter {
-  private session: SessionState | null = null
   // GUID → player name, built from standard-prefix spell/aura events
   private readonly guidNames = new Map<string, string>()
   // Pet/totem/summon GUID → owning player GUID, built from SPELL_SUMMON events (the
@@ -571,7 +355,6 @@ export class CombatLogParser extends EventEmitter {
 
   // Reset all session state — call on app start or after crash recovery
   reset(): void {
-    this.session = null
     this.guidNames.clear()
     this.summonOwners.clear()
   }
@@ -608,9 +391,6 @@ export class CombatLogParser extends EventEmitter {
       case 'ZONE_CHANGE':
         this.handleZoneChange(fields, timestamp)
         break
-      case 'ARENA_MATCH_START':
-        this.handleArenaMatchStart(fields, timestamp)
-        break
       case 'CHALLENGE_MODE_START':
         this.handleChallengeModeStart(fields, timestamp)
         break
@@ -623,23 +403,8 @@ export class CombatLogParser extends EventEmitter {
       case 'ENCOUNTER_END':
         this.handleEncounterEnd(fields, timestamp)
         break
-      case 'ARENA_MATCH_END':
-        this.handleArenaMatchEnd(fields, timestamp)
-        break
-      case 'ARENA_MATCH_STATS':
-        this.handleArenaMatchStats(fields, timestamp)
-        break
-      case 'SPELL_CAST_SUCCESS':
-        this.handleSpellCastSuccess(fields, timestamp)
-        break
       case 'SPELL_INTERRUPT':
         this.handleSpellInterrupt(fields, timestamp)
-        break
-      case 'SPELL_AURA_APPLIED':
-        this.handleSpellAura(fields, timestamp, 'spellAuraApplied')
-        break
-      case 'SPELL_AURA_REMOVED':
-        this.handleSpellAura(fields, timestamp, 'spellAuraRemoved')
         break
       case 'SPELL_HEAL':
       case 'SPELL_PERIODIC_HEAL':
@@ -647,24 +412,14 @@ export class CombatLogParser extends EventEmitter {
         break
       case 'SPELL_DAMAGE':
       case 'SPELL_PERIODIC_DAMAGE':
+      case 'RANGE_DAMAGE': // Hunter Auto Shot, same layout as SPELL_DAMAGE
         this.handleSpellDamage(fields, timestamp)
-        break
-      case 'RANGE_DAMAGE':
-        // Hunter Auto Shot. Same layout as SPELL_DAMAGE; only counted toward damage done
-        // so arena's player-vs-player damage stays as it was.
-        this.handleSpellDamage(fields, timestamp, false)
         break
       case 'SWING_DAMAGE':
         this.handleSwingDamage(fields, timestamp)
         break
-      case 'SPELL_ABSORBED':
-        this.handleSpellAbsorbed(fields, timestamp)
-        break
       case 'UNIT_DIED':
         this.handleUnitDied(fields, timestamp)
-        break
-      case 'UNIT_HEALTH':
-        this.handleUnitHealth(fields, timestamp)
         break
       default:
         break
@@ -683,34 +438,8 @@ export class CombatLogParser extends EventEmitter {
     if (isNaN(instanceId)) return
 
     this.emit('zoneChanged', { instanceId, zoneName, timestamp })
-
-    const isArena = ARENA_ZONE_IDS.has(instanceId)
-
-    if (isArena) {
-      const resolvedName = ARENA_ZONE_NAMES[instanceId] ?? zoneName
-
-      this.session = {
-        sessionId: timestamp.toISOString(),
-        zoneId: instanceId,
-        zoneName: resolvedName,
-        bracket: null,
-        isSoloShuffle: false,
-        localTeam: 0,
-        roundCount: 0,
-        roundResults: []
-      }
-
-      this.emit('arenaZoneEntered', {
-        zoneId: instanceId,
-        zoneName: resolvedName,
-        timestamp
-      })
-    } else if (this.session !== null) {
-      // Left an arena zone
-      this.session = null
-      this.emit('arenaZoneLeft', { timestamp })
-    }
   }
+
 
   private handleChallengeModeStart(fields: string[], timestamp: Date): void {
     const instanceId = parseInt(fields[CM_START_FIELD_INSTANCE_ID] ?? '', 10)
@@ -787,184 +516,6 @@ export class CombatLogParser extends EventEmitter {
       fightTimeMs: isNaN(fightTimeMs) ? undefined : fightTimeMs,
       timestamp
     })
-  }
-
-  private handleArenaMatchStart(fields: string[], timestamp: Date): void {
-    if (this.session === null) return
-
-    const rawInstanceId = fields[MATCH_START_FIELD_INSTANCE_ID]
-    const rawBracket = fields[MATCH_START_FIELD_BRACKET]
-
-    if (rawBracket === undefined) return
-
-    const bracketLower = rawBracket.toLowerCase()
-    const bracket = BRACKET_FIELD_MAP[bracketLower]
-    if (bracket === undefined) return
-
-    const instanceId = parseInt(rawInstanceId ?? '', 10)
-    if (isNaN(instanceId)) return
-
-    this.session.bracket = bracket
-    this.session.isSoloShuffle = bracket === 'solo-shuffle'
-    this.session.localTeam = parseInt(fields[MATCH_START_FIELD_LOCAL_TEAM] ?? '0', 10) || 0
-
-    // Diagnostic: log raw fields to verify indices per Midnight patch
-    console.warn('[Parser] ARENA_MATCH_START fields:', JSON.stringify(fields.slice(0, 6)))
-    console.warn(`[Parser] MATCH_START → bracket="${bracket}", localTeam=${this.session.localTeam}`)
-
-    this.emit('arenaMatchStart', {
-      instanceId,
-      zoneName: this.session.zoneName,
-      bracket,
-      localTeam: this.session.localTeam,
-      timestamp
-    })
-  }
-
-  private handleArenaMatchEnd(fields: string[], timestamp: Date): void {
-    if (this.session === null || this.session.bracket === null) return
-
-    const rawWinningTeam = fields[MATCH_END_FIELD_WINNING_TEAM]
-    const rawDuration = fields[MATCH_END_FIELD_DURATION]
-
-    if (rawWinningTeam === undefined || rawDuration === undefined) return
-
-    const winningTeam = parseInt(rawWinningTeam, 10)
-    const durationSecs = parseInt(rawDuration, 10)
-
-    if (isNaN(winningTeam) || isNaN(durationSecs)) return
-
-    // Diagnostic: log raw fields to verify indices per Midnight patch
-    console.warn('[Parser] ARENA_MATCH_END fields:', JSON.stringify(fields.slice(0, 4)))
-    console.warn(`[Parser] MATCH_END → winningTeam=${winningTeam}, durationSecs=${durationSecs}`)
-
-    // Midnight (12.x): ARENA_MATCH_END fires once at the end of the entire session for
-    // all brackets including Solo Shuffle — emit arenaMatchEnd unconditionally.
-    this.emit('arenaMatchEnd', {
-      winningTeam,
-      durationSecs,
-      timestamp
-    })
-  }
-
-  private handleArenaMatchStats(fields: string[], timestamp: Date): void {
-    const playerGuid = fields[STATS_FIELD_PLAYER_GUID]
-    const playerName = fields[STATS_FIELD_PLAYER_NAME]
-    const rawTeam = fields[STATS_FIELD_TEAM]
-    const rawRatingBefore = fields[STATS_FIELD_RATING_BEFORE]
-    const rawRatingAfter = fields[STATS_FIELD_RATING_AFTER]
-
-    if (playerGuid === undefined || playerName === undefined) return
-
-    const team = parseInt(rawTeam ?? '0', 10)
-    const ratingBefore = parseInt(rawRatingBefore ?? '0', 10)
-    const ratingAfter = parseInt(rawRatingAfter ?? '0', 10)
-
-    // Emit per-player stats entry for all bracket types so the log analyser can
-    // build team compositions and per-player rating changes.
-    this.emit('arenaMatchStatsEntry', {
-      playerGuid,
-      playerName,
-      team: isNaN(team) ? 0 : team,
-      ratingBefore: isNaN(ratingBefore) ? 0 : ratingBefore,
-      ratingAfter: isNaN(ratingAfter) ? 0 : ratingAfter,
-      timestamp
-    })
-
-    // Solo Shuffle session-end logic — fires once after all 6 rounds are done.
-    if (
-      this.session !== null &&
-      this.session.isSoloShuffle &&
-      this.session.roundCount >= SOLO_SHUFFLE_ROUNDS_PER_SESSION &&
-      !isNaN(ratingBefore) &&
-      !isNaN(ratingAfter)
-    ) {
-      const { sessionId, roundCount } = this.session
-      this.session = null
-
-      this.emit('soloShuffleSessionEnd', {
-        sessionId,
-        totalRounds: roundCount,
-        ratingBefore,
-        ratingAfter,
-        playerGuid,
-        playerName,
-        timestamp
-      })
-    }
-  }
-
-  private handleSpellCastSuccess(fields: string[], timestamp: Date): void {
-    const rawSpellId = fields[SPELL_FIELD_SPELL_ID]
-    if (rawSpellId === undefined) return
-
-    const spellId = parseInt(rawSpellId, 10)
-    if (isNaN(spellId)) return
-
-    const category = resolveSpellCategory(spellId)
-    if (category === null) return
-
-    const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
-    const casterName = fields[SPELL_FIELD_CASTER_NAME] ?? ''
-    const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
-    const targetName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
-    const spellName = fields[SPELL_FIELD_SPELL_NAME] ?? ''
-
-    if (casterGuid === undefined || targetGuid === undefined) return
-
-    const targetFlags = parseHexFlags(fields[SPELL_FIELD_TARGET_FLAGS] ?? '0')
-
-    this.emit('spellCast', {
-      casterGuid,
-      casterName,
-      targetGuid,
-      targetName,
-      targetFlags,
-      spellId,
-      spellName,
-      eventCategory: category,
-      timestamp
-    })
-  }
-
-  private handleSpellAura(
-    fields: string[],
-    timestamp: Date,
-    event: 'spellAuraApplied' | 'spellAuraRemoved'
-  ): void {
-    const rawSpellId = fields[SPELL_FIELD_SPELL_ID]
-    if (rawSpellId === undefined) return
-    const spellId = parseInt(rawSpellId, 10)
-    if (isNaN(spellId)) return
-
-    // Precognition: fired when an interrupt is wasted on a player who wasn't casting.
-    // Self-applied buff — src and dst are the same player.
-    if (event === 'spellAuraApplied' && spellId === PRECOGNITION_SPELL_ID) {
-      const playerGuid = fields[SPELL_FIELD_TARGET_GUID]
-      const playerName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
-      if (playerGuid !== undefined) {
-        this.emit('precognitionGained', { playerGuid, playerName, timestamp })
-      }
-      return
-    }
-
-    // Previously CC-only; widened so the mistake detector can also track aura windows
-    // for defensives/immunities (RecorderStateMachine.onAuraApplied/onAuraRemoved keeps
-    // the original CC-only activeCCs/DR bookkeeping strictly gated on SPELL_IDS_CC —
-    // this widening only adds a separate, non-CC aura-window tracker there).
-    if (!SPELL_IDS_CC.has(spellId) && !SPELL_IDS_DEFENSIVE.has(spellId) && !SPELL_IDS_IMMUNITY.has(spellId)) return
-
-    const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
-    const casterName = fields[SPELL_FIELD_CASTER_NAME] ?? ''
-    const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
-    const targetName = fields[SPELL_FIELD_TARGET_NAME] ?? ''
-    const spellName = fields[SPELL_FIELD_SPELL_NAME] ?? ''
-
-    if (casterGuid === undefined || targetGuid === undefined) return
-
-    const targetFlags = parseHexFlags(fields[SPELL_FIELD_TARGET_FLAGS] ?? '0')
-
-    this.emit(event, { casterGuid, casterName, targetGuid, targetName, targetFlags, spellId, spellName, timestamp })
   }
 
   private handleSpellInterrupt(fields: string[], timestamp: Date): void {
@@ -1097,8 +648,8 @@ export class CombatLogParser extends EventEmitter {
     const spellName = fields[SPELL_FIELD_SPELL_NAME]
     if (casterGuid === undefined || fields[SPELL_FIELD_CASTER_NAME] === undefined) return
 
-    // Emit heal amount event for ALL heals (including self) — used for team heal charts
-    // and per-target healing-received tracking (death recap). Redirect pet/totem heals
+    // Emit heal amount event for ALL heals (including self) — used for healing done and
+    // per-target healing-received tracking (death recap). Redirect pet/totem heals
     // (Healing Stream Totem, Earthliving, etc.) to their owning player.
     this.learnOwner(fields, SPELL_ADVANCED_UNIT_GUID)
     const amount = parseHealAmount(fields)
@@ -1116,26 +667,9 @@ export class CombatLogParser extends EventEmitter {
         timestamp
       })
     }
-
-    // Only count heals cast DIRECTLY by a player on another player for healer
-    // detection — self-heals (leech, Healthstone) and incidental totem/pet ticks
-    // (which don't reflect the owner's own healer role) must not trigger it.
-    if (!casterGuid.startsWith('Player-') || targetGuid === casterGuid) return
-    this.emit('healerCast', { casterGuid, casterName, timestamp })
   }
 
-  private handleSpellAbsorbed(fields: string[], timestamp: Date): void {
-    const casterGuid = fields[ABSORBED_FIELD_CASTER_GUID]
-    const casterName = sanitizeName(fields[ABSORBED_FIELD_CASTER_NAME])
-    if (casterGuid === undefined || !casterName) return
-
-    const amount = parseInt(fields[ABSORBED_FIELD_AMOUNT] ?? '0', 10)
-    if (isNaN(amount) || amount <= 0) return
-
-    this.emit('spellAbsorb', { casterGuid, casterName, amount, timestamp })
-  }
-
-  private handleSpellDamage(fields: string[], timestamp: Date, emitPlayerDamage = true): void {
+  private handleSpellDamage(fields: string[], timestamp: Date): void {
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
     const casterName = sanitizeName(fields[SPELL_FIELD_CASTER_NAME])
     const targetGuid = fields[SPELL_FIELD_TARGET_GUID]
@@ -1149,8 +683,7 @@ export class CombatLogParser extends EventEmitter {
       this.emitDamageDone(fields, casterGuid, casterName, parseSpellDamageAmount(fields) - parseSpellOverkill(fields), timestamp)
       return
     }
-    // spellDamage only tracks damage between players (Pet/NPC hits are excluded by GUID prefix)
-    if (!emitPlayerDamage) return
+    // spellDamage only tracks damage taken by players
 
     const rawSpellId = fields[SPELL_FIELD_SPELL_ID]
     const spellId = rawSpellId !== undefined ? parseInt(rawSpellId, 10) : NaN
@@ -1234,35 +767,11 @@ export class CombatLogParser extends EventEmitter {
       timestamp
     })
   }
-
-  private handleUnitHealth(fields: string[], timestamp: Date): void {
-    const unitGuid = fields[UNIT_HEALTH_FIELD_UNIT_GUID]
-    const unitName = fields[UNIT_HEALTH_FIELD_UNIT_NAME]
-    if (unitGuid === undefined || unitName === undefined) return
-    // Only track player units
-    if (!unitGuid.startsWith('Player-')) return
-
-    const hp = parseInt(fields[UNIT_HEALTH_FIELD_HP] ?? '', 10)
-    const maxHp = parseInt(fields[UNIT_HEALTH_FIELD_MAX_HP] ?? '', 10)
-    if (isNaN(hp) || isNaN(maxHp) || maxHp <= 0) return
-
-    this.emit('unitHealth', { unitGuid, unitName, hp, maxHp, timestamp })
-  }
 }
 
 // ---------------------------------------------------------------------------
 // Utility functions (module-private)
 // ---------------------------------------------------------------------------
-
-function resolveSpellCategory(spellId: number): SpellCastEvent['eventCategory'] | null {
-  if (SPELL_IDS_TRINKET.has(spellId)) return 'trinket'
-  if (SPELL_IDS_CC.has(spellId)) return 'cc'
-  if (SPELL_IDS_DEFENSIVE.has(spellId)) return 'defensive'
-  if (SPELL_IDS_OFFENSIVE.has(spellId)) return 'offensive'
-  if (SPELL_IDS_INTERRUPT.has(spellId)) return 'interrupt'
-  if (SPELL_IDS_CC_BREAK.has(spellId)) return 'cc-break'
-  return null
-}
 
 interface ParsedLine {
   timestamp: Date

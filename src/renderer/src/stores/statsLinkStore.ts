@@ -1,6 +1,6 @@
-// Shares the configured stats-site + region across components (Team panel links,
-// My PVP Hub character links) so they update live when changed in Settings, without
-// each consumer re-fetching config individually.
+// Shares the configured stats-site + region across components (the Party panel's
+// player links) so they update live when changed in Settings, without each consumer
+// re-fetching config individually.
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'

@@ -51,7 +51,7 @@ mac:
   extendInfo:
     # Required since macOS 10.15 for any app that captures the screen.
     NSScreenCaptureUsageDescription: >-
-      Depleted captures the WoW window to record Mythic+ keys and arena matches.
+      Depleted captures the WoW window to record Mythic+ keys.
       This permission is used only while a key or match is in progress.
 
 dmg:

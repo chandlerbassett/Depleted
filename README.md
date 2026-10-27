@@ -7,7 +7,8 @@ the combat log, and puts the moments that matter on a timeline: boss kills, wipe
 deaths, interrupts. Click a marker to jump straight to it.
 
 The goal is a native-feeling macOS take on what [Warcraft Recorder](https://warcraftrecorder.com/)
-does on Windows. Arena recording (2v2, 3v3, Solo Shuffle) from the original project still works.
+does on Windows. It records Mythic+ only; the original project's arena features have been
+removed.
 
 > 🚧 **Early and in active development.** Mythic+ log parsing has been checked against real
 > 12.x keys, but full recordings haven't been tested end to end yet. Expect rough edges.
@@ -25,16 +26,13 @@ does on Windows. Arena recording (2v2, 3v3, Solo Shuffle) from the original proj
 - Marks **party deaths**, each with a recap of the last 10 seconds of damage taken
 - Marks **interrupts** and counts them per player
 - Saves each run with its key level, affixes, outcome (**completed / depleted / abandoned**),
-  timer and rating change
+  timer and score
+- **DPS and HPS meters** for the party, with pet damage credited to its owner
+- Click a party member's name to open them on **Raider.IO**, **Warcraft Logs** or the Armory
 - If you leave the dungeon and don't return within 3 minutes, the key is saved as
   *abandoned* rather than thrown away
 
-**Arena** (from the original project)
-- 2v2, 3v3 and Solo Shuffle, with CC, defensives, interrupts, trinkets, deaths, meters and a
-  "mistakes" panel
-
-Recordings appear in the app under the **Mythic+** tab (or the matching arena tab). Open one
-to watch it with its event timeline.
+Recordings appear in the list on the left. Open one to watch it with its event timeline.
 
 ## Roadmap
 
@@ -99,8 +97,7 @@ and the app follows the newest one automatically.
 The app ships with a small addon, **DepletedCompanion**, that:
 
 - tells the recorder which character you're playing
-- turns on combat logging automatically when you enter a dungeon or arena, and when a key
-  starts, so you never lose a run to a forgotten `/combatlog`
+- turns on combat logging automatically when you enter a dungeon and when a key starts, so you never lose a run to a forgotten `/combatlog`
 - prints "Key started. Depleted should be recording." in chat when a key begins
 
 Install it from the onboarding screen or **Settings → Addon**, or copy
@@ -114,9 +111,9 @@ then `/reload` in game. Type `/depleted` in game for info.
 
 ## How recording works
 
-1. Open the app before you start the key (or queue for arena)
+1. Open the app before you start the key
 2. The app watches the combat log and starts recording on its own
-3. When the key or match ends, the app stops recording, trims the video, makes a thumbnail
+3. When the key ends, the app stops recording, trims the video, makes a thumbnail
    and adds the run to the list
 4. Click a recording to watch it, and click timeline markers to jump to them
 
@@ -144,8 +141,6 @@ Game audio is captured automatically through system loopback, so no extra audio 
   the bitrate in Settings if that's too much; the hardware encoder holds up well at 5-6 Mbps.
 - **The first few seconds of a key can be missed**, because recording starts once the app
   reads the key-start line from the log.
-- **No damage-done meter for M+ yet.** The parser currently only tracks damage aimed at players
-  (an arena-era filter).
 - **A key completed over time may still be labeled completed.** The log's success flag
   doesn't say whether the timer was beaten.
 - The build isn't code-signed (see Install above).
@@ -169,8 +164,8 @@ npm run build:mac    # macOS .dmg
 ```
 src/
   main/
-    combatlog/   — log watcher + parser (arena and Mythic+ events)
-    recorder/    — NativeCaptureRecorder (macOS helper), RecorderStateMachine (arena), MythicPlusStateMachine
+    combatlog/   — log watcher + parser (Mythic+ events)
+    recorder/    — NativeCaptureRecorder (macOS helper), MythicPlusStateMachine
     storage/     — trimming, thumbnails, metadata, recordings library
     ipc/         — main ↔ renderer channels
   renderer/src/  — Vue 3 + Pinia UI
@@ -180,7 +175,7 @@ native/
 addon/
   DepletedCompanion/  — WoW addon (Lua)
 tests/
-  fixtures/      — sample combat logs (2v2, Solo Shuffle, Mythic+)
+  fixtures/      — sample Mythic+ combat log
 ```
 
 ---
@@ -189,5 +184,5 @@ tests/
 
 Depleted is built on [**WoW Arena Recorder**](https://github.com/krav559108/wowArenaAnalyzer)
 by Aleksandr Kravchenko (MIT licensed), which provides the capture pipeline, combat log
-parser, arena analysis and playback UI. Huge thanks to them. If you find the arena side useful,
-consider supporting the original project.
+parser and playback UI. Huge thanks to them. If you play arena, the original project is the
+one for you.

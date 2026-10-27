@@ -5,7 +5,7 @@ import { resolve } from 'path'
 import { CombatLogParser } from '../../src/main/combatlog/CombatLogParser'
 import type { ParserEventMap } from '../../src/main/combatlog/CombatLogParser'
 import { MythicPlusStateMachine } from '../../src/main/recorder/MythicPlusStateMachine'
-import type { ProcessingRequiredEvent } from '../../src/main/recorder/RecorderStateMachine'
+import type { ProcessingRequiredEvent } from '../../src/main/recorder/types'
 import type { CombatLogWatcher } from '../../src/main/combatlog/CombatLogWatcher'
 import type { CaptureRecorder } from '../../src/main/recorder/CaptureRecorder'
 
@@ -155,7 +155,7 @@ describe('CombatLogParser — Mythic+ events', () => {
     expect(starts[0]!.timestamp.toISOString()).toBe('2026-10-27T16:59:23.987Z')
   })
 
-  it('emits zoneChanged for non-arena zones', () => {
+  it('emits zoneChanged for every zone', () => {
     const parser = new CombatLogParser()
     const zones: ParserEventMap['zoneChanged'][] = []
     parser.on('zoneChanged', (e) => zones.push(e))
@@ -189,7 +189,6 @@ describe('MythicPlusStateMachine', () => {
     expect(processed).toHaveLength(1)
 
     const e = processed[0]!
-    expect(e.bracket).toBe('mythic-plus')
     expect(e.result).toBe('WIN')
     expect(e.rawPath).toBe('/tmp/raw_mplus.webm')
     // 20:00:05 → 20:30:00 = 1795s, plus 8s post-roll
@@ -295,7 +294,7 @@ describe('MythicPlusStateMachine', () => {
 
   it('does not start when the recorder is already busy', async () => {
     const { watcher, recorder, machine } = setup()
-    await recorder.start('/tmp/arena.mp4')
+    await recorder.start('/tmp/test.mp4')
     recorder.startMock.mockClear()
 
     watcher.feed(linesUpTo('CHALLENGE_MODE_START'))

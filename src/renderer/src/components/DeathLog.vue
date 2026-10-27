@@ -46,8 +46,7 @@ function fmtK(n: number): string {
   return String(Math.round(n))
 }
 
-// The match's very first death (either side) — mirrors wowarenalogs' "First Blood"
-// highlight, which calls out the opening death of the match specifically.
+// The key's very first death — mirrors wowarenalogs' "First Blood" highlight.
 const firstBloodTimestamp = computed(() =>
   props.deaths.length > 0 ? Math.min(...props.deaths.map((d) => d.timestamp)) : null
 )
@@ -276,7 +275,7 @@ function defensivesUsed(ev: TimelineEvent): { spellName: string; relSecs: number
       v-if="deaths.length === 0"
       class="text-xs text-zinc-600 py-2 text-center"
     >
-      No deaths tracked in this match
+      No deaths in this key
     </p>
 
     <div

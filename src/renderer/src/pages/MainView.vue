@@ -8,7 +8,6 @@ import { useMainView } from '@/composables/useMainView'
 import RecordingList from '@/components/RecordingList.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import SettingsView from '@/pages/SettingsView.vue'
-import PvpHubView from '@/pages/PvpHubView.vue'
 import AddonUpdateModal from '@/components/AddonUpdateModal.vue'
 const appStore = useAppStore()
 const recordingsStore = useRecordingsStore()
@@ -17,10 +16,9 @@ const statsLinkStore = useStatsLinkStore()
 const { status, currentZone, lastError, recordingStartedAt } = storeToRefs(appStore)
 const { selected } = storeToRefs(recordingsStore)
 
-const { deleteRecording, deleteGroup, openFolder } = useMainView()
+const { deleteRecording, openFolder } = useMainView()
 
 const settingsOpen = ref(false)
-const activeTab = ref<'2v2' | '3v3' | 'solo-shuffle' | 'skirmish' | 'mythic-plus' | 'hub'>('mythic-plus')
 
 // -------------------------------------------------------------------------
 // Live recording elapsed-time indicator — ticks once per second while
@@ -51,23 +49,11 @@ async function copyError(): Promise<void> {
   setTimeout(() => { errorCopied.value = false }, 1500)
 }
 
-// Mythic+ first: it's what Depleted is for; the arena tabs follow
-const BRACKET_TABS = [
-  { key: 'mythic-plus' as const, label: 'Mythic+' },
-  { key: '2v2' as const, label: '2v2' },
-  { key: '3v3' as const, label: '3v3' },
-  { key: 'solo-shuffle' as const, label: 'Shuffle' },
-  { key: 'skirmish' as const, label: 'Skirmish' },
-] as const
-
 const { recordings } = storeToRefs(recordingsStore)
 
-function bracketCount(bracket: string): number {
-  return recordings.value.filter((r) => r.metadata.bracket === bracket).length
-}
-
+// Only Mythic+ keys are recorded; older arena recordings on disk are left out
 const filteredRecordings = computed(() =>
-  recordings.value.filter((r) => r.metadata.bracket === activeTab.value)
+  recordings.value.filter((r) => r.metadata.bracket === 'mythic-plus')
 )
 
 // -------------------------------------------------------------------------
@@ -311,61 +297,13 @@ const statusTextClass = computed(() => {
         </div>
       </Transition>
 
-      <!-- Tab bar -->
-      <div
-        class="absolute top-0 left-0 right-0 flex items-center border-b border-zinc-800/60 bg-[#0f0f0f] z-10"
-        style="-webkit-app-region: no-drag"
-      >
-        <!-- Bracket tabs -->
-        <button
-          v-for="tab in BRACKET_TABS"
-          :key="tab.key"
-          class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2"
-          :class="activeTab === tab.key
-            ? 'text-zinc-200 border-zinc-400'
-            : 'text-zinc-500 border-transparent hover:text-zinc-300'"
-          @click="activeTab = tab.key"
-        >
-          {{ tab.label }}
-          <span
-            class="text-[10px] px-1 py-0.5 rounded leading-none"
-            :class="activeTab === tab.key ? 'bg-zinc-600 text-zinc-300' : 'bg-zinc-800 text-zinc-600'"
-          >{{ bracketCount(tab.key) }}</span>
-        </button>
-
-        <!-- Divider -->
-        <span class="w-px h-4 bg-zinc-800 mx-1" />
-
-        <!-- My PVP Hub tab -->
-        <button
-          class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2"
-          :class="activeTab === 'hub'
-            ? 'text-zinc-200 border-zinc-400'
-            : 'text-zinc-500 border-transparent hover:text-zinc-300'"
-          @click="activeTab = 'hub'"
-        >
-          My PVP Hub
-        </button>
-      </div>
-
-      <!-- Tab content (offset for tab bar height ~33px) -->
-      <div
-        v-if="activeTab === 'hub'"
-        class="flex flex-1 min-h-0 mt-[33px] w-full"
-      >
-        <PvpHubView :recordings="recordings" />
-      </div>
-      <div
-        v-else
-        class="flex flex-1 min-h-0 mt-[33px] w-full"
-      >
+      <div class="flex flex-1 min-h-0 w-full">
         <!-- Sidebar -->
         <aside class="flex-shrink-0 w-72 border-r border-zinc-800/60 flex flex-col overflow-hidden">
           <RecordingList
             class="flex-1 min-h-0"
             :recordings="filteredRecordings"
             :on-delete="deleteRecording"
-            :on-delete-group="deleteGroup"
             :on-open-folder="openFolder"
           />
         </aside>
@@ -400,13 +338,15 @@ const statusTextClass = computed(() => {
               Select a recording
             </p>
             <p class="text-zinc-600 text-xs mt-1 max-w-[260px]">
-              Choose a match from the sidebar to watch the replay and review the timeline.
+              Choose a key from the sidebar to watch the replay and review the timeline.
             </p>
             <div
               v-if="screenPermission !== 'granted'"
               class="mt-6 px-4 py-3 rounded-lg bg-red-950/40 border border-red-800/50 text-left max-w-[280px]"
             >
-              <p class="text-xs font-medium text-red-400 mb-1">Screen recording permission denied</p>
+              <p class="text-xs font-medium text-red-400 mb-1">
+                Screen recording permission denied
+              </p>
               <p class="text-xs text-zinc-400 mb-3">
                 Recording won't work until this is granted in macOS System Settings.
               </p>
@@ -429,7 +369,7 @@ const statusTextClass = computed(() => {
               <div class="mt-6 px-4 py-3 rounded-lg bg-zinc-900 border border-zinc-800 text-left max-w-[280px]">
                 <p class="text-xs text-zinc-400">
                   <span class="text-zinc-200 font-medium">Auto-record is active.</span>
-                  Launch WoW and enter an arena — recording starts automatically when a match begins.
+                  Launch WoW and start a Mythic+ key. Recording starts automatically when the key begins.
                 </p>
               </div>
             </template>
