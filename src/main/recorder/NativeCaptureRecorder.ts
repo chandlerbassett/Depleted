@@ -89,7 +89,8 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
     proc.stderr.on('data', (chunk: Buffer) => {
       for (const line of chunk.toString().split('\n')) {
         if (line.trim().length === 0) continue
-        console.warn(`[${NATIVE_HELPER_NAME}] ${line}`)
+        // The helper already prefixes its lines with [depleted-capture]
+        console.warn(line)
         recording.stderrTail.push(line)
         if (recording.stderrTail.length > STDERR_TAIL_LINES) recording.stderrTail.shift()
       }
