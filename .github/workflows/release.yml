@@ -109,24 +109,33 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Depleted-test-build
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/latest-mac.yml
           retention-days: 7
 
       - name: Checksum (releases)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: cd dist && shasum -a 256 *.dmg > SHA256SUMS.txt && cat SHA256SUMS.txt
+        run: cd dist && shasum -a 256 *.dmg *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt
 
       - name: Attest build provenance (releases)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/*.dmg
+          subject-path: |
+            dist/*.dmg
+            dist/*.zip
 
       - name: Upload DMG to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
+          # The zip, its blockmap and latest-mac.yml are what the auto-updater downloads
           files: |
             dist/*.dmg
+            dist/*.zip
+            dist/*.zip.blockmap
+            dist/latest-mac.yml
             dist/SHA256SUMS.txt

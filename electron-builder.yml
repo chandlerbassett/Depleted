@@ -21,9 +21,14 @@ extraResources:
 afterPack: build/afterPack.js
 afterSign: build/afterSign.js
 
-# Releases are uploaded by the release workflow, and the app has no auto-updater, so
-# don't ship an app-update.yml pointing at GitHub.
-publish: null
+# The auto-updater (src/main/updater.ts) reads latest-mac.yml from the latest GitHub
+# release. The release workflow uploads the files itself (--publish never), so this only
+# writes app-update.yml into the app and latest-mac.yml next to the build.
+publish:
+  provider: github
+  owner: chandlerbassett
+  repo: Depleted
+  releaseType: release
 
 # ---------------------------------------------------------------------------
 # macOS
@@ -34,6 +39,10 @@ mac:
     - target: dmg
       arch:
         - arm64   # Apple silicon only; Intel Macs aren't supported
+    # Squirrel.Mac installs updates from the zip, not the DMG
+    - target: zip
+      arch:
+        - arm64
   # The native capture helper (npm run build:native) → Contents/Resources/bin.
   # Added to the top-level extraResources (the addon), not replacing them.
   extraResources:

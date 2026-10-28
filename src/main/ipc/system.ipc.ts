@@ -28,6 +28,11 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     return { platform: process.platform }
   })
 
+  // App version from package.json, shown in the title bar.
+  ipcMain.handle('system:getVersion', (): { version: string } => {
+    return { version: app.getVersion() }
+  })
+
   // Check whether Homebrew is installed and return its path.
   // On Windows, Homebrew doesn't exist — return found:true as a no-op so the
   // onboarding brew step auto-passes and the FFmpeg check runs immediately.

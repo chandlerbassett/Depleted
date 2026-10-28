@@ -31,6 +31,24 @@ export interface ProcessingRequiredEvent {
   coach?: CoachData
 }
 
+// Written next to a raw recording (<raw>.json) once a key's recording is running, so a
+// recording left behind by a crash or force-quit can be saved on the next launch.
+export interface RawRecordingInfo {
+  zoneName: string
+  instanceId: number
+  challengeModeId: number
+  keystoneLevel: number
+  affixIds: number[]
+  // Key start (log time) and when the recorder came up (wall clock), ISO strings
+  keyStartedAt: string
+  recordingStartedAt: string
+  preRollSecs: number
+}
+
+export function rawInfoPath(rawPath: string): string {
+  return `${rawPath}.json`
+}
+
 export interface StateMachineEventMap {
   statusChanged: { status: RecorderStatus; zone?: string }
   error: { message: string }

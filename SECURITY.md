@@ -19,5 +19,6 @@ Only the latest release gets security fixes.
 - Recordings, coach data and settings stay on your Mac. Nothing is uploaded.
 - Your Warcraft Logs API client ID and secret are encrypted with the macOS Keychain
   and are only ever sent to warcraftlogs.com.
-- The only network calls the app makes are to the Warcraft Logs API, for the Coach's
-  top-player comparison.
+- The app makes two kinds of network calls: to the Warcraft Logs API, for the Coach's
+  top-player comparison, and to GitHub, to check this repo's releases for updates.
+  macOS only installs an update signed with the same Developer ID as the app.

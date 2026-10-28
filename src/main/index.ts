@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
-import { chmodSync } from 'fs'
+import { chmodSync, readdirSync } from 'fs'
 import Store from 'electron-store'
 
 // On macOS, Electron's getDisplayMedia({ audio: 'loopback' }) has historically returned
@@ -27,12 +27,14 @@ import { NativeCaptureRecorder } from './recorder/NativeCaptureRecorder'
 import type { CaptureRecorder } from './recorder/CaptureRecorder'
 import { nativeHelperPath } from './recorder/nativeHelperPath'
 import { MythicPlusStateMachine } from './recorder/MythicPlusStateMachine'
+import { setupAutoUpdater } from './updater'
 import type { ProcessingRequiredEvent } from './recorder/types'
 import { StorageManager, ffmpegMediaTools, nativeMediaTools, type MediaTools } from './storage/StorageManager'
 import { resolveFfmpegPath } from './system/ffmpeg'
 import { openExternalUrl } from './system/openExternal'
+import { startLogFile } from './system/logFile'
 
-import type { AppConfig } from '@shared/ipc.types'
+import type { AppConfig, Recording } from '@shared/ipc.types'
 import {
   COMBAT_LOG_RELATIVE_DIR,
   COMBAT_LOG_GLOB,
@@ -82,6 +84,24 @@ try {
 }
 
 
+// Recordings being trimmed and saved — quitting waits for them
+const pendingSaves = new Set<Promise<unknown>>()
+
+function trackSave(save: Promise<unknown>): void {
+  pendingSaves.add(save)
+  void save.finally(() => pendingSaves.delete(save))
+}
+
+function listRawRecordings(rawDir: string): string[] {
+  try {
+    return readdirSync(rawDir)
+      .filter((name) => name.startsWith('raw_mplus_') && /\.(mp4|webm)$/.test(name))
+      .map((name) => join(rawDir, name))
+  } catch {
+    return []
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline singletons — created once, shared across IPC registrations
 // ---------------------------------------------------------------------------
@@ -115,29 +135,49 @@ function createPipeline(): {
   })
   const storageManager = new StorageManager(storagePath)
 
-  stateMachine.on('processingRequired', (event: ProcessingRequiredEvent): void => {
-    let media: MediaTools
+  const mediaTools = (): MediaTools | null => {
     try {
-      media = useNative ? nativeMediaTools(nativeHelperPath()) : ffmpegMediaTools(resolveFfmpegPath())
+      return useNative ? nativeMediaTools(nativeHelperPath()) : ffmpegMediaTools(resolveFfmpegPath())
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error('[Main] Cannot post-process recording:', message)
-      return
+      return null
     }
+  }
+  const announce = (recording: Recording): void => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('storage:recordingProcessed', { recording })
+      }
+    }
+  }
 
-    storageManager
-      .processRecording(event, media, event.timeline)
-      .then((recording) => {
-        for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.isDestroyed()) {
-            win.webContents.send('storage:recordingProcessed', { recording })
-          }
-        }
-      })
-      .catch((err: Error) => {
-        console.error('[Main] Post-processing failed:', err.message)
-      })
+  stateMachine.on('processingRequired', (event: ProcessingRequiredEvent): void => {
+    const media = mediaTools()
+    if (media === null) return
+    trackSave(
+      storageManager
+        .processRecording(event, media, event.timeline)
+        .then(announce)
+        .catch((err: Error) => {
+          console.error('[Main] Post-processing failed:', err.message)
+        })
+    )
   })
+
+  // Raw files already there were left by a crash or force-quit: nothing records into
+  // raw/ until the watcher starts, so list them first, then save them as abandoned keys.
+  const leftoverRaw = listRawRecordings(rawDir)
+  if (leftoverRaw.length > 0) {
+    const media = mediaTools()
+    if (media !== null) {
+      trackSave(
+        storageManager
+          .recoverRawRecordings(leftoverRaw, media)
+          .then((recovered) => recovered.forEach(announce))
+      )
+    }
+  }
 
   watcher.start()
   console.warn(`[Main] Combat log watcher started: ${logsDir}/${COMBAT_LOG_GLOB}`)
@@ -265,6 +305,12 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function startApp(): void {
+  startLogFile()
+  // Chromium's own DNS client (on by default on macOS) sends queries straight to the
+  // router, which makes macOS ask for Local Network access the first time the update
+  // check runs. The system resolver gives the same answers without that.
+  app.configureHostResolver({ enableBuiltInResolver: false })
+
   registerSystemIpc(configStore)
   registerConfigIpc(configStore)
 
@@ -292,6 +338,7 @@ function startApp(): void {
   registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 
   const mainWindow = createWindow(stateMachine, storageManager)
+  setupAutoUpdater(mainWindow, () => recorder.isRecording())
 
   // Create tray on startup if the setting is enabled, and react to changes.
   if (configStore.get('minimizeToTray')) {
@@ -318,17 +365,22 @@ function startApp(): void {
   // Stop any active capture before quitting so macOS releases the screen recording
   // indicator immediately and the hidden capture window/write stream are torn down
   // cleanly (mainWindow stays open throughout, so window-all-closed doesn't fire
-  // prematurely while the hidden window is being destroyed).
+  // prematurely while the hidden window is being destroyed). A key still running is
+  // saved as abandoned, and quitting waits for recordings that are still being saved,
+  // so nothing is left behind in raw/.
+  let quitCleanupDone = false
   app.on('before-quit', (event) => {
     isQuitting = true
-    if (!recorder.isRecording()) return
+    if (quitCleanupDone || (!recorder.isRecording() && pendingSaves.size === 0)) return
     event.preventDefault()
-    // An armed recording (in a dungeon, no key yet) is thrown away rather than kept.
+    quitCleanupDone = true
     stateMachine
-      .releaseArmedRecorder()
+      .finishForQuit()
       .then(async () => {
+        // Test mode
         if (recorder.isRecording()) await recorder.stop()
       })
+      .then(() => Promise.allSettled([...pendingSaves]))
       .catch((err: Error) => console.error('[Main] Failed to stop recorder on quit:', err.message))
       .finally(() => app.quit())
   })

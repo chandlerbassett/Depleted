@@ -67,6 +67,19 @@ const filteredRecordings = computed(() =>
 )
 
 // -------------------------------------------------------------------------
+// Version and auto-update
+// -------------------------------------------------------------------------
+
+const appVersion = ref('')
+// Set once an update has downloaded; installs on "Restart to update" or the next quit
+const updateVersion = ref<string | null>(null)
+const isRecording = computed(() => status.value === 'recording')
+
+async function installUpdate(): Promise<void> {
+  await window.electron.invoke('updater:install')
+}
+
+// -------------------------------------------------------------------------
 // Addon connection status — polls every 5 s (SavedVars flush on WoW reload)
 // -------------------------------------------------------------------------
 
@@ -77,6 +90,7 @@ let addonUpdatePromptShown = false
 
 let addonPollTimer: ReturnType<typeof setInterval> | null = null
 let unsubAddon: (() => void) | null = null
+let unsubUpdate: (() => void) | null = null
 
 function applyAddonStatus(result: { connected: boolean; name?: string; spec?: string; needsUpdate?: boolean }): void {
   addonConnected.value = result.connected
@@ -114,6 +128,9 @@ async function openSystemPreferences(): Promise<void> {
 }
 
 onMounted(() => {
+  void window.electron.invoke('system:getVersion').then(({ version }) => { appVersion.value = version })
+  void window.electron.invoke('updater:getReady').then(({ version }) => { updateVersion.value = version })
+  unsubUpdate = window.electron.on('updater:ready', ({ version }) => { updateVersion.value = version })
   void refreshAddonStatus()
   void checkScreenPermission()
   void statsLinkStore.load()
@@ -128,6 +145,7 @@ onUnmounted(() => {
   if (addonPollTimer !== null) clearInterval(addonPollTimer)
   if (elapsedTimer !== null) clearInterval(elapsedTimer)
   unsubAddon?.()
+  unsubUpdate?.()
 })
 
 // -------------------------------------------------------------------------
@@ -254,6 +272,22 @@ const statusTextClass = computed(() => {
             />
           </svg>
         </button>
+
+        <button
+          v-if="updateVersion"
+          class="text-xs px-2 py-0.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="isRecording"
+          :title="isRecording ? 'Available after this recording ends' : `Restart into Depleted ${updateVersion}`"
+          @click="installUpdate"
+        >
+          Restart to update
+        </button>
+
+        <span
+          v-if="appVersion"
+          class="text-xs text-zinc-600 tabular-nums"
+          title="Depleted version"
+        >v{{ appVersion }}</span>
       </div>
     </div>
 
