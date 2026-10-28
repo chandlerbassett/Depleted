@@ -94,6 +94,22 @@ jobs:
         # (see CONTRIBUTING.md). Without them the DMG is ad-hoc signed and not notarized.
         run: npm run build:mac -- --publish never
 
+      - name: Sign & notarize the DMG
+        # The app inside is already notarized. This signs, notarizes and staples the disk
+        # image too, then puts the DMG's new hash in latest-mac.yml.
+        run: |
+          identity="$(security find-identity -v -p codesigning | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
+          if [ -z "$identity" ] || [ -z "${APPLE_ID:-}" ]; then
+            echo "::warning::No Developer ID certificate or notarization secrets: the DMG itself stays unsigned"
+            exit 0
+          fi
+          for dmg in dist/*.dmg; do
+            codesign --sign "$identity" --timestamp "$dmg"
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+            xcrun stapler staple "$dmg"
+          done
+          node build/updateManifest.js dist/latest-mac.yml dist/*.dmg
+
       - name: Check the signature
         run: |
           app="$(ls -d dist/mac-arm64/*.app)"
@@ -103,6 +119,12 @@ jobs:
             if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "::error::Not notarized"; exit 1; fi
             echo "::warning::Not notarized: Gatekeeper will warn on first launch"
           fi
+          for dmg in dist/*.dmg; do
+            if ! { spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg" && xcrun stapler validate "$dmg"; }; then
+              if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "::error::$dmg is not signed and notarized"; exit 1; fi
+              echo "::warning::$dmg is not signed and notarized"
+            fi
+          done
 
       - name: Keep the DMG on the run (test builds)
         if: github.event_name == 'workflow_dispatch'

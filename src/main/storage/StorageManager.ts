@@ -28,6 +28,8 @@ import { runHelperCommand } from '../recorder/nativeHelper'
 import { writeMetadata, readMetadata, writeCoachData, readCoachData } from './MetadataWriter'
 import type { CoachData } from '@shared/coach.types'
 
+const SUMMARY_CACHE_FILENAME = 'coach-summaries.json'
+
 // ---------------------------------------------------------------------------
 // Media tools — trim + thumbnail. The depleted-capture helper (AVFoundation) on macOS,
 // FFmpeg elsewhere.
@@ -219,6 +221,22 @@ export class StorageManager {
     return readCoachData(join(this.storagePath, id))
   }
 
+  // Trends' per-key summaries, saved next to coach.json so app starts don't redo them.
+  // The caller owns the format; anything unreadable comes back as null.
+  async readSummaryCache(id: string): Promise<unknown> {
+    if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return null
+    try {
+      return JSON.parse(await fs.readFile(join(this.storagePath, id, SUMMARY_CACHE_FILENAME), 'utf8')) as unknown
+    } catch {
+      return null
+    }
+  }
+
+  async writeSummaryCache(id: string, cache: unknown): Promise<void> {
+    if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return
+    await fs.writeFile(join(this.storagePath, id, SUMMARY_CACHE_FILENAME), JSON.stringify(cache), 'utf8')
+  }
+
   // Returns paths of directories that contain a recording video but no metadata.json.
   // These are incomplete recordings left by a crash during post-processing.
   async findOrphanedRecordings(): Promise<string[]> {
@@ -284,14 +302,13 @@ function generateThumbnail(
 // Metadata builder
 // ---------------------------------------------------------------------------
 
-// Builds RecordingMetadata from a processing event.
-// playerName/playerClass/playerSpec are not yet available from the combat log.
 export function buildDirName(event: ProcessingRequiredEvent): string {
   const zone = event.zoneName.replace(/[^a-zA-Z0-9]/g, '')
   const date = formatDateTime(event.matchStartedAt)
   return `${date}_${zone}_M${event.mythicPlus.keystoneLevel}_${event.mythicPlus.outcome}`
 }
 
+// Builds RecordingMetadata from a processing event.
 export function buildMetadata(
   event: ProcessingRequiredEvent,
   timeline: TimelineEvent[],
@@ -304,9 +321,9 @@ export function buildMetadata(
     result: event.result,
     duration: event.durationSecs,
     videoExt,
-    playerName: '',
-    playerClass: '',
-    playerSpec: '',
+    playerName: event.player?.name ?? '',
+    playerClass: event.player?.class ?? '',
+    playerSpec: event.player?.spec ?? '',
     teamComp: event.teamComp,
     knownSpecs: event.knownSpecs,
     events: timeline,

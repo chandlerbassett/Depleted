@@ -41,7 +41,7 @@ class and spec. Please prefer changes that keep it data-driven over hand-written
 ## Releases (maintainers)
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the DMG and attaches it
-to a GitHub release. It signs the app with a Developer ID and notarizes it when these
+to a GitHub release. It signs the app and the DMG with a Developer ID and notarizes both when these
 repository secrets are set:
 
 | Secret | What it is |
@@ -52,7 +52,7 @@ repository secrets are set:
 | `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password from [account.apple.com](https://account.apple.com) → Sign-In and Security |
 | `APPLE_TEAM_ID` | The 10-character Team ID from [developer.apple.com/account](https://developer.apple.com/account) → Membership details |
 
-A tag build refuses to publish unless the app is notarized, the tagged commit is on `main`,
+A tag build refuses to publish unless the app and the DMG are notarized, the tagged commit is on `main`,
 and the tag matches the `version` in `package.json`. It also attaches a `SHA256SUMS.txt` and
 a build provenance attestation (attestations need the repository to be public).
 

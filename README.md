@@ -111,7 +111,11 @@ gh attestation verify Depleted-*.dmg -R chandlerbassett/Depleted
 # Matches the checksum on the release page
 shasum -a 256 Depleted-*.dmg
 
-# Signed by the developer and notarized by Apple (after installing)
+# The disk image is signed and notarized
+spctl --assess --type open --context context:primary-signature --verbose=4 Depleted-*.dmg
+xcrun stapler validate Depleted-*.dmg
+
+# The app is signed by the developer and notarized by Apple (after installing)
 spctl --assess --verbose=4 /Applications/Depleted.app
 ```
 
@@ -217,7 +221,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
   say whether the timer was beaten.
 - **The Coach's top-player comparison uses Warcraft Logs API points.** Benchmarks are cached
   on disk for three days, so each dungeon, spec and level is only fetched once in that time.
-- Not notarized yet, so macOS asks you to confirm the app on first launch.
 
 ## Credits
 

@@ -17,8 +17,18 @@ import { WOW_SPEC_ID_MAP } from '@shared/constants'
 import type { Benchmark, BenchmarkResult } from '@shared/benchmark.types'
 import { reviewPlayer } from '@shared/coachAnalysis'
 import { compareWithTop } from '@shared/coachBenchmark'
-import { summarizeKey, isCharacter, type KeySummary } from '@shared/coachRecap'
+import { summarizeBosses, summarizeKey, isCharacter, type KeySummary } from '@shared/coachRecap'
 import type { StorageManager } from '../storage/StorageManager'
+import type { Recording } from '@shared/ipc.types'
+
+// Bump when KeySummary or how it's worked out changes, so saved summaries are redone
+const SUMMARY_CACHE_VERSION = 2
+
+interface SummaryCache {
+  version: number
+  // By "<player name>|<benchmark fetchedAt or ->"
+  entries: Record<string, KeySummary>
+}
 
 export function registerCoachIpc(storageManager: StorageManager): void {
   let service: BenchmarkService | null = null
@@ -80,22 +90,48 @@ export function registerCoachIpc(storageManager: StorageManager): void {
     }
   )
 
-  // Players in each recording's coach data, so listing characters doesn't reread every
-  // coach.json. Recordings never change once written.
+  // Players in each recording, so listing characters doesn't reread every coach.json.
+  // Recordings never change once written.
   const rosters = new Map<string, string[]>()
-  // Summaries by recording, player and the benchmark they were compared with
+  // Summaries by recording, player and the benchmark they were compared with. Also
+  // saved in each recording's folder (SummaryCache), so an app start doesn't redo them.
   const summaries = new Map<string, KeySummary>()
+
+  async function rosterOf(rec: Recording): Promise<string[]> {
+    let names = rosters.get(rec.id)
+    if (names === undefined) {
+      const party = rec.metadata.teamComp.filter((n) => n !== '')
+      names = party.length > 0 ? party : ((await storageManager.getCoachData(rec.id))?.players.map((p) => p.name) ?? [])
+      rosters.set(rec.id, names)
+    }
+    return names
+  }
+
+  async function cachedSummary(rec: Recording, entry: string): Promise<KeySummary | undefined> {
+    const key = `${rec.id}|${entry}`
+    const inMemory = summaries.get(key)
+    if (inMemory !== undefined) return inMemory
+    const cache = (await storageManager.readSummaryCache(rec.id)) as SummaryCache | null
+    if (cache?.version !== SUMMARY_CACHE_VERSION) return undefined
+    for (const [k, summary] of Object.entries(cache.entries)) summaries.set(`${rec.id}|${k}`, summary)
+    return summaries.get(key)
+  }
+
+  async function saveSummary(rec: Recording, entry: string, summary: KeySummary): Promise<void> {
+    summaries.set(`${rec.id}|${entry}`, summary)
+    const prefix = `${rec.id}|`
+    const entries: Record<string, KeySummary> = {}
+    for (const [k, s] of summaries) if (k.startsWith(prefix)) entries[k.slice(prefix.length)] = s
+    const cache: SummaryCache = { version: SUMMARY_CACHE_VERSION, entries }
+    await storageManager.writeSummaryCache(rec.id, cache).catch((err: unknown) => {
+      console.warn('[Coach] Could not save key summaries:', err instanceof Error ? err.message : String(err))
+    })
+  }
 
   ipcMain.handle('coach:listCharacters', async () => {
     const counts = new Map<string, number>()
     for (const rec of await storageManager.getRecordings()) {
-      let names = rosters.get(rec.id)
-      if (names === undefined) {
-        const data = await storageManager.getCoachData(rec.id)
-        names = data?.players.map((p) => p.name) ?? []
-        rosters.set(rec.id, names)
-      }
-      for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1)
+      for (const n of await rosterOf(rec)) counts.set(n, (counts.get(n) ?? 0) + 1)
     }
     return [...counts]
       .map(([name, keys]) => ({ name, keys }))
@@ -110,14 +146,20 @@ export function registerCoachIpc(storageManager: StorageManager): void {
       // Benchmarks already looked at in this call, by spec, dungeon and level
       const benches = new Map<string, Benchmark | null>()
       for (const rec of await storageManager.getRecordings()) {
-        if (rosters.has(rec.id) && !rosters.get(rec.id)!.some((n) => isCharacter(n, params.playerName))) continue
+        if (!(await rosterOf(rec)).some((n) => isCharacter(n, params.playerName))) continue
+        const dungeon = rec.metadata.zone
+        const keyLevel = rec.metadata.mythicPlus.keystoneLevel
+        // Already summarized with no top-player comparison to add: no need to read coach.json
+        const plain = await cachedSummary(rec, `${params.playerName}|-`)
+        if (plain !== undefined && (svc === null || plain.specId === null || !dungeon || keyLevel < 2)) {
+          out.push(plain)
+          continue
+        }
+
         const data = await storageManager.getCoachData(rec.id)
-        rosters.set(rec.id, data?.players.map((p) => p.name) ?? [])
         const player = data?.players.find((p) => isCharacter(p.name, params.playerName))
         if (data == null || player === undefined) continue
 
-        const dungeon = rec.metadata.zone
-        const keyLevel = rec.metadata.mythicPlus.keystoneLevel
         let bench: Benchmark | null = null
         if (svc !== null && player.specId !== null && dungeon && keyLevel >= 2) {
           const bk = `${player.specId}:${dungeon}:${keyLevel}`
@@ -134,18 +176,20 @@ export function registerCoachIpc(storageManager: StorageManager): void {
           }
         }
 
-        const key = `${rec.id}|${player.guid}|${bench?.fetchedAt ?? '-'}`
-        let summary = summaries.get(key)
+        const entry = `${params.playerName}|${bench?.fetchedAt ?? '-'}`
+        let summary = await cachedSummary(rec, entry)
         if (summary === undefined) {
           const review = reviewPlayer(data, player.guid)
           if (review === null) continue
           const comparison = bench !== null ? compareWithTop(data, player.guid, bench) : null
+          const encounters = rec.metadata.mythicPlus.encounters ?? []
           summary = summarizeKey(
             { recordingId: rec.id, date: rec.metadata.date, dungeon, keyLevel },
             review,
-            comparison
+            comparison,
+            summarizeBosses(data, review, encounters)
           )
-          summaries.set(key, summary)
+          await saveSummary(rec, entry, summary)
         }
         out.push(summary)
       }

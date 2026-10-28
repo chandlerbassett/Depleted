@@ -14,18 +14,22 @@ function credentialsPath(): string {
 export async function loadWclCredentials(): Promise<WclCredentials | null> {
   try {
     const raw = await fs.readFile(credentialsPath())
-    if (!safeStorage.isEncryptionAvailable()) return null
-    const parsed = JSON.parse(safeStorage.decryptString(raw)) as Partial<WclCredentials>
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) return null
+    const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(raw)
+    const parsed = JSON.parse(result) as Partial<WclCredentials>
     if (typeof parsed.clientId !== 'string' || typeof parsed.clientSecret !== 'string') return null
-    return { clientId: parsed.clientId, clientSecret: parsed.clientSecret }
+    const credentials = { clientId: parsed.clientId, clientSecret: parsed.clientSecret }
+    // The Keychain key was rotated: store it again under the new one
+    if (shouldReEncrypt) await saveWclCredentials(credentials).catch(() => undefined)
+    return credentials
   } catch {
     return null
   }
 }
 
 export async function saveWclCredentials(credentials: WclCredentials): Promise<void> {
-  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure storage is not available on this Mac')
-  await fs.writeFile(credentialsPath(), safeStorage.encryptString(JSON.stringify(credentials)), { mode: 0o600 })
+  if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('Secure storage is not available on this Mac')
+  await fs.writeFile(credentialsPath(), await safeStorage.encryptStringAsync(JSON.stringify(credentials)), { mode: 0o600 })
 }
 
 export async function clearWclCredentials(): Promise<void> {

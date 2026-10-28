@@ -22,6 +22,9 @@ export interface ProcessingRequiredEvent {
   knownSpecs: Record<string, string>
   // Party roster
   teamComp: string[]
+  // The player recording (Name-Realm and class/spec names), empty strings when unknown.
+  // Missing on recovered recordings.
+  player?: { name: string; class: string; spec: string }
   // Per-player meters (Details!/Skada-style) — name → total for the key
   playerDamageDone: Record<string, number>
   playerDamageTaken: Record<string, number>

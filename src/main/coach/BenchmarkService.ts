@@ -331,7 +331,7 @@ export class BenchmarkService {
 
   private async writeCache(key: string, bench: Benchmark): Promise<void> {
     try {
-      await fs.mkdir(this.cacheDir, { recursive: true })
+      await fs.mkdir(this.cacheDir, { recursive: true, mode: 0o700 })
       await fs.writeFile(join(this.cacheDir, `${key}.json`), JSON.stringify(bench))
     } catch (err) {
       console.warn('[Benchmark] Could not cache:', err instanceof Error ? err.message : String(err))
