@@ -1,5 +1,6 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
+import { chmodSync } from 'fs'
 import Store from 'electron-store'
 
 // On macOS, Electron's getDisplayMedia({ audio: 'loopback' }) has historically returned
@@ -29,6 +30,7 @@ import { MythicPlusStateMachine } from './recorder/MythicPlusStateMachine'
 import type { ProcessingRequiredEvent } from './recorder/types'
 import { StorageManager, ffmpegMediaTools, nativeMediaTools, type MediaTools } from './storage/StorageManager'
 import { resolveFfmpegPath } from './system/ffmpeg'
+import { openExternalUrl } from './system/openExternal'
 
 import type { AppConfig } from '@shared/ipc.types'
 import {
@@ -54,6 +56,8 @@ const DEFAULT_WOW_PATH = process.platform === 'win32'
   : '/Applications/World of Warcraft'
 
 const configStore = new Store<AppConfig>({
+  // Only this user: electron-store otherwise writes it world-readable and writable
+  configFileMode: 0o600,
   defaults: {
     wowPath: DEFAULT_WOW_PATH,
     storagePath: DEFAULT_STORAGE_PATH,
@@ -70,6 +74,13 @@ const configStore = new Store<AppConfig>({
     wowRegion: DEFAULT_WOW_REGION
   }
 })
+// configFileMode only applies when the file is next written; fix older installs now
+try {
+  chmodSync(configStore.path, 0o600)
+} catch {
+  // Not written yet
+}
+
 
 // ---------------------------------------------------------------------------
 // Pipeline singletons — created once, shared across IPC registrations
@@ -191,10 +202,12 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
     backgroundColor: '#0f0f0f',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false
+      // The packaged page is a file:// page, so it can show recordings (file:// too)
+      // with web security on. The dev server's http page can't, so it's off there only.
+      webSecurity: !process.env.ELECTRON_RENDERER_URL
     }
   })
 
@@ -210,8 +223,12 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    openExternalUrl(url).catch((err: Error) => console.warn('[Main] Link not opened:', err.message))
     return { action: 'deny' }
+  })
+  // The window only ever shows the app itself
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow.webContents.getURL()) event.preventDefault()
   })
 
   // Wire per-window push events (ipcMain.handle is registered once at startup)
@@ -232,7 +249,22 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-app.whenReady().then(() => {
+// One copy at a time: a second one would watch the same combat log and record the
+// same key. Opening the app again brings the running one forward.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win === undefined) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  })
+  app.whenReady().then(startApp)
+}
+
+function startApp(): void {
   registerSystemIpc(configStore)
   registerConfigIpc(configStore)
 
@@ -300,7 +332,7 @@ app.whenReady().then(() => {
       .catch((err: Error) => console.error('[Main] Failed to stop recorder on quit:', err.message))
       .finally(() => app.quit())
   })
-})
+}
 
 // Quit on window close on all platforms — this is a utility app, not a menu-bar app.
 app.on('window-all-closed', () => {
