@@ -18,7 +18,12 @@ extraResources:
   - from: resources/tray
     to: tray
 
+afterPack: build/afterPack.js
 afterSign: build/afterSign.js
+
+# Releases are uploaded by the release workflow, and the app has no auto-updater, so
+# don't ship an app-update.yml pointing at GitHub.
+publish: null
 
 # ---------------------------------------------------------------------------
 # macOS

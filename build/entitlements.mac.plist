@@ -2,14 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- Required for Electron's V8 JIT compiler -->
+  <!-- V8's JIT is all Electron needs under the hardened runtime. Nothing else is
+       loosened, so no unsigned code or other people's libraries can load into an app
+       that has Screen Recording permission. -->
   <key>com.apple.security.cs.allow-jit</key>
-  <true/>
-  <!-- Required for Electron's V8 memory-mapped code pages -->
-  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-  <true/>
-  <!-- Required to load native Node.js modules (e.g. electron-store) -->
-  <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
 </dict>
 </plist>

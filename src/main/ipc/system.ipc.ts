@@ -9,6 +9,7 @@ import { cp, mkdir } from 'fs/promises'
 import { join, dirname } from 'path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type Store from 'electron-store'
+import { openExternalUrl } from '../system/openExternal'
 import { resolveFfmpegPath, checkScreenPermission as checkScreenPermissionSync } from '../system/ffmpeg'
 import { listCaptureSources } from '../recorder/sourceResolver'
 import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from '../addon/SavedVarsReader'
@@ -191,7 +192,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     'system:openUrl',
     async (_event, { url }: { url: string }): Promise<{ success: boolean; error?: string }> => {
       try {
-        await shell.openExternal(url)
+        await openExternalUrl(url)
         return { success: true }
       } catch (e) {
         return { success: false, error: e instanceof Error ? e.message : String(e) }
