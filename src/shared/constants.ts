@@ -14,6 +14,20 @@ export const MYTHIC_PLUS_ABANDON_TIMEOUT_SECS = 180
 // Mythic+: if the combat log goes quiet for this long mid-key (game closed, logging
 // turned off, group disbanded without a zone change), close the key as abandoned.
 export const MYTHIC_PLUS_IDLE_TIMEOUT_SECS = 300
+// Mythic+: the recorder is armed on entering a Mythic dungeon, so the video can begin
+// this long before CHALLENGE_MODE_START and catch the key going in and the countdown.
+export const MYTHIC_PLUS_PRE_ROLL_SECS = 15
+// Mythic+: an armed recording with no key started is thrown away and restarted after
+// this long, so waiting at the entrance doesn't fill the disk (100 Mbps ≈ 0.75 GB/min).
+// Keys usually go in 1–4 minutes after zoning in.
+export const MYTHIC_PLUS_ARMED_RESTART_SECS = 600
+// Mythic+: stop arming after this long in the dungeon with no key started.
+export const MYTHIC_PLUS_ARMED_MAX_SECS = 3600
+// Mythic+: only arm on a ZONE_CHANGE logged within this long of now.
+export const MYTHIC_PLUS_ARM_MAX_LOG_AGE_SECS = 120
+// ZONE_CHANGE difficulty IDs for a Mythic dungeon: 23 before the key goes in, 8 once
+// it's running (Mythic Keystone).
+export const MYTHIC_DUNGEON_DIFFICULTY_IDS: readonly number[] = [23, 8]
 
 // ---------------------------------------------------------------------------
 // Death recap

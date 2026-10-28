@@ -29,6 +29,7 @@ export function registerTestModeIpc(
   let lastTestPath: string | null = null
 
   ipcMain.handle('testMode:start', async () => {
+    await stateMachine.releaseArmedRecorder()
     if (stateMachine.getStatus() !== 'idle' || recorder.isRecording()) {
       return { success: false, error: 'Cannot start a test recording while a key is being recorded.' }
     }

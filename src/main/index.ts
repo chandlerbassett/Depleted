@@ -291,8 +291,12 @@ app.whenReady().then(() => {
     isQuitting = true
     if (!recorder.isRecording()) return
     event.preventDefault()
-    recorder
-      .stop()
+    // An armed recording (in a dungeon, no key yet) is thrown away rather than kept.
+    stateMachine
+      .releaseArmedRecorder()
+      .then(async () => {
+        if (recorder.isRecording()) await recorder.stop()
+      })
       .catch((err: Error) => console.error('[Main] Failed to stop recorder on quit:', err.message))
       .finally(() => app.quit())
   })

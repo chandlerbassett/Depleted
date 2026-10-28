@@ -9,6 +9,7 @@ import { EventEmitter } from 'events'
 // ---------------------------------------------------------------------------
 const ZONE_FIELD_INSTANCE_ID = 0
 const ZONE_FIELD_ZONE_NAME = 1
+const ZONE_FIELD_DIFFICULTY_ID = 2
 
 // ---------------------------------------------------------------------------
 // Mythic+ / encounter field indices (0-indexed, after the event type field)
@@ -261,11 +262,13 @@ export interface UnitDiedEvent {
   timestamp: Date
 }
 
-// Fired for every ZONE_CHANGE. Mythic+ uses it to notice the player leaving the
-// dungeon mid-key.
+// Fired for every ZONE_CHANGE. Mythic+ uses it to arm the recorder on entering a
+// Mythic dungeon and to notice the player leaving the dungeon mid-key.
 export interface ZoneChangedEvent {
   instanceId: number
   zoneName: string
+  // 0 in the open world; 23 = Mythic dungeon, 8 = Mythic Keystone
+  difficultyId: number
   timestamp: Date
 }
 
@@ -480,9 +483,11 @@ export class CombatLogParser extends EventEmitter {
     const zoneName = fields[ZONE_FIELD_ZONE_NAME] ?? ''
     const instanceId = parseInt(rawId ?? '', 10)
 
+    const difficultyId = parseInt(fields[ZONE_FIELD_DIFFICULTY_ID] ?? '', 10)
+
     if (isNaN(instanceId)) return
 
-    this.emit('zoneChanged', { instanceId, zoneName, timestamp })
+    this.emit('zoneChanged', { instanceId, zoneName, difficultyId: isNaN(difficultyId) ? 0 : difficultyId, timestamp })
   }
 
 
