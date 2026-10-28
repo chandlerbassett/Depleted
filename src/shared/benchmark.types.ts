@@ -16,10 +16,14 @@ export interface BenchmarkRun {
   firstPull: number
   // Successful casts: [secs, spellId]
   casts: Array<[number, number]>
+  // Equipped item IDs and talent picks [nodeId, entryId] from WCL's CombatantInfo; empty
+  // when the report didn't have it
+  gear: number[]
+  talents: Array<[number, number]>
 }
 
 export interface Benchmark {
-  version: 1
+  version: 2
   specId: number
   dungeon: string
   encounterId: number
@@ -29,6 +33,8 @@ export interface Benchmark {
   runs: BenchmarkRun[]
   // spellId → name, for spells most runs cast
   spellNames: Record<number, string>
+  // itemId → name, for items many runs wear
+  itemNames: Record<number, string>
 }
 
 export type BenchmarkResult =

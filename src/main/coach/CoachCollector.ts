@@ -1,5 +1,5 @@
 // Gathers the per-player data the coach needs while a key is recording: casts, self
-// buffs, damage and healing per second, deaths and talents. MythicPlusStateMachine
+// buffs, damage and healing per second, deaths, talents and gear. MythicPlusStateMachine
 // feeds it party members only and calls build() when the key ends.
 
 import type { CoachData, CoachPlayer } from '@shared/coach.types'
@@ -9,6 +9,7 @@ interface PlayerAcc {
   name: string
   specId: number | null
   talents: Array<[number, number, number]>
+  gear: number[]
   casts: Array<[number, number]>
   castStarts: number[]
   buffs: Array<[number, number, number]>
@@ -23,10 +24,17 @@ export class CoachCollector {
   private readonly players = new Map<string, PlayerAcc>()
   private readonly spellNames = new Map<number, string>()
 
-  setCombatant(guid: string, name: string, specId: number | null, talents: Array<[number, number, number]>): void {
+  setCombatant(
+    guid: string,
+    name: string,
+    specId: number | null,
+    talents: Array<[number, number, number]>,
+    gear: number[] = []
+  ): void {
     const p = this.player(guid, name)
     if (specId !== null) p.specId = specId
     if (talents.length > 0) p.talents = talents
+    if (gear.some((id) => id > 0)) p.gear = gear
   }
 
   addCast(guid: string, name: string, spellId: number, spellName: string, relSecs: number): void {
@@ -81,6 +89,7 @@ export class CoachCollector {
         name: p.name,
         specId: p.specId,
         talents: p.talents,
+        gear: p.gear,
         casts: p.casts.map(([s, id]): [number, number] => [t(s), id]).filter(([s]) => inVideo(s)),
         castStarts: p.castStarts.map(t).filter(inVideo),
         buffs: buffs
@@ -109,6 +118,7 @@ export class CoachCollector {
         name,
         specId: null,
         talents: [],
+        gear: [],
         casts: [],
         castStarts: [],
         buffs: [],

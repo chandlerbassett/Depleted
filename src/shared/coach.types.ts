@@ -8,6 +8,9 @@ export interface CoachPlayer {
   specId: number | null
   // Talent picks: [nodeId, entryId, rank]
   talents: Array<[number, number, number]>
+  // Equipped item IDs in slot order, 0 for an empty slot. Missing from recordings made
+  // before it was logged.
+  gear?: number[]
   // Successful casts: [secs, spellId]
   casts: Array<[number, number]>
   // Times a hard cast began (SPELL_CAST_START). Counts as activity for downtime, so

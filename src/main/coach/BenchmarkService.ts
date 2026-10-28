@@ -3,7 +3,8 @@
 // opening the Coach panel again costs no API points.
 //
 // WCL calls per uncached benchmark: the season's dungeon list (once per app run), one
-// rankings page per key level tried, then two batched report queries.
+// rankings page per key level tried, two batched report queries, then batched names
+// for spells and items.
 
 import { promises as fs } from 'fs'
 import { join } from 'path'
@@ -31,6 +32,12 @@ interface Ranking {
   server: { name: string; region: string }
 }
 
+// WCL's CombatantInfo event, as far as the Coach reads it
+interface CombatantInfo {
+  gear?: Array<{ id?: number; name?: string }>
+  talentTree?: Array<{ id: number; nodeID?: number; nodeId?: number }>
+}
+
 interface ZoneList {
   worldData: {
     expansions: Array<{
@@ -43,6 +50,8 @@ interface ZoneList {
 export class BenchmarkService {
   private encounters: Map<string, number> | null = null
   private readonly inFlight = new Map<string, Promise<Benchmark>>()
+  // Item names that came with CombatantInfo, so they needn't be looked up
+  private readonly seenItemNames = new Map<number, string>()
 
   constructor(
     private readonly wcl: WclQuery,
@@ -82,7 +91,7 @@ export class BenchmarkService {
     }
     const runs = await this.fetchRuns(rankings, wclName(spec.class))
     return {
-      version: 1,
+      version: 2,
       specId,
       dungeon,
       encounterId,
@@ -90,7 +99,8 @@ export class BenchmarkService {
       metric,
       fetchedAt: new Date().toISOString(),
       runs,
-      spellNames: await this.spellNames(runs)
+      spellNames: await this.spellNames(runs),
+      itemNames: await this.itemNames(runs)
     }
   }
 
@@ -190,14 +200,17 @@ export class BenchmarkService {
       if (actor !== undefined) located.push({ ranking: r, sourceId: actor.id, fightStart: fight.startTime })
     })
 
-    // Pass 2: the player's casts and first damage in each run
+    // Pass 2: the player's casts, first damage, and gear and talents in each run
     type Events = { data: Array<{ timestamp: number; type: string; abilityGameID: number }>; nextPageTimestamp: number | null }
-    const events = await this.wcl.query<Record<string, { report: { casts: Events; dmg: Events } | null }>>(
+    const events = await this.wcl.query<
+      Record<string, { report: { casts: Events; dmg: Events; info?: { data: CombatantInfo[] } } | null }>
+    >(
       `{ ${located
         .map(
           (l, i) => `e${i}: reportData { report(code: "${l.ranking.report.code}") {
             casts: events(fightIDs: [${l.ranking.report.fightID}], sourceID: ${l.sourceId}, dataType: Casts, limit: ${EVENTS_PAGE}) { data nextPageTimestamp }
             dmg: events(fightIDs: [${l.ranking.report.fightID}], sourceID: ${l.sourceId}, dataType: DamageDone, limit: 1) { data nextPageTimestamp }
+            info: events(fightIDs: [${l.ranking.report.fightID}], sourceID: ${l.sourceId}, dataType: CombatantInfo, limit: 5) { data }
           } }`
         )
         .join('\n')} }`
@@ -221,6 +234,8 @@ export class BenchmarkService {
         .map((e): [number, number] => [secs(e.timestamp), e.abilityGameID])
       if (casts.length === 0) continue
       const firstDamage = report.dmg.data[0]?.timestamp
+      const info = report.info?.data.find((e) => Array.isArray(e.gear) || Array.isArray(e.talentTree))
+      for (const item of info?.gear ?? []) if (item.id !== undefined && item.id > 0 && item.name) this.seenItemNames.set(item.id, item.name)
       runs.push({
         name: ranking.name,
         server: ranking.server.name,
@@ -231,7 +246,11 @@ export class BenchmarkService {
         reportCode: ranking.report.code,
         fightId: ranking.report.fightID,
         firstPull: firstDamage !== undefined ? secs(firstDamage) : casts[0]![0],
-        casts
+        casts,
+        gear: (info?.gear ?? []).map((g) => g.id ?? 0),
+        talents: (info?.talentTree ?? [])
+          .map((t): [number, number] => [t.nodeID ?? t.nodeId ?? 0, t.id])
+          .filter(([, entry]) => entry > 0)
       })
     }
     if (runs.length < MIN_RUNS) throw new Error('Could not read enough top runs from Warcraft Logs')
@@ -266,10 +285,37 @@ export class BenchmarkService {
     return names
   }
 
+  // Names for items worn in at least a third of the runs: enough to name the trinket or
+  // weapon a spell comes from. WCL usually names gear in CombatantInfo already.
+  private async itemNames(runs: BenchmarkRun[]): Promise<Record<number, string>> {
+    const counts = new Map<number, number>()
+    for (const run of runs) for (const id of new Set(run.gear)) if (id > 0) counts.set(id, (counts.get(id) ?? 0) + 1)
+    const ids = [...counts].filter(([, n]) => n >= runs.length / 3).map(([id]) => id)
+    const names: Record<number, string> = {}
+    const missing: number[] = []
+    for (const id of ids) {
+      const seen = this.seenItemNames.get(id)
+      if (seen !== undefined) names[id] = seen
+      else missing.push(id)
+    }
+    if (missing.length > 0) {
+      try {
+        const data = await this.wcl.query<Record<string, { item: { id: number; name: string } | null }>>(
+          `{ ${missing.map((id) => `i${id}: gameData { item(id: ${id}) { id name } }`).join('\n')} }`
+        )
+        for (const entry of Object.values(data)) if (entry.item !== null) names[entry.item.id] = entry.item.name
+      } catch (err) {
+        // Unnamed items still compare; the panel calls them "an item"
+        console.warn('[Benchmark] Could not name items:', err instanceof Error ? err.message : String(err))
+      }
+    }
+    return names
+  }
+
   private async readCache(key: string): Promise<Benchmark | null> {
     try {
       const bench = JSON.parse(await fs.readFile(join(this.cacheDir, `${key}.json`), 'utf8')) as Benchmark
-      if (bench.version !== 1 || Date.now() - Date.parse(bench.fetchedAt) > CACHE_TTL_MS) return null
+      if (bench.version !== 2 || Date.now() - Date.parse(bench.fetchedAt) > CACHE_TTL_MS) return null
       return bench
     } catch {
       return null

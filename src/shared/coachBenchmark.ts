@@ -32,6 +32,13 @@ const CORE_PER_MIN = 0.5
 // Flag a core spell when the player cast it at less than this share of the top rate
 const CORE_LOW_RATIO = 0.4
 const MAX_CAST_MIX = 6
+// A never-cast spell's source is an item or talent nearly every top run that casts it
+// has (at least this share)…
+const SOURCE_WITH_SHARE = 0.9
+// …and few runs that don't cast it have (at most this share)
+const SOURCE_WITHOUT_SHARE = 0.25
+// Candidates scoring within this of the best are equally likely sources
+const SOURCE_TIE = 0.05
 
 export interface StatComparison {
   you: number
@@ -63,6 +70,30 @@ export interface CastMixEntry {
   usedBy: number
 }
 
+// Where a spell the player never cast comes from, learned across the top runs
+export type SpellSource =
+  | { kind: 'unknown' }
+  | {
+      kind: 'item' | 'talent'
+      // Item name; null for talents, which WCL doesn't name
+      name: string | null
+      // How many top runs have it, out of the runs WCL had gear and talents for
+      takenBy: number
+      of: number
+      // Whether the player has it; null when their recording didn't log gear
+      has: boolean | null
+    }
+
+export interface NeverUsedSpell {
+  spellId: number
+  name: string
+  usedBy: number
+  source: SpellSource
+  // One line for the side note; null when the player had the source (then it's a
+  // finding instead)
+  note: string | null
+}
+
 export interface TopRunLink {
   name: string
   keyLevel: number
@@ -79,9 +110,10 @@ export interface BenchmarkComparison {
   cooldowns: CooldownComparison[]
   castMix: CastMixEntry[]
   // Spells most top runs use that this player never cast at all. Usually a talent or
-  // item (an on-use trinket) they don't have, which the log can't confirm, so these
-  // are a side note, never a finding.
-  neverUsed: Array<{ spellId: number; name: string; usedBy: number }>
+  // item (an on-use trinket) they don't have. Each is matched to its source across the
+  // top runs' gear and talents: when the player had it, that's a finding; otherwise
+  // it's a side note, never advice to press something they can't.
+  neverUsed: NeverUsedSpell[]
   findings: Finding[]
   topRuns: TopRunLink[]
 }
@@ -138,7 +170,8 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
   const yours = usesBySpell(player.casts)
   const cooldowns: CooldownComparison[] = []
   const castMix: CastMixEntry[] = []
-  const neverUsed: BenchmarkComparison['neverUsed'] = []
+  const neverUsed: NeverUsedSpell[] = []
+  const never: Array<{ spellId: number; usedBy: number; uses: number }> = []
   for (const [spellId, s] of stats) {
     const usedBy = s.uses.length / runs.length
     if (usedBy < USED_BY_SHARE) continue
@@ -154,7 +187,7 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
 
     if (mine.length === 0) {
       // Only note the ones that matter: cooldowns and spells cast often enough to count
-      if (isCooldown || medianOf(s.rates) >= CORE_PER_MIN) neverUsed.push({ spellId, name: name(spellId), usedBy })
+      if (isCooldown || medianOf(s.rates) >= CORE_PER_MIN) never.push({ spellId, usedBy, uses: medianOf(s.uses) })
     } else if (isCooldown) {
       // Scale top players' uses to this key's length, so a slower key expects more
       const topRate = medianOf(s.rates)
@@ -178,7 +211,28 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
   }
   cooldowns.sort((a, b) => b.topUses - b.yourUses - (a.topUses - a.yourUses) || a.name.localeCompare(b.name))
   castMix.sort((a, b) => b.top - b.you - (a.top - a.you))
+
+  const owned = playerFeatures(player.gear, player.talents)
+  const findings = buildFindings(cooldowns, yours, pulls, firstPull, duration)
+  for (const n of never) {
+    const source = attributeSpell(n.spellId, runs, owned, bench.itemNames ?? {})
+    const spell = name(n.spellId)
+    neverUsed.push({ spellId: n.spellId, name: spell, usedBy: n.usedBy, source, note: sourceNote(spell, source) })
+    if (source.kind !== 'unknown' && source.has === true) {
+      const uses = Math.round(n.uses)
+      findings.push({
+        kind: 'benchmark',
+        at: firstPull,
+        title: `${spell}: never used`,
+        detail:
+          (source.kind === 'item' ? `You had ${source.name ?? 'the item for it'} equipped` : 'You had the talent for it') +
+          ` and never pressed it. ${source.takenBy} of ${source.of} top players have it too and use it about ${uses} time${uses === 1 ? '' : 's'} a key.`,
+        weight: Math.max(20, uses * 10)
+      })
+    }
+  }
   neverUsed.sort((a, b) => b.usedBy - a.usedBy || a.name.localeCompare(b.name))
+  findings.sort((a, b) => b.weight - a.weight)
 
   return {
     runs: runs.length,
@@ -189,7 +243,7 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
     cooldowns,
     castMix: castMix.slice(0, MAX_CAST_MIX),
     neverUsed,
-    findings: buildFindings(cooldowns, yours, pulls, firstPull, duration),
+    findings,
     topRuns: [...runs]
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 3)
@@ -202,6 +256,95 @@ export function runUrl(run: BenchmarkRun): string {
 }
 
 // ---------------------------------------------------------------------------
+
+// Items as "i<itemId>" and talents as "t<entryId>". Entry IDs are unique across talent
+// trees, so they're compared on their own, without the node.
+function featuresOf(gear: number[], talents: Array<[number, number]>): Set<string> {
+  const out = new Set<string>()
+  for (const id of gear) if (id > 0) out.add(`i${id}`)
+  for (const [, entry] of talents) if (entry > 0) out.add(`t${entry}`)
+  return out
+}
+
+interface PlayerFeatures {
+  items: Set<number> | null
+  talents: Set<number> | null
+}
+
+function playerFeatures(gear: number[] | undefined, talents: Array<[number, number, number]>): PlayerFeatures {
+  return {
+    items: gear !== undefined && gear.some((id) => id > 0) ? new Set(gear.filter((id) => id > 0)) : null,
+    talents: talents.length > 0 ? new Set(talents.map(([, entry]) => entry)) : null
+  }
+}
+
+// The log doesn't say which item or talent grants a spell, so infer it: the source is
+// what nearly every top run that casts the spell has and few of the others do. When
+// every run casts it there's nothing to tell items and talents apart by, so it stays
+// unknown. Several equally likely candidates still give an answer when the player has
+// all of them, or none.
+export function attributeSpell(
+  spellId: number,
+  allRuns: BenchmarkRun[],
+  owned: PlayerFeatures,
+  itemNames: Record<number, string>
+): SpellSource {
+  const unknown: SpellSource = { kind: 'unknown' }
+  const runs = allRuns.filter((r) => (r.gear?.length ?? 0) > 0 || (r.talents?.length ?? 0) > 0)
+  if (runs.length < MIN_RUNS) return unknown
+  const casting: Array<Set<string>> = []
+  const others: Array<Set<string>> = []
+  for (const r of runs) {
+    const features = featuresOf(r.gear ?? [], r.talents ?? [])
+    if (r.casts.some(([, id]) => id === spellId)) casting.push(features)
+    else others.push(features)
+  }
+  if (casting.length < 2 || others.length === 0) return unknown
+
+  const share = (group: Array<Set<string>>, f: string): number => group.filter((g) => g.has(f)).length / group.length
+  const scored: Array<{ f: string; score: number }> = []
+  for (const f of new Set(casting.flatMap((g) => [...g]))) {
+    const withIt = share(casting, f)
+    const withoutIt = share(others, f)
+    if (withIt >= SOURCE_WITH_SHARE && withoutIt <= SOURCE_WITHOUT_SHARE) scored.push({ f, score: withIt - withoutIt })
+  }
+  if (scored.length === 0) return unknown
+  const best = Math.max(...scored.map((c) => c.score))
+  const candidates = scored.filter((c) => c.score >= best - SOURCE_TIE).map((c) => c.f)
+
+  const hasFeature = (f: string): boolean | null => {
+    const set = f.startsWith('i') ? owned.items : owned.talents
+    return set === null ? null : set.has(Number(f.slice(1)))
+  }
+  const has = candidates.map(hasFeature)
+  const verdict = has.every((h) => h === true) ? true : has.every((h) => h === false) ? false : null
+  // Mixed answers: can't tell which candidate it is
+  if (verdict === null && has.some((h) => h !== null)) return unknown
+
+  // Name the item when there is one: on-use effects mostly come from trinkets
+  const pick = candidates.find((f) => f.startsWith('i')) ?? candidates[0]!
+  const id = Number(pick.slice(1))
+  return {
+    kind: pick.startsWith('i') ? 'item' : 'talent',
+    name: pick.startsWith('i') ? (itemNames[id] ?? null) : null,
+    takenBy: runs.filter((r) => featuresOf(r.gear ?? [], r.talents ?? []).has(pick)).length,
+    of: runs.length,
+    has: verdict
+  }
+}
+
+function sourceNote(spell: string, source: SpellSource): string | null {
+  if (source.kind === 'unknown') return null
+  if (source.has === true) return null
+  const what = source.kind === 'item' ? (source.name ?? 'an item') : 'a talent'
+  const count = `${source.takenBy} of ${source.of} top players`
+  if (source.has === false) {
+    return source.kind === 'item'
+      ? `${spell} comes from ${what}, which you don't use. ${count} do.`
+      : `${spell} comes from a talent you don't take. ${count} do.`
+  }
+  return `${spell} comes from ${what} (${count} have it).`
+}
 
 function buildFindings(
   cooldowns: CooldownComparison[],
