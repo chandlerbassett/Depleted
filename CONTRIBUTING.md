@@ -52,7 +52,18 @@ repository secrets are set:
 | `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password from [account.apple.com](https://account.apple.com) → Sign-In and Security |
 | `APPLE_TEAM_ID` | The 10-character Team ID from [developer.apple.com/account](https://developer.apple.com/account) → Membership details |
 
-Without them the release is still built, just ad-hoc signed and not notarized.
+A tag build refuses to publish unless the app is notarized, the tagged commit is on `main`,
+and the tag matches the `version` in `package.json`. It also attaches a `SHA256SUMS.txt` and
+a build provenance attestation (attestations need the repository to be public).
+
+To cut a release:
+
+1. Bump `version` in `package.json` in a PR and merge it.
+2. Optional dry run: run the **Release** workflow by hand (Actions → Release → Run workflow)
+   and try the `Depleted-test-build` download on a Mac.
+3. Tag `main` and push the tag: `git tag v1.2.3 && git push origin v1.2.3`.
+
+The Developer ID certificate expires on Feb 1, 2027 (see issue #34).
 
 ## Code style
 
