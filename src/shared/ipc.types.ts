@@ -3,6 +3,7 @@
 // Renderer: ipcRenderer.invoke / ipcRenderer.on (via contextBridge)
 
 import type { CoachData } from './coach.types'
+import type { KeySummary } from './coachRecap'
 import type { BenchmarkResult } from './benchmark.types'
 
 // ---------------------------------------------------------------------------
@@ -163,6 +164,16 @@ export interface IpcCommands {
   }
   'coach:clearWclCredentials': { params: void; result: void }
   'coach:getBenchmark': { params: { specId: number; dungeon: string; keyLevel: number }; result: BenchmarkResult }
+  // Recap and trends across keys. Characters with coach data in at least one recording,
+  // most keys first.
+  'coach:listCharacters': { params: void; result: Array<{ name: string; keys: number }> }
+  // Every recorded key of one character, compared with top players where possible.
+  // fetchMissing: fetch benchmarks that aren't cached (costs WCL points); otherwise keys
+  // without a cached one come back uncompared.
+  'coach:getKeySummaries': {
+    params: { playerName: string; fetchMissing: boolean }
+    result: { summaries: KeySummary[]; wclConfigured: boolean }
+  }
 
   // Config
   'config:get': { params: { key: string }; result: unknown }

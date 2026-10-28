@@ -104,6 +104,13 @@ export class BenchmarkService {
     }
   }
 
+  // A cached benchmark, without fetching runs. Still looks up the dungeon list once.
+  async peek(specId: number, dungeon: string, keyLevel: number): Promise<Benchmark | null> {
+    if (WOW_SPEC_ID_MAP[specId] === undefined) return null
+    const encounterId = await this.encounterFor(dungeon)
+    return this.readCache(`${specId}-${encounterId}-${keyLevel}`)
+  }
+
   // Dungeon name as the combat log has it → WCL encounter ID, from the newest M+ seasons
   private async encounterFor(dungeon: string): Promise<number> {
     if (this.encounters === null) {

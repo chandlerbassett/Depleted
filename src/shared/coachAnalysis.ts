@@ -101,6 +101,9 @@ export interface LowStretch {
 
 export interface Finding {
   kind: FindingKind
+  // The same mistake gets the same issue in every key, so keys can be compared:
+  // 'death', 'downtime', 'low-output', or '<what>:<spellId>' such as 'held:288613'
+  issue: string
   // Where to seek the video
   at: number
   title: string
@@ -398,6 +401,7 @@ function buildFindings(
   for (const d of deaths) {
     findings.push({
       kind: 'death',
+      issue: 'death',
       at: d.at - 5,
       title: 'Died',
       detail:
@@ -411,6 +415,7 @@ function buildFindings(
   for (const g of downtime) {
     findings.push({
       kind: 'downtime',
+      issue: 'downtime',
       at: g.start,
       title: `${Math.round(g.secs)}s with no casts`,
       detail: 'Mid-pull with nothing cast. Moving, out of range, or waiting on something?',
@@ -420,18 +425,19 @@ function buildFindings(
 
   // Cooldowns pressed together (Avenging Wrath + Execution Sentence) sit ready
   // together: one finding per window, not one per spell
-  const windows = new Map<string, { names: string[]; held: HeldWindow }>()
+  const windows = new Map<string, { names: string[]; spellId: number; held: HeldWindow }>()
   for (const cd of cooldowns) {
     for (const h of cd.held) {
       const key = `${Math.round(h.readyAt / 3)}:${h.usedAt === null ? '-' : Math.round(h.usedAt)}`
       const w = windows.get(key)
-      if (w === undefined) windows.set(key, { names: [cd.name], held: h })
+      if (w === undefined) windows.set(key, { names: [cd.name], spellId: cd.spellId, held: h })
       else w.names.push(cd.name)
     }
   }
-  for (const { names, held: h } of windows.values()) {
+  for (const { names, spellId, held: h } of windows.values()) {
     findings.push({
       kind: 'cooldown',
+      issue: `held:${spellId}`,
       at: h.readyAt,
       title: `${names.join(' + ')} sat ready for ${Math.round(h.secs)}s`,
       detail:
@@ -445,6 +451,7 @@ function buildFindings(
   for (const w of lowStretches) {
     findings.push({
       kind: 'low-output',
+      issue: 'low-output',
       at: w.start,
       title: `Low damage share (${Math.round(w.share * 100)}%)`,
       detail: `${fmtClock(w.start)}–${fmtClock(w.end)}: ${Math.round(w.share * 100)}% of party damage, ${Math.round(w.keyShare * 100)}% over the whole key`,

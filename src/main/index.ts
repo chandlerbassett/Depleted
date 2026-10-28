@@ -256,7 +256,7 @@ app.whenReady().then(() => {
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)
   registerStorageIpc(storageManager)
-  registerCoachIpc()
+  registerCoachIpc(storageManager)
   registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 
   const mainWindow = createWindow(stateMachine, storageManager)

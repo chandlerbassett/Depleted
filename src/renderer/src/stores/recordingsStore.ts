@@ -7,6 +7,8 @@ export const useRecordingsStore = defineStore('recordings', () => {
   const selectedId = ref<string | null>(null)
 
   const selected = ref<Recording | null>(null)
+  // A moment to jump to once the selected recording's video loads (from Trends)
+  const pendingSeek = ref<{ id: string; at: number } | null>(null)
 
   function setRecordings(list: Recording[]): void {
     recordings.value = list
@@ -15,6 +17,18 @@ export const useRecordingsStore = defineStore('recordings', () => {
   function select(id: string): void {
     selectedId.value = id
     selected.value = recordings.value.find((r) => r.id === id) ?? null
+  }
+
+  function openAt(id: string, at: number): void {
+    pendingSeek.value = { id, at }
+    select(id)
+  }
+
+  function takePendingSeek(id: string): number | null {
+    const p = pendingSeek.value
+    if (p === null || p.id !== id) return null
+    pendingSeek.value = null
+    return p.at
   }
 
   function deselect(): void {
@@ -29,5 +43,5 @@ export const useRecordingsStore = defineStore('recordings', () => {
     }
   }
 
-  return { recordings, selectedId, selected, setRecordings, select, deselect, remove }
+  return { recordings, selectedId, selected, pendingSeek, setRecordings, select, openAt, takePendingSeek, deselect, remove }
 })
