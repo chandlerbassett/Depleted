@@ -4,6 +4,7 @@ import type { CoachData } from '@shared/coach.types'
 import type { BenchmarkResult } from '@shared/benchmark.types'
 import { reviewPlayer, fmtClock, DOWNTIME_MIN_SECS, type FindingKind } from '@shared/coachAnalysis'
 import { compareWithTop } from '@shared/coachBenchmark'
+import { recapKey, repeatsIn, isCharacter, RECAP_ISSUES, type KeySummary } from '@shared/coachRecap'
 import { WOW_SPEC_ID_MAP } from '@shared/constants'
 
 const props = defineProps<{
@@ -11,6 +12,8 @@ const props = defineProps<{
   // Dungeon name and key level, to find top players' runs to compare with
   dungeon: string
   keyLevel: number
+  // When the key was recorded, to find the player's earlier keys
+  date: string
   playerColor: (name: string) => string
 }>()
 
@@ -43,7 +46,7 @@ async function load(id: string): Promise<void> {
 
 function pickDefault(data: CoachData | null): string | null {
   if (data === null || data.players.length === 0) return null
-  const me = addonName ? data.players.find((p) => p.name === addonName || p.name.startsWith(`${addonName}-`)) : undefined
+  const me = addonName ? data.players.find((p) => isCharacter(p.name, addonName!)) : undefined
   return (me ?? sortedPlayers(data)[0]!).guid
 }
 
@@ -95,6 +98,37 @@ const comparison = computed(() => {
 })
 const neverUsedNotes = computed(() => comparison.value?.neverUsed.filter((n) => n.note !== null) ?? [])
 const neverUsedUnknown = computed(() => comparison.value?.neverUsed.filter((n) => n.source.kind === 'unknown') ?? [])
+
+// --- Recap -----------------------------------------------------------------
+// The key's biggest issues, own-key and against top players together, each tagged
+// when it also came up in the player's earlier keys of the same spec
+
+const recap = computed(() => (review.value !== null ? recapKey(review.value, comparison.value) : null))
+const recapIssues = computed(() => recap.value?.issues.slice(0, RECAP_ISSUES) ?? [])
+
+// Earlier keys by player name; only cached benchmarks, so this never costs API points
+const history = ref(new Map<string, KeySummary[] | 'loading'>())
+const selectedName = computed(() => coach.value?.players.find((p) => p.guid === selectedGuid.value)?.name ?? null)
+
+async function loadHistory(name: string | null): Promise<void> {
+  if (name === null || history.value.has(name)) return
+  history.value.set(name, 'loading')
+  const result = await window.electron
+    .invoke('coach:getKeySummaries', { playerName: name, fetchMissing: false })
+    .catch(() => ({ summaries: [] as KeySummary[], wclConfigured: false }))
+  history.value.set(name, result.summaries)
+}
+
+watch(selectedName, (name) => void loadHistory(name), { immediate: true })
+
+function repeatTag(issue: string, fromTop: boolean): string | null {
+  const name = selectedName.value
+  const keys = name !== null ? history.value.get(name) : undefined
+  if (keys === undefined || keys === 'loading') return null
+  const others = keys.filter((k) => k.recordingId !== props.recordingId && k.specId === selectedSpecId.value)
+  const r = repeatsIn(issue, fromTop, others, props.date)
+  return r === null ? null : `Also in ${r.count} of your last ${r.of} key${r.of === 1 ? '' : 's'}`
+}
 
 const benchSpecName = computed(() => {
   const s = selectedSpecId.value !== null ? WOW_SPEC_ID_MAP[selectedSpecId.value] : undefined
@@ -162,6 +196,65 @@ function pct(t: number): string {
       </div>
 
       <template v-if="review !== null">
+        <!-- Recap: one line, then the key's biggest issues -->
+        <div
+          v-if="recap !== null"
+          class="rounded bg-zinc-800/40 p-2"
+        >
+          <p class="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
+            Recap
+          </p>
+          <p class="text-xs text-zinc-300">
+            {{ recap.headline }}
+          </p>
+          <div
+            v-for="issue in recapIssues"
+            :key="issue.issue"
+            class="mt-1.5 text-xs px-1 py-1 rounded hover:bg-zinc-800/60 cursor-pointer"
+            @click="emit('seek', issue.moments[0]?.at ?? 0)"
+          >
+            <div class="flex items-baseline justify-between gap-2">
+              <p class="text-zinc-200">
+                {{ issue.label }}
+              </p>
+              <span
+                v-if="issue.fromTop"
+                class="text-[10px] text-amber-400/80 flex-shrink-0"
+              >vs top players</span>
+            </div>
+            <p class="text-zinc-500">
+              {{ issue.summary }}
+            </p>
+            <div class="flex flex-wrap items-center gap-x-2 mt-0.5">
+              <button
+                v-for="(m, i) in issue.moments"
+                :key="i"
+                class="text-[10px] text-blue-400 hover:underline tabular-nums"
+                :title="m.title"
+                @click.stop="emit('seek', m.at)"
+              >
+                {{ fmtClock(Math.max(0, m.at - 2)) }}
+              </button>
+              <span
+                v-if="repeatTag(issue.issue, issue.fromTop) !== null"
+                class="text-[10px] text-rose-400/90"
+              >{{ repeatTag(issue.issue, issue.fromTop) }}</span>
+            </div>
+          </div>
+          <p
+            v-if="recapIssues.length === 0"
+            class="mt-1 text-xs text-zinc-600"
+          >
+            Nothing stood out in this key.
+          </p>
+          <p
+            v-if="bench === 'loading'"
+            class="mt-1 text-[10px] text-zinc-600"
+          >
+            Adding the comparison with top players…
+          </p>
+        </div>
+
         <!-- Headline numbers -->
         <div class="grid grid-cols-4 gap-2 text-center">
           <div>
@@ -347,24 +440,6 @@ function pct(t: number): string {
               </div>
             </div>
 
-            <!-- Core spells cast much less often than top players -->
-            <div
-              v-if="comparison.castMix.length > 0"
-              class="mt-2"
-            >
-              <p class="text-[10px] text-zinc-500 mb-0.5">
-                Cast much less than top players (per minute)
-              </p>
-              <div
-                v-for="m in comparison.castMix"
-                :key="m.spellId"
-                class="flex items-center justify-between text-xs py-0.5"
-              >
-                <span class="text-zinc-300 truncate">{{ m.name }}</span>
-                <span class="text-zinc-500 flex-shrink-0 tabular-nums">{{ m.you.toFixed(1) }} / {{ m.top.toFixed(1) }}</span>
-              </div>
-            </div>
-
             <!-- Spells top players use that this player never cast. Ones whose item or
                  talent they had are findings above; the rest are gear and build notes -->
             <p
@@ -383,7 +458,7 @@ function pct(t: number): string {
             </p>
 
             <p
-              v-if="comparison.findings.length === 0 && comparison.castMix.length === 0"
+              v-if="comparison.findings.length === 0"
               class="text-xs text-zinc-600 py-1"
             >
               Cooldown use and cast mix are in line with top players.

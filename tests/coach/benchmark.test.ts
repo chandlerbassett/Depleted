@@ -120,7 +120,8 @@ describe('compareWithTop', () => {
     casts.push(...times(20, 20, DURATION).map((t): [number, number] => [t, COBRA]))
     const c = compareWithTop(key(casts), 'Player-1', bench())!
     expect(c.castMix.map((m) => m.name)).toEqual(['Cobra Shot'])
-    expect(c.findings).toEqual([])
+    // One finding for it, pointing at the longest stretch without it
+    expect(c.findings.map((f) => f.issue)).toEqual([`cast-low:${COBRA}`])
   })
 
   describe('spells never cast, matched to gear and talents (issue #20)', () => {

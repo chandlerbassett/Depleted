@@ -214,6 +214,17 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
 
   const owned = playerFeatures(player.gear, player.talents)
   const findings = buildFindings(cooldowns, yours, pulls, firstPull, duration)
+  for (const m of castMix.slice(0, MAX_CAST_MIX)) {
+    const gap = longestWait(yours.get(m.spellId) ?? [], pulls, firstPull, duration)
+    findings.push({
+      kind: 'benchmark',
+      issue: `cast-low:${m.spellId}`,
+      at: gap.from,
+      title: `${m.name}: ${m.you.toFixed(1)} a minute, top players ${m.top.toFixed(1)}`,
+      detail: `Your longest stretch of fighting without it was ${fmtGap(gap.secs)}, from ${fmtClock(gap.from)}.`,
+      weight: (1 - m.you / m.top) * 30
+    })
+  }
   for (const n of never) {
     const source = attributeSpell(n.spellId, runs, owned, bench.itemNames ?? {})
     const spell = name(n.spellId)
@@ -222,6 +233,7 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
       const uses = Math.round(n.uses)
       findings.push({
         kind: 'benchmark',
+        issue: `never-used:${n.spellId}`,
         at: firstPull,
         title: `${spell}: never used`,
         detail:
@@ -365,6 +377,7 @@ function buildFindings(
       const gap = longestWait(mine, pulls, firstPull, duration)
       findings.push({
         kind: 'benchmark',
+        issue: `cd-uses:${cd.spellId}`,
         // Where it would have been ready again
         at: gap.readyAt(cd.topInterval),
         title: `${cd.name}: ${mine.length} uses, top players ~${expected}`,
@@ -376,6 +389,7 @@ function buildFindings(
     if (cd.topFirst <= OPENER_SECS && cd.yourFirst !== null && cd.yourFirst - cd.topFirst >= OPENER_LATE_SECS) {
       findings.push({
         kind: 'benchmark',
+        issue: `opener:${cd.spellId}`,
         at: firstPull,
         title: `Late ${cd.name} in the opener`,
         detail: `${most(cd)} press it ${Math.round(cd.topFirst)}s into the first pull. You pressed it ${Math.round(cd.yourFirst)}s in.`,

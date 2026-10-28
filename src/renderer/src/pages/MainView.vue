@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppStore } from '@/stores/appStore'
 import { useRecordingsStore } from '@/stores/recordingsStore'
@@ -9,16 +9,26 @@ import RecordingList from '@/components/RecordingList.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import SettingsView from '@/pages/SettingsView.vue'
 import AddonUpdateModal from '@/components/AddonUpdateModal.vue'
+import TrendsView from '@/components/TrendsView.vue'
 const appStore = useAppStore()
 const recordingsStore = useRecordingsStore()
 const statsLinkStore = useStatsLinkStore()
 
 const { status, currentZone, lastError, recordingStartedAt } = storeToRefs(appStore)
-const { selected } = storeToRefs(recordingsStore)
+const { selected, selectedId } = storeToRefs(recordingsStore)
 
 const { deleteRecording, openFolder } = useMainView()
 
 const settingsOpen = ref(false)
+
+// Trends across keys take over the main panel until a key is picked
+const trendsOpen = ref(false)
+watch(selectedId, () => { trendsOpen.value = false })
+
+function openFromTrends(id: string, at: number): void {
+  trendsOpen.value = false
+  recordingsStore.openAt(id, at)
+}
 
 // -------------------------------------------------------------------------
 // Live recording elapsed-time indicator — ticks once per second while
@@ -215,6 +225,15 @@ const statusTextClass = computed(() => {
           <span :class="['text-xs', statusTextClass]">{{ statusLabel }}</span>
         </div>
 
+        <button
+          class="text-xs px-2 py-0.5 rounded hover:bg-zinc-700 transition-colors"
+          :class="trendsOpen ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'"
+          title="Repeating issues and progress across your keys"
+          @click="trendsOpen = !trendsOpen"
+        >
+          Trends
+        </button>
+
         <!-- Settings button -->
         <button
           class="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 transition-colors"
@@ -310,8 +329,13 @@ const statusTextClass = computed(() => {
 
         <!-- Main panel -->
         <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <TrendsView
+            v-if="trendsOpen"
+            class="flex-1 min-h-0"
+            @open="openFromTrends"
+          />
           <VideoPlayer
-            v-if="selected !== null"
+            v-else-if="selected !== null"
             :recording="selected"
             class="flex-1 min-h-0 overflow-y-auto"
           />

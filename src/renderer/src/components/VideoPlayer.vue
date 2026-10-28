@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import type { Recording, TimelineEventType } from '@shared/ipc.types'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useStatsLinkStore } from '@/stores/statsLinkStore'
+import { useRecordingsStore } from '@/stores/recordingsStore'
 import { usePlayer } from '@/composables/usePlayer'
 import TimelineCanvas from './TimelineCanvas.vue'
 import MeterWidget from './MeterWidget.vue'
@@ -87,6 +88,23 @@ const party = computed(() => [...props.recording.metadata.teamComp].sort((a, b) 
 function handleSeek(time: number): void {
   seekTo(Math.max(0, time - 2))
 }
+
+// Moments opened from Trends: seek once the video can, or right away if it already is
+const recordingsStore = useRecordingsStore()
+const { pendingSeek } = storeToRefs(recordingsStore)
+
+function applyPendingSeek(): void {
+  if ((videoRef.value?.readyState ?? 0) < 1) return
+  const at = recordingsStore.takePendingSeek(props.recording.id)
+  if (at !== null) handleSeek(at)
+}
+
+function handleLoadedMetadata(e: Event): void {
+  onLoadedMetadata(e)
+  applyPendingSeek()
+}
+
+watch(pendingSeek, applyPendingSeek)
 
 const EVENT_TYPE_LABEL: Record<string, string> = {
   'interrupt': 'Interrupt',
@@ -288,7 +306,7 @@ function fmtK(n: number): string {
         controls
         :src="videoSrc"
         @timeupdate="onTimeUpdate"
-        @loadedmetadata="onLoadedMetadata"
+        @loadedmetadata="handleLoadedMetadata"
         @play="onPlay"
         @pause="onPause"
         @ended="onEnded"
@@ -426,6 +444,7 @@ function fmtK(n: number): string {
           :recording-id="recording.id"
           :dungeon="zone"
           :key-level="mythicPlus?.keystoneLevel ?? 0"
+          :date="recording.metadata.date"
           :player-color="playerColor"
           @seek="handleSeek"
         />
