@@ -368,9 +368,15 @@ function shortName(name: string): string {
       </div>
 
       <!-- Boss fights in two or more keys -->
-      <div v-if="trends.bosses.length > 0">
+      <div>
         <p class="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
           Boss fights
+        </p>
+        <p
+          v-if="trends.bosses.length === 0"
+          class="text-xs text-zinc-600"
+        >
+          A boss shows up here once you've fought it in two keys of the same dungeon with this spec.
         </p>
         <div
           v-for="b in trends.bosses"
