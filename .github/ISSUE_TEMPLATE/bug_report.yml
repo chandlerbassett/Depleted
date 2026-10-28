@@ -13,7 +13,7 @@ body:
     attributes:
       label: Depleted version
       description: From the DMG file name, or Get Info on Depleted.app in Finder
-      placeholder: "1.0.19"
+      placeholder: "1.0.0"
     validations:
       required: true
 
