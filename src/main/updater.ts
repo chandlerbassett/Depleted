@@ -37,11 +37,12 @@ export function setupAutoUpdater(window: BrowserWindow, isRecording: () => boole
     readyVersion = info.version
     if (!window.isDestroyed()) window.webContents.send('updater:ready', { version: info.version })
   })
-  // Offline or GitHub unreachable: try again at the next check
-  autoUpdater.on('error', (err) => console.error('[Updater]', err.message))
+  // Offline or GitHub unreachable: try again at the next check. The logger above has
+  // already written the error to main.log.
+  autoUpdater.on('error', () => undefined)
 
   const check = (): void => {
-    autoUpdater.checkForUpdates().catch((err: Error) => console.error('[Updater]', err.message))
+    autoUpdater.checkForUpdates().catch(() => undefined)
   }
   check()
   setInterval(check, CHECK_INTERVAL_MS)
