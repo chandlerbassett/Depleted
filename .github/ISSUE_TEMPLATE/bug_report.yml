@@ -1,46 +1,27 @@
 name: Bug report
-description: Something isn't working — capture, audio, team/spell detection, UI, etc.
+description: Something isn't working, like recording, audio, the timeline, the Coach or the addon
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for testing! This app is early beta and tested on limited hardware, so
-        details about your setup are the most useful part of any report.
+        Thanks for the report! Details about your Mac and the key you ran are the most useful part.
+        Please leave out your Warcraft Logs client secret and anything else private.
 
   - type: input
     id: app-version
     attributes:
-      label: App version
-      description: Settings → About, or the installer/DMG filename (e.g. 1.0.17)
-      placeholder: "1.0.17"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: os
-    attributes:
-      label: Operating System
-      options:
-        - macOS (Apple Silicon)
-        - Windows 10
-        - Windows 11
+      label: Depleted version
+      description: From the DMG file name, or Get Info on Depleted.app in Finder
+      placeholder: "1.0.19"
     validations:
       required: true
 
   - type: input
-    id: os-version
+    id: mac
     attributes:
-      label: OS version
-      placeholder: "macOS 15.1 / Windows 11 23H2"
-    validations:
-      required: true
-
-  - type: input
-    id: gpu
-    attributes:
-      label: GPU
-      placeholder: "Apple M2, NVIDIA RTX 3060, AMD RX 6700 XT, Intel Iris Xe, ..."
+      label: Mac and macOS version
+      placeholder: "MacBook Pro M3 Pro, macOS 15.1"
     validations:
       required: true
 
@@ -49,13 +30,15 @@ body:
     attributes:
       label: What kind of problem is this?
       options:
-        - Recording doesn't start / capture fails
-        - No video in the recording
-        - No audio / audio issue in the recording
-        - Wrong team detection (allies shown as enemies or vice versa)
-        - Missing or wrong spell/class/spec detection
-        - Addon not connecting
-        - UI bug / visual issue
+        - A key wasn't recorded, or recording failed
+        - The video is black, choppy or the wrong window
+        - No audio, or an audio problem
+        - Wrong timeline markers, outcome, timer or score
+        - Coach notes look wrong
+        - Warcraft Logs connection problem
+        - Companion addon problem
+        - Install, Gatekeeper or Screen Recording permission
+        - UI bug
         - Something else
     validations:
       required: true
@@ -64,7 +47,7 @@ body:
     id: what-happened
     attributes:
       label: What happened?
-      description: What you expected vs. what actually happened.
+      description: What you expected, and what happened instead. Dungeon and key level help.
     validations:
       required: true
 
@@ -76,16 +59,12 @@ body:
         1. ...
         2. ...
         3. ...
-    validations:
-      required: false
 
   - type: textarea
     id: logs
     attributes:
-      label: Console output / error banner text
+      label: Error text or console output
       description: >
-        If you ran the app via `npm run dev`, paste the terminal output here. Otherwise,
-        paste the exact text from any in-app error banner.
+        The exact text of any in-app error, or terminal output if you ran `npm run dev`.
+        A short excerpt of the combat log around the problem also helps.
       render: shell
-    validations:
-      required: false
