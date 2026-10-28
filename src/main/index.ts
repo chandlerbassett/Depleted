@@ -338,7 +338,13 @@ function startApp(): void {
   registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 
   const mainWindow = createWindow(stateMachine, storageManager)
-  setupAutoUpdater(mainWindow, () => recorder.isRecording())
+  setupAutoUpdater(
+    mainWindow,
+    () => recorder.isRecording(),
+    () => {
+      isQuitting = true
+    }
+  )
 
   // Create tray on startup if the setting is enabled, and react to changes.
   if (configStore.get('minimizeToTray')) {
