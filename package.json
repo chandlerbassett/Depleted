@@ -1,7 +1,7 @@
 {
   "name": "depleted",
   "productName": "Depleted",
-  "version": "1.0.19",
+  "version": "1.0.0",
   "description": "Mythic+ recorder and coach for macOS: records every key from the combat log and reviews it against top Warcraft Logs runs",
   "main": "out/main/index.js",
   "author": "Chandler Bassett",
