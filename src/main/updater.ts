@@ -22,6 +22,12 @@ export function setupAutoUpdater(window: BrowserWindow, isRecording: () => boole
   // Dev builds have no app-update.yml, and unsigned builds can't install updates
   if (!app.isPackaged) return
 
+  // Into main.log: checks, what was found, downloads
+  autoUpdater.logger = {
+    info: (message?: unknown) => console.warn('[Updater]', message),
+    warn: (message?: unknown) => console.warn('[Updater]', message),
+    error: (message?: unknown) => console.error('[Updater]', message)
+  }
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.allowPrerelease = false

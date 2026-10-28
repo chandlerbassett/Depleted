@@ -32,6 +32,7 @@ import type { ProcessingRequiredEvent } from './recorder/types'
 import { StorageManager, ffmpegMediaTools, nativeMediaTools, type MediaTools } from './storage/StorageManager'
 import { resolveFfmpegPath } from './system/ffmpeg'
 import { openExternalUrl } from './system/openExternal'
+import { startLogFile } from './system/logFile'
 
 import type { AppConfig, Recording } from '@shared/ipc.types'
 import {
@@ -304,6 +305,12 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function startApp(): void {
+  startLogFile()
+  // Chromium's own DNS client (on by default on macOS) sends queries straight to the
+  // router, which makes macOS ask for Local Network access the first time the update
+  // check runs. The system resolver gives the same answers without that.
+  app.configureHostResolver({ enableBuiltInResolver: false })
+
   registerSystemIpc(configStore)
   registerConfigIpc(configStore)
 
