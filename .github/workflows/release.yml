@@ -29,6 +29,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # Don't leave this job's write token in .git/config, where npm ci's install
+          # scripts could read it. Publishing uses the API, not git.
+          persist-credentials: false
 
       - name: Check the tag (releases)
         if: startsWith(github.ref, 'refs/tags/v')
@@ -38,10 +41,11 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           [ "$GITHUB_REF_NAME" = "v$version" ] || { echo "::error::Tag $GITHUB_REF_NAME doesn't match package.json version $version"; exit 1; }
 
+      # No dependency cache here: a release builds from a clean npm ci, so nothing
+      # saved by another workflow run ends up in a signed build
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: npm
 
       - name: Install dependencies
         run: npm ci

@@ -31,7 +31,7 @@ beforeEach(() => {
   registerStorageIpc(storageManager as never)
 })
 
-const del = (): unknown => handlers.get('storage:deleteRecording')?.({ sender: {} }, { id: 'run-1' })
+const del = (id = 'run-1'): unknown => handlers.get('storage:deleteRecording')?.({ sender: {} }, { id })
 
 describe('storage:deleteRecording', () => {
   it('keeps the run when the user cancels', async () => {
@@ -53,6 +53,13 @@ describe('storage:deleteRecording', () => {
     showMessageBox.mockResolvedValue({ response: 0 })
     expect(await del()).toEqual({ deleted: true })
     expect(trashItem).toHaveBeenCalledWith('/movies/run-1')
+  })
+
+  it('never offers to delete a folder that is not a run in the library', async () => {
+    showMessageBox.mockResolvedValue({ response: 0 })
+    expect(await del('Documents')).toEqual({ deleted: false })
+    expect(showMessageBox).not.toHaveBeenCalled()
+    expect(storageManager.deleteRecording).not.toHaveBeenCalled()
   })
 })
 

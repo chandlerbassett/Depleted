@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, session } from 'electron'
 import { join } from 'path'
 import { chmodSync, mkdirSync, readdirSync } from 'fs'
 import Store from 'electron-store'
@@ -13,6 +13,9 @@ import Store from 'electron-store'
 if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('enable-features', 'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride')
 }
+
+// Every page runs sandboxed, including any window added later
+app.enableSandbox()
 
 import { registerSystemIpc, wireAddonWindow } from './ipc/system.ipc'
 import { registerRecorderIpc, wireRecorderWindow } from './ipc/recorder.ipc'
@@ -317,8 +320,22 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(startApp)
 }
 
+// Electron grants every permission a page asks for unless told otherwise. The app only
+// needs fullscreen (the video player) and writing to the clipboard (copying an error);
+// the capture window used off macOS also needs media for screen capture.
+const ALLOWED_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write'])
+if (process.platform !== 'darwin') ALLOWED_PERMISSIONS.add('media')
+
+function limitPermissions(): void {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(ALLOWED_PERMISSIONS.has(permission))
+  })
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => ALLOWED_PERMISSIONS.has(permission))
+}
+
 function startApp(): void {
   startLogFile()
+  limitPermissions()
   // Chromium's own DNS client (on by default on macOS) sends queries straight to the
   // router, which makes macOS ask for Local Network access the first time the update
   // check runs. The system resolver gives the same answers without that.
