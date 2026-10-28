@@ -34,16 +34,31 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build, sign & notarize
-        # Signs with the Developer ID certificate and notarizes when these secrets are set
-        # (see CONTRIBUTING.md). Without them the DMG is ad-hoc signed and not notarized.
-        run: npm run build:mac -- --publish never
+      - name: Load signing secrets
+        # Only the ones that are set: electron-builder reads an empty CSC_LINK as a path
+        # (the working directory) and fails
         env:
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            value="${!name}"
+            if [ -n "$value" ]; then
+              # Multi-line safe, for the base64 certificate
+              { echo "$name<<__END__"; echo "$value"; echo "__END__"; } >> "$GITHUB_ENV"
+              echo "$name: set"
+            else
+              echo "::warning::$name is not set"
+            fi
+          done
+
+      - name: Build, sign & notarize
+        # Signs with the Developer ID certificate and notarizes when the secrets are set
+        # (see CONTRIBUTING.md). Without them the DMG is ad-hoc signed and not notarized.
+        run: npm run build:mac -- --publish never
 
       - name: Check the signature
         run: |
