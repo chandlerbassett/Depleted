@@ -87,26 +87,29 @@ frameworks via a small bundled Swift helper.
 
 ## Install
 
-Depleted isn't notarized by Apple, so macOS asks you to confirm it the first time.
-
 1. Download the latest `.dmg` from [Releases](https://github.com/chandlerbassett/Depleted/releases)
-   and drag **Depleted** into **Applications**. (No release yet? [Build it from source](#building-from-source).)
-2. Open it. If macOS says it can't verify the developer, open
-   **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
-   Or clear the quarantine flag from Terminal:
-
-   ```bash
-   xattr -cr /Applications/Depleted.app
-   ```
-
+   and drag **Depleted** into **Applications**.
+2. Open it. Depleted is signed with a Developer ID and notarized by Apple, so macOS only asks
+   once whether you want to open an app downloaded from the internet.
 3. Allow **Screen Recording** when the onboarding asks (or in
    **System Settings → Privacy & Security → Screen Recording**), then quit and reopen Depleted.
 
-> **If Screen Recording keeps asking again:** macOS ties the permission to the app's code
-> signature. Builds that are only ad-hoc signed get a new signature every time, so the grant is
-> lost on each update. Remove Depleted from the Screen Recording list with **–** (turning the
-> toggle off isn't enough), reopen the app and turn it back on. Building from source with the
-> local signing certificate below avoids this for good.
+### Verify your download (optional)
+
+Every release is built by this repository's [release workflow](.github/workflows/release.yml)
+from a commit on `main`, signed, notarized, and published with a SHA-256 checksum and a
+GitHub build provenance attestation. To check a download:
+
+```bash
+# Built by this repo's workflow, from this repo's source
+gh attestation verify Depleted-*.dmg -R chandlerbassett/Depleted
+
+# Matches the checksum on the release page
+shasum -a 256 Depleted-*.dmg
+
+# Signed by the developer and notarized by Apple (after installing)
+spctl --assess --verbose=4 /Applications/Depleted.app
+```
 
 ## Setup
 
