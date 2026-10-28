@@ -122,7 +122,10 @@ export function recapKey(review: PlayerReview, comparison: BenchmarkComparison |
         issues.push({
           ...base,
           label: `Late ${cd.name} in the opener`,
-          summary: `Pressed ${Math.round(cd.yourFirst)}s into the first pull, top players ${Math.round(cd.topFirst)}s`,
+          summary:
+            cd.yourFirstAfterPull === true
+              ? `Not pressed until after the first pull, top players ${Math.round(cd.topFirst)}s in`
+              : `Pressed ${Math.round(cd.yourFirst)}s into the first pull, top players ${Math.round(cd.topFirst)}s`,
           severity: cd.yourFirst - cd.topFirst
         })
         break
