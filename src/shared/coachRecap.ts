@@ -5,6 +5,7 @@
 
 import { fmtClock, type Finding, type PlayerReview } from './coachAnalysis'
 import type { BenchmarkComparison } from './coachBenchmark'
+import type { CoachData } from './coach.types'
 
 // Issues the recap leads with
 export const RECAP_ISSUES = 3
@@ -17,6 +18,12 @@ const TREND_MIN_KEYS = 4
 const TREND_CHANGE = 0.3
 // "Also in N of your last M keys" counts this far back
 export const RECENT_KEYS = 10
+// Boss trends: a fight in at least this many keys gets a row
+const BOSS_MIN_KEYS = 2
+// Flag a boss when the player's share of the party's output there is this much below
+// their share over the whole key, or they cast this many points less of the time
+const BOSS_SHARE_DROP = 0.85
+const BOSS_ACTIVE_DROP = 8
 
 export interface Moment {
   at: number
@@ -207,7 +214,12 @@ export interface KeySummary {
   deaths: number
   // Share of fighting that throughput cooldowns sat ready
   heldPct: number
+  // Cooldown uses as a share of what top players of the spec fit in (capped per
+  // cooldown), null when not compared with top players. The healer stand-in for
+  // heldPct: healers hold cooldowns for the damage, so "sat ready" says little.
+  cdUsePct: number | null
   issues: Array<Omit<KeyIssue, 'moments'> & { at: number }>
+  bosses: BossSummary[]
 }
 
 export interface KeyMeta {
@@ -217,9 +229,16 @@ export interface KeyMeta {
   keyLevel: number
 }
 
-export function summarizeKey(meta: KeyMeta, review: PlayerReview, comparison: BenchmarkComparison | null): KeySummary {
+export function summarizeKey(
+  meta: KeyMeta,
+  review: PlayerReview,
+  comparison: BenchmarkComparison | null,
+  bosses: BossSummary[] = []
+): KeySummary {
   const recap = recapKey(review, comparison)
   const throughputHeld = review.cooldowns.filter((cd) => cd.throughput).reduce((sum, cd) => sum + cd.heldSecs, 0)
+  const topUses = comparison?.cooldowns.reduce((sum, cd) => sum + cd.topUses, 0) ?? 0
+  const usedOfTop = comparison?.cooldowns.reduce((sum, cd) => sum + Math.min(cd.yourUses, cd.topUses), 0) ?? 0
   return {
     ...meta,
     playerName: review.name,
@@ -229,6 +248,8 @@ export function summarizeKey(meta: KeyMeta, review: PlayerReview, comparison: Be
     activePct: review.activePct * 100,
     deaths: review.deaths.length,
     heldPct: review.metric === 'healing' ? 0 : (throughputHeld / Math.max(1, review.pullSecs)) * 100,
+    cdUsePct: topUses > 0 ? (usedOfTop / topUses) * 100 : null,
+    bosses,
     issues: recap.issues.map((i) => ({
       issue: i.issue,
       label: i.label,
@@ -240,6 +261,160 @@ export function summarizeKey(meta: KeyMeta, review: PlayerReview, comparison: Be
     }))
   }
 }
+
+// ---------------------------------------------------------------------------
+// Boss fights
+
+// A boss attempt's window in video seconds, from the recording's metadata
+export interface BossWindow {
+  encounterId: number
+  name: string
+  start: number
+  end: number
+  success: boolean
+}
+
+export interface BossSummary {
+  encounterId: number
+  name: string
+  kill: boolean
+  // Where the fight starts in the video
+  at: number
+  secs: number
+  // Share of the fight spent casting, worked out like the key's activePct
+  activePct: number
+  // The player's share of the party's damage (healing for healers) in the fight, and
+  // over the whole key. Comparing the two cancels out the group and the key level.
+  sharePct: number
+  keySharePct: number
+  deaths: number
+}
+
+export function summarizeBosses(data: CoachData, review: PlayerReview, encounters: BossWindow[]): BossSummary[] {
+  const player = data.players.find((p) => p.guid === review.guid)
+  if (player === undefined) return []
+  const metric = review.metric
+  const sum = (arr: number[], from: number, to: number): number => {
+    let total = 0
+    for (let s = Math.max(0, Math.floor(from)); s < Math.ceil(to); s++) total += arr[s] ?? 0
+    return total
+  }
+  const share = (from: number, to: number): number => {
+    const party = data.players.reduce((total, p) => total + sum(p[metric], from, to), 0)
+    return party > 0 ? (sum(player[metric], from, to) / party) * 100 : 0
+  }
+  const keySharePct = share(0, data.duration)
+
+  return encounters
+    .filter((e) => e.end > e.start)
+    .map((e) => {
+      const secs = e.end - e.start
+      const idle = review.downtime.reduce((total, g) => total + Math.max(0, Math.min(g.end, e.end) - Math.max(g.start, e.start)), 0)
+      return {
+        encounterId: e.encounterId,
+        name: e.name,
+        kill: e.success,
+        at: e.start,
+        secs,
+        activePct: Math.max(0, 1 - idle / secs) * 100,
+        sharePct: share(e.start, e.end),
+        keySharePct,
+        deaths: review.deaths.filter((d) => d.at >= e.start && d.at <= e.end).length
+      }
+    })
+}
+
+export interface BossTrendAttempt {
+  recordingId: string
+  date: string
+  keyLevel: number
+  at: number
+  kill: boolean
+  activePct: number
+  // Share of the party's output in the fight over the share across the key (1 = same)
+  relShare: number
+  deaths: number
+}
+
+export interface BossTrend {
+  dungeon: string
+  encounterId: number
+  name: string
+  // Newest first
+  attempts: BossTrendAttempt[]
+  keys: number
+  activePct: number
+  // The same keys' activePct, for comparison
+  keyActivePct: number
+  relShare: number
+  // Keys the player died in this fight
+  diedIn: number
+  // What stands out, empty when nothing does
+  notes: string[]
+}
+
+// Keys must be one character and spec
+export function buildBossTrends(keys: KeySummary[]): BossTrend[] {
+  const groups = new Map<string, { dungeon: string; encounterId: number; name: string; rows: Array<{ key: KeySummary; boss: BossSummary }> }>()
+  for (const key of keys) {
+    for (const boss of key.bosses) {
+      const id = `${key.dungeon}|${boss.encounterId}`
+      const group = groups.get(id) ?? { dungeon: key.dungeon, encounterId: boss.encounterId, name: boss.name, rows: [] }
+      group.name = boss.name
+      group.rows.push({ key, boss })
+      groups.set(id, group)
+    }
+  }
+
+  const trends: BossTrend[] = []
+  for (const g of groups.values()) {
+    const keyIds = new Set(g.rows.map((r) => r.key.recordingId))
+    if (keyIds.size < BOSS_MIN_KEYS) continue
+    const fightKeys = keys.filter((k) => keyIds.has(k.recordingId))
+    const activePct = mean(g.rows.map((r) => r.boss.activePct))
+    const keyActivePct = mean(fightKeys.map((k) => k.activePct))
+    const relShares = g.rows.filter((r) => r.boss.keySharePct > 0).map((r) => r.boss.sharePct / r.boss.keySharePct)
+    const relShare = relShares.length > 0 ? mean(relShares) : 1
+    const diedIn = new Set(g.rows.filter((r) => r.boss.deaths > 0).map((r) => r.key.recordingId)).size
+
+    const notes: string[] = []
+    if (relShare <= BOSS_SHARE_DROP) {
+      notes.push(`Your share of the party's output drops to ${Math.round(relShare * 100)}% of your usual share on this boss.`)
+    }
+    if (activePct <= keyActivePct - BOSS_ACTIVE_DROP) {
+      notes.push(`You cast ${Math.round(activePct)}% of the time here, against ${Math.round(keyActivePct)}% over the same keys.`)
+    }
+    if (diedIn >= 2 && diedIn * 2 >= keyIds.size) notes.push(`You died here in ${diedIn} of ${keyIds.size} keys.`)
+
+    trends.push({
+      dungeon: g.dungeon,
+      encounterId: g.encounterId,
+      name: g.name,
+      attempts: g.rows
+        .map((r) => ({
+          recordingId: r.key.recordingId,
+          date: r.key.date,
+          keyLevel: r.key.keyLevel,
+          at: r.boss.at,
+          kill: r.boss.kill,
+          activePct: r.boss.activePct,
+          relShare: r.boss.keySharePct > 0 ? r.boss.sharePct / r.boss.keySharePct : 1,
+          deaths: r.boss.deaths
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date) || b.at - a.at),
+      keys: keyIds.size,
+      activePct,
+      keyActivePct,
+      relShare,
+      diedIn,
+      notes
+    })
+  }
+  // Ones with something to say first, then by dungeon
+  return trends.sort((a, b) => b.notes.length - a.notes.length || a.dungeon.localeCompare(b.dungeon))
+}
+
+// ---------------------------------------------------------------------------
 
 export type TrendDirection = 'improving' | 'steady' | 'worse'
 
@@ -271,6 +446,7 @@ export interface Trends {
   // Oldest first
   keys: KeySummary[]
   issues: TrendIssue[]
+  bosses: BossTrend[]
 }
 
 // Keys must be one character and spec
@@ -323,7 +499,7 @@ export function buildTrends(summaries: KeySummary[]): Trends {
   const weightOf = (i: TrendIssue): number =>
     i.keys.reduce((sum, k) => sum + (found.get(i.issue)!.hits.get(k.recordingId)?.weight ?? 0), 0)
   issues.sort((a, b) => b.keys.length / b.of - a.keys.length / a.of || weightOf(b) - weightOf(a))
-  return { keys, issues }
+  return { keys, issues, bosses: buildBossTrends(keys) }
 }
 
 // Earlier half of the keys against the recent half; a key without the issue counts as 0

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { buildTrends, isCharacter, type KeySummary, type TrendDirection } from '@shared/coachRecap'
-import { fmtClock } from '@shared/coachAnalysis'
+import { fmtClock, isHealer } from '@shared/coachAnalysis'
 import { WOW_SPEC_ID_MAP } from '@shared/constants'
 
-// One character's keys over time: headline numbers per key, and the issues that keep
-// coming back with whether they're getting better. Every key links to its moments.
+// One character's keys over time: headline numbers per key, the issues that keep
+// coming back with whether they're getting better, and how each boss fight goes.
+// Every key links to its moments.
 
 const emit = defineEmits<{ open: [recordingId: string, at: number] }>()
 
@@ -114,6 +115,18 @@ const METRICS: Metric[] = [
     pick: (k) => k.heldPct
   }
 ]
+
+// Healers hold cooldowns for the damage, so "sat ready" says little: count uses
+// against what top healers of the spec fit in instead
+const HEALER_COOLDOWNS: Metric = {
+  label: 'Cooldown uses vs top',
+  hint: 'Your cooldown uses as a share of what top players of your spec fit into that dungeon and level',
+  higherBetter: true,
+  fmt: (v) => `${Math.round(v)}%`,
+  pick: (k) => k.cdUsePct ?? null
+}
+
+const metrics = computed(() => (isHealer(specId.value) ? [...METRICS.slice(0, 3), HEALER_COOLDOWNS] : METRICS))
 
 const W = 160
 const H = 36
@@ -249,7 +262,7 @@ function shortName(name: string): string {
       <!-- Headline numbers per key, oldest to newest -->
       <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <div
-          v-for="m in METRICS"
+          v-for="m in metrics"
           :key="m.label"
           class="bg-zinc-900 rounded-lg p-3"
           :title="m.hint"
@@ -349,6 +362,60 @@ function shortName(name: string): string {
               <span class="text-zinc-400 flex-shrink-0 w-48 truncate">{{ keyLabel(k) }}</span>
               <span class="text-zinc-500 flex-1 min-w-0 truncate">{{ k.summary }}</span>
               <span class="text-blue-400 tabular-nums flex-shrink-0">{{ fmtClock(Math.max(0, k.at - 2)) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Boss fights in two or more keys -->
+      <div v-if="trends.bosses.length > 0">
+        <p class="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
+          Boss fights
+        </p>
+        <div
+          v-for="b in trends.bosses"
+          :key="`${b.dungeon}|${b.encounterId}`"
+          class="bg-zinc-900 rounded-lg mb-2"
+        >
+          <button
+            class="w-full text-left px-3 py-2 flex items-center gap-2"
+            @click="toggle(`boss:${b.dungeon}|${b.encounterId}`)"
+          >
+            <span class="text-xs text-zinc-200 flex-1 min-w-0 truncate">{{ b.name }} <span class="text-zinc-500">· {{ b.dungeon }}</span></span>
+            <span
+              class="text-[10px] text-zinc-400 flex-shrink-0 tabular-nums"
+              title="Share of the fight spent casting, against the same keys overall"
+            >active {{ Math.round(b.activePct) }}% / {{ Math.round(b.keyActivePct) }}%</span>
+            <span
+              class="text-[10px] flex-shrink-0 tabular-nums"
+              :class="b.relShare <= 0.85 ? 'text-rose-400' : 'text-zinc-400'"
+              title="Your share of the party's output in this fight, against your share over the whole key"
+            >output {{ Math.round(b.relShare * 100) }}%</span>
+            <span class="text-[10px] text-zinc-400 flex-shrink-0 tabular-nums">{{ b.keys }} keys</span>
+            <span class="text-zinc-600 text-[10px]">{{ expanded.has(`boss:${b.dungeon}|${b.encounterId}`) ? '▲' : '▼' }}</span>
+          </button>
+          <p
+            v-for="note in b.notes"
+            :key="note"
+            class="px-3 pb-1 text-xs text-amber-300/90"
+          >
+            {{ note }}
+          </p>
+          <div
+            v-if="expanded.has(`boss:${b.dungeon}|${b.encounterId}`)"
+            class="px-3 pb-2 space-y-0.5"
+          >
+            <div
+              v-for="a in b.attempts"
+              :key="`${a.recordingId}|${a.at}`"
+              class="flex items-baseline gap-2 text-xs py-0.5 px-1 rounded hover:bg-zinc-800/60 cursor-pointer"
+              @click="emit('open', a.recordingId, a.at)"
+            >
+              <span class="text-zinc-400 flex-shrink-0 w-48 truncate">{{ keyLabel({ dungeon: b.dungeon, keyLevel: a.keyLevel, date: a.date }) }}</span>
+              <span class="text-zinc-500 flex-1 min-w-0 truncate">
+                {{ a.kill ? 'Kill' : 'Wipe' }} · active {{ Math.round(a.activePct) }}% · output {{ Math.round(a.relShare * 100) }}%<template v-if="a.deaths > 0"> · {{ a.deaths }} death{{ a.deaths === 1 ? '' : 's' }}</template>
+              </span>
+              <span class="text-blue-400 tabular-nums flex-shrink-0">{{ fmtClock(a.at) }}</span>
             </div>
           </div>
         </div>

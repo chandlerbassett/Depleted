@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { reviewPlayer } from '../../src/shared/coachAnalysis'
 import { compareWithTop } from '../../src/shared/coachBenchmark'
-import { recapKey, summarizeKey, buildTrends, direction, repeatsIn, type KeySummary } from '../../src/shared/coachRecap'
+import {
+  recapKey,
+  summarizeKey,
+  summarizeBosses,
+  buildTrends,
+  buildBossTrends,
+  direction,
+  repeatsIn,
+  type KeySummary
+} from '../../src/shared/coachRecap'
 import type { Benchmark, BenchmarkRun } from '../../src/shared/benchmark.types'
 import type { CoachData } from '../../src/shared/coach.types'
 
@@ -161,5 +170,68 @@ describe('trends', () => {
     expect(repeatsIn('death', false, earlier, '2026-10-20T00:00:00Z')).toBeNull()
     // Keys after this one don't count
     expect(repeatsIn(`cd-uses:${WRATH}`, true, earlier, '2026-10-05T00:00:00Z')).toBeNull()
+  })
+})
+
+// Two players: Gobitron does half the party's damage, except during the boss at
+// 100-160 s, where they do a quarter and stop casting for 20 s
+function bossKey(slack: boolean): CoachData {
+  const data = key({ wrathEvery: 30 })
+  const me = data.players[0]!
+  const partner = { ...me, guid: 'Player-2', name: 'Friend-Area52', casts: [], deaths: [], damage: [...me.damage] }
+  if (slack) {
+    for (let s = 100; s < 160; s++) me.damage[s] = 200_000 / 3
+    me.casts = me.casts.filter(([t]) => t < 120 || t > 140)
+  }
+  data.players.push(partner)
+  return data
+}
+
+const BOSS = { encounterId: 2918, name: 'Kokia Blazehoof', start: 100, end: 160, success: true }
+
+function bossSummary(n: number, slack: boolean): KeySummary {
+  const data = bossKey(slack)
+  const review = reviewPlayer(data, 'Player-1')!
+  return summarizeKey(
+    { recordingId: `rec${n}`, date: `2026-10-${String(10 + n).padStart(2, '0')}T20:00:00Z`, dungeon: 'Ruby Life Pools', keyLevel: 15 },
+    review,
+    compareWithTop(data, 'Player-1', bench),
+    summarizeBosses(data, review, [BOSS])
+  )
+}
+
+describe('boss fights', () => {
+  it('measures the player in each boss fight against the whole key', () => {
+    const [boss] = bossSummary(0, true).bosses
+    expect(boss!.name).toBe('Kokia Blazehoof')
+    expect(boss!.sharePct).toBeCloseTo(25, 0)
+    expect(boss!.keySharePct).toBeGreaterThan(45)
+    expect(boss!.activePct).toBeLessThan(75)
+    expect(boss!.at).toBe(100)
+  })
+
+  it('flags a boss the player keeps falling off on', () => {
+    const [trend] = buildBossTrends([bossSummary(0, true), bossSummary(1, true)])
+    expect(trend!.keys).toBe(2)
+    expect(trend!.attempts.map((a) => a.recordingId)).toEqual(['rec1', 'rec0'])
+    expect(trend!.notes.join(' ')).toMatch(/share of the party's output drops to \d+%/)
+    expect(trend!.notes.join(' ')).toMatch(/You cast \d+% of the time here/)
+  })
+
+  it('says nothing about a boss that goes like the rest of the key', () => {
+    const [trend] = buildBossTrends([bossSummary(0, false), bossSummary(1, false)])
+    expect(trend!.notes).toEqual([])
+  })
+
+  it('needs the fight in two keys', () => {
+    expect(buildBossTrends([bossSummary(0, true)])).toEqual([])
+  })
+
+  it('counts cooldown uses against what top players fit in', () => {
+    // Top players press Bestial Wrath every 30 s; this player every 90 s
+    const k = summary(0, key({ wrathEvery: 90 }))
+    expect(k.cdUsePct).toBeGreaterThan(25)
+    expect(k.cdUsePct).toBeLessThan(45)
+    expect(summary(1, key({ wrathEvery: 90 }), false).cdUsePct).toBeNull()
   })
 })

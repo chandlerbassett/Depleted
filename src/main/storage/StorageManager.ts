@@ -28,6 +28,8 @@ import { runHelperCommand } from '../recorder/nativeHelper'
 import { writeMetadata, readMetadata, writeCoachData, readCoachData } from './MetadataWriter'
 import type { CoachData } from '@shared/coach.types'
 
+const SUMMARY_CACHE_FILENAME = 'coach-summaries.json'
+
 // ---------------------------------------------------------------------------
 // Media tools — trim + thumbnail. The depleted-capture helper (AVFoundation) on macOS,
 // FFmpeg elsewhere.
@@ -217,6 +219,22 @@ export class StorageManager {
   async getCoachData(id: string): Promise<CoachData | null> {
     if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return null
     return readCoachData(join(this.storagePath, id))
+  }
+
+  // Trends' per-key summaries, saved next to coach.json so app starts don't redo them.
+  // The caller owns the format; anything unreadable comes back as null.
+  async readSummaryCache(id: string): Promise<unknown> {
+    if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return null
+    try {
+      return JSON.parse(await fs.readFile(join(this.storagePath, id, SUMMARY_CACHE_FILENAME), 'utf8')) as unknown
+    } catch {
+      return null
+    }
+  }
+
+  async writeSummaryCache(id: string, cache: unknown): Promise<void> {
+    if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return
+    await fs.writeFile(join(this.storagePath, id, SUMMARY_CACHE_FILENAME), JSON.stringify(cache), 'utf8')
   }
 
   // Returns paths of directories that contain a recording video but no metadata.json.

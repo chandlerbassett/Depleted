@@ -209,6 +209,22 @@ describe('StorageManager.deleteRecording', () => {
   })
 })
 
+describe('StorageManager summary cache', () => {
+  it('saves and reads back the cache in the recording folder', async () => {
+    await fs.mkdir(join(tmpDir, KEY_ID))
+    const manager = new StorageManager(tmpDir)
+    expect(await manager.readSummaryCache(KEY_ID)).toBeNull()
+    await manager.writeSummaryCache(KEY_ID, { version: 2, entries: {} })
+    expect(await manager.readSummaryCache(KEY_ID)).toEqual({ version: 2, entries: {} })
+  })
+
+  it('ignores ids that leave the storage folder', async () => {
+    const manager = new StorageManager(tmpDir)
+    await manager.writeSummaryCache('..', { version: 2, entries: {} })
+    expect(await manager.readSummaryCache('..')).toBeNull()
+  })
+})
+
 // ---------------------------------------------------------------------------
 // findOrphanedRecordings
 // ---------------------------------------------------------------------------
