@@ -97,6 +97,27 @@ describe('CombatLogParser — COMBATANT_INFO spec ID', () => {
     expect(events[0]!.specId).toBe(64)
     expect(events[0]!.personalRating).toBe(2407)
     expect(events[0]!.talents).toEqual([[62084, 80140, 1]])
+    expect(events[0]!.gear).toEqual([250060])
+  })
+
+  it('reads equipped item IDs per slot, including empty slots', () => {
+    const parser = new CombatLogParser()
+    const events: CombatantInfoEvent[] = []
+    parser.on('combatantInfo', (e) => events.push(e))
+
+    parser.processLine(
+      '4/15/2026 20:00:00.0000  COMBATANT_INFO,Player-000-00000003,1,306,470,22231,2744,0,0,0,0,0,0,0,98,0,' +
+        '1006,1006,1006,0,157,1229,1229,1229,702,253,' +
+        '[(62084,80140,1),(62085,80141,2)],(0,0,0,0),' +
+        '[(250060,289,(7991,0,0),(13448,6652),(213748,610)),(0,0,(),(),()),(219314,626,(),(10390),())],' +
+        '[Player-000-00000003,1459,1],78,41,2407,0'
+    )
+
+    expect(events[0]!.gear).toEqual([250060, 0, 219314])
+    expect(events[0]!.talents).toEqual([
+      [62084, 80140, 1],
+      [62085, 80141, 2]
+    ])
   })
 
   it('returns specId null when the stat block is empty or malformed', () => {

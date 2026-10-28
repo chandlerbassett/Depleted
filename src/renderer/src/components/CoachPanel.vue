@@ -93,6 +93,8 @@ const comparison = computed(() => {
   if (coach.value === null || selectedGuid.value === null || b === null || b === 'loading' || b.status !== 'ok') return null
   return compareWithTop(coach.value, selectedGuid.value, b.benchmark)
 })
+const neverUsedNotes = computed(() => comparison.value?.neverUsed.filter((n) => n.note !== null) ?? [])
+const neverUsedUnknown = computed(() => comparison.value?.neverUsed.filter((n) => n.source.kind === 'unknown') ?? [])
 
 const benchSpecName = computed(() => {
   const s = selectedSpecId.value !== null ? WOW_SPEC_ID_MAP[selectedSpecId.value] : undefined
@@ -363,13 +365,20 @@ function pct(t: number): string {
               </div>
             </div>
 
-            <!-- Spells top players use that this player never cast: likely a talent or
-                 item they don't have, so a side note rather than advice -->
+            <!-- Spells top players use that this player never cast. Ones whose item or
+                 talent they had are findings above; the rest are gear and build notes -->
             <p
-              v-if="comparison.neverUsed.length > 0"
+              v-for="n in neverUsedNotes"
+              :key="n.spellId"
               class="mt-2 text-[10px] text-zinc-500"
             >
-              Top players also use {{ comparison.neverUsed.map((n) => n.name).join(', ') }}.
+              {{ n.note }}
+            </p>
+            <p
+              v-if="neverUsedUnknown.length > 0"
+              class="mt-2 text-[10px] text-zinc-500"
+            >
+              Top players also use {{ neverUsedUnknown.map((n) => n.name).join(', ') }}.
               You didn't cast these, so they may come from a talent or item you don't have.
             </p>
 

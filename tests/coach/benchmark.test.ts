@@ -34,13 +34,15 @@ function topRun(i: number): BenchmarkRun {
     reportCode: `abc${i}`,
     fightId: 3,
     firstPull: 10,
-    casts
+    casts,
+    gear: [],
+    talents: []
   }
 }
 
 function bench(): Benchmark {
   return {
-    version: 1,
+    version: 2,
     specId: 253,
     dungeon: 'Ruby Life Pools',
     encounterId: 112521,
@@ -48,11 +50,12 @@ function bench(): Benchmark {
     metric: 'dps',
     fetchedAt: new Date().toISOString(),
     runs: Array.from({ length: 10 }, (_, i) => topRun(i)),
-    spellNames: { [WRATH]: 'Bestial Wrath', [COBRA]: 'Cobra Shot', [EXHIL]: 'Exhilaration' }
+    spellNames: { [WRATH]: 'Bestial Wrath', [COBRA]: 'Cobra Shot', [EXHIL]: 'Exhilaration' },
+    itemNames: {}
   }
 }
 
-function key(casts: Array<[number, number]>): CoachData {
+function key(casts: Array<[number, number]>, gear?: number[], talents: Array<[number, number, number]> = []): CoachData {
   const damage = new Array<number>(DURATION).fill(0)
   for (let s = 20; s < DURATION; s++) damage[s] = 300_000
   return {
@@ -64,7 +67,8 @@ function key(casts: Array<[number, number]>): CoachData {
         guid: 'Player-1',
         name: 'Gobitron-Area52',
         specId: 253,
-        talents: [],
+        talents,
+        gear,
         casts,
         castStarts: [],
         buffs: [],
@@ -117,6 +121,73 @@ describe('compareWithTop', () => {
     const c = compareWithTop(key(casts), 'Player-1', bench())!
     expect(c.castMix.map((m) => m.name)).toEqual(['Cobra Shot'])
     expect(c.findings).toEqual([])
+  })
+
+  describe('spells never cast, matched to gear and talents (issue #20)', () => {
+    const TRINKET = 219314 // on-use trinket 8 of 10 top runs wear
+    const OTHER_TRINKET = 212456
+    const ON_USE = 443124 // its spell
+    const BURST = 359844 // a talented cooldown
+    const TALENT = 128380 // the talent entry granting it
+
+    // Runs 0-7 wear the trinket and press it every 90 s; 0-5 also take the talent
+    function gearBench(): Benchmark {
+      const b = bench()
+      b.runs = b.runs.map((r, i) => {
+        const casts = [...r.casts]
+        if (i < 8) casts.push(...times(15, 90, DURATION).map((t): [number, number] => [t, ON_USE]))
+        if (i < 6) casts.push(...times(16, 120, DURATION).map((t): [number, number] => [t, BURST]))
+        return {
+          ...r,
+          casts,
+          gear: [1000, 1001, i < 8 ? TRINKET : OTHER_TRINKET, 2000 + i],
+          talents: [[90001, 100001], ...(i < 6 ? [[90002, TALENT] as [number, number]] : [])]
+        }
+      })
+      b.spellNames[ON_USE] = 'Ara-Kara Sacbrood'
+      b.spellNames[BURST] = 'Call of the Wild'
+      b.itemNames = { [TRINKET]: 'Ara-Kara Sacbrood' }
+      return b
+    }
+
+    it("says the player doesn't wear the trinket", () => {
+      const c = compareWithTop(key([[25, WRATH]], [1000, 1001, OTHER_TRINKET], [[90001, 100001, 1]]), 'Player-1', gearBench())!
+      const n = c.neverUsed.find((x) => x.spellId === ON_USE)!
+      expect(n.source).toEqual({ kind: 'item', name: 'Ara-Kara Sacbrood', takenBy: 8, of: 10, has: false })
+      expect(n.note).toBe("Ara-Kara Sacbrood comes from Ara-Kara Sacbrood, which you don't use. 8 of 10 top players do.")
+      expect(c.findings.filter((f) => f.title.includes('Sacbrood'))).toEqual([])
+      const t = c.neverUsed.find((x) => x.spellId === BURST)!
+      expect(t.source).toMatchObject({ kind: 'talent', has: false, takenBy: 6 })
+      expect(t.note).toBe("Call of the Wild comes from a talent you don't take. 6 of 10 top players do.")
+    })
+
+    it('flags a trinket or talent the player had and never pressed', () => {
+      const c = compareWithTop(
+        key([[25, WRATH]], [1000, 1001, TRINKET], [[90001, 100001, 1], [90002, TALENT, 1]]),
+        'Player-1',
+        gearBench()
+      )!
+      const trinket = c.findings.find((f) => f.title === 'Ara-Kara Sacbrood: never used')!
+      expect(trinket.detail).toContain('You had Ara-Kara Sacbrood equipped and never pressed it')
+      expect(trinket.at).toBe(20)
+      expect(c.findings.find((f) => f.title === 'Call of the Wild: never used')!.detail).toContain('You had the talent for it')
+      expect(c.neverUsed.every((n) => n.note === null)).toBe(true)
+    })
+
+    it('names the source without judging when the recording has no gear', () => {
+      const c = compareWithTop(key([[25, WRATH]]), 'Player-1', gearBench())!
+      const n = c.neverUsed.find((x) => x.spellId === ON_USE)!
+      expect(n.source).toMatchObject({ kind: 'item', has: null })
+      expect(n.note).toBe('Ara-Kara Sacbrood comes from Ara-Kara Sacbrood (8 of 10 top players have it).')
+    })
+
+    it('keeps the old side note when every top run casts it', () => {
+      // Bestial Wrath: all runs cast it, so nothing tells items and talents apart
+      const c = compareWithTop(key([], [1000, 1001, TRINKET]), 'Player-1', gearBench())!
+      const n = c.neverUsed.find((x) => x.spellId === WRATH)!
+      expect(n.source).toEqual({ kind: 'unknown' })
+      expect(n.note).toBeNull()
+    })
   })
 
   it('needs enough top runs', () => {
@@ -193,12 +264,22 @@ class FakeWcl implements WclQuery {
               ],
               nextPageTimestamp: null
             },
-            dmg: { data: [{ timestamp: 20000, type: 'damage', abilityGameID: 1 }], nextPageTimestamp: null }
+            dmg: { data: [{ timestamp: 20000, type: 'damage', abilityGameID: 1 }], nextPageTimestamp: null },
+            info: {
+              data: [
+                {
+                  type: 'combatantinfo',
+                  gear: [{ id: 219314, name: 'Ara-Kara Sacbrood' }, { id: 0 }, { id: 212456 }],
+                  talentTree: [{ id: 128380, rank: 1, nodeID: 90002 }]
+                }
+              ]
+            }
           }
         }
       }
       return out as T
     }
+    if (query.includes('item(id')) return { i212456: { item: { id: 212456, name: 'Signet of the Priory' } } } as T
     if (query.includes('gameData')) return { [`s${WRATH}`]: { ability: { id: WRATH, name: 'Bestial Wrath' } } } as T
     throw new Error(`unexpected query ${query}`)
   }
@@ -220,6 +301,11 @@ describe('BenchmarkService', () => {
     expect(b.runs[0]!.casts).toEqual([[20, WRATH]])
     expect(b.runs[0]!.firstPull).toBe(19)
     expect(b.spellNames[WRATH]).toBe('Bestial Wrath')
+    // Gear and talents from CombatantInfo; item names from it or from gameData
+    expect(b.runs[0]!.gear).toEqual([219314, 0, 212456])
+    expect(b.runs[0]!.talents).toEqual([[90002, 128380]])
+    expect(b.itemNames).toEqual({ 219314: 'Ara-Kara Sacbrood', 212456: 'Signet of the Priory' })
+    expect(wcl.calls.find((q) => q.includes('dataType: CombatantInfo'))).toBeDefined()
 
     const before = wcl.calls.length
     await new BenchmarkService(wcl, dir).get(253, 'Ruby Life Pools', 15)

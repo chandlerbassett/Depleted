@@ -222,6 +222,9 @@ export interface CombatantInfoEvent {
   specId: number | null  // WoW spec ID (last stat field before the talents bracket), null if not available
   // Talent picks from the first bracket: [nodeId, entryId, rank]
   talents: Array<[number, number, number]>
+  // Equipped item IDs in slot order (head, neck, …, trinket 1 at 12, trinket 2 at 13);
+  // 0 for an empty slot
+  gear: number[]
   timestamp: Date
 }
 
@@ -659,8 +662,9 @@ export class CombatLogParser extends EventEmitter {
     if (isNaN(personalRating)) return
 
     const talents = parseCombatantInfoTalents(rawLine)
+    const gear = parseCombatantInfoGear(rawLine)
 
-    this.emit('combatantInfo', { playerGuid, playerName, team, personalRating, specId, talents, timestamp })
+    this.emit('combatantInfo', { playerGuid, playerName, team, personalRating, specId, talents, gear, timestamp })
   }
 
   // Pets/totems/summons (Healing Stream Totem, Water Elemental, Xuen, Storm Earth and
@@ -950,6 +954,29 @@ function parseCombatantInfoTalents(line: string): Array<[number, number, number]
     talents.push([parseInt(m[1]!, 10), parseInt(m[2]!, 10), parseInt(m[3]!, 10)])
   }
   return talents
+}
+
+// Equipped items from the second bracket of a COMBATANT_INFO line (the PvP talents
+// between are in parentheses): "[(itemId,ilvl,(enchants),(bonusIds),(gems)),…]" →
+// [itemId, …], one per slot
+function parseCombatantInfoGear(line: string): number[] {
+  const talentsEnd = line.indexOf(']', line.indexOf('['))
+  const open = talentsEnd === -1 ? -1 : line.indexOf('[', talentsEnd)
+  const close = open === -1 ? -1 : line.indexOf(']', open)
+  if (close === -1) return []
+  const gear: number[] = []
+  let depth = 0
+  for (let i = open + 1; i < close; i++) {
+    const ch = line[i]
+    if (ch === '(') {
+      // Each top-level group is one slot, starting with its item ID
+      if (depth === 0) gear.push(parseInt(line.substring(i + 1), 10) || 0)
+      depth++
+    } else if (ch === ')') {
+      depth--
+    }
+  }
+  return gear
 }
 
 // Minimal CSV parser — handles double-quoted fields.

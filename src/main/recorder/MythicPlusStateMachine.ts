@@ -539,7 +539,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     if (session === null) return
     if (e.playerName) session.roster.set(e.playerGuid, e.playerName)
     else if (!session.roster.has(e.playerGuid)) session.roster.set(e.playerGuid, '')
-    session.coach.setCombatant(e.playerGuid, e.playerName, e.specId, e.talents)
+    session.coach.setCombatant(e.playerGuid, e.playerName, e.specId, e.talents, e.gear)
   }
 
   private onUnitDied(e: UnitDiedEvent): void {
