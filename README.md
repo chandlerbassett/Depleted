@@ -24,13 +24,13 @@ then reviews any player in the group against the top logged runs of their spec i
 dungeon and key level, and every note it makes jumps the video to the moment it is about.
 
 <p align="center">
-  <img src=".github/assets/screenshot-recording.svg" width="860" alt="A recorded key with its event timeline">
+  <img src=".github/assets/screenshot-recording.png" width="860" alt="A recorded key with its event timeline">
 </p>
 
 <table>
   <tr>
-    <td><img src=".github/assets/screenshot-coach.svg" alt="The Coach panel"></td>
-    <td><img src=".github/assets/screenshot-trends.svg" alt="Trends across keys"></td>
+    <td><img src=".github/assets/screenshot-coach.png" alt="The Coach panel"></td>
+    <td><img src=".github/assets/screenshot-trends.png" alt="Trends across keys"></td>
   </tr>
 </table>
 
