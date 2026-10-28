@@ -36,6 +36,7 @@
   "dependencies": {
     "chokidar": "^3.5.0",
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.11",
     "fluent-ffmpeg": "^2.1.0",
     "naive-ui": "^2.38.0",
     "pinia": "^2.1.0",

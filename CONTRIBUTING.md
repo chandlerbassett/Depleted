@@ -56,6 +56,10 @@ A tag build refuses to publish unless the app is notarized, the tagged commit is
 and the tag matches the `version` in `package.json`. It also attaches a `SHA256SUMS.txt` and
 a build provenance attestation (attestations need the repository to be public).
 
+The release also carries the zip, its blockmap and `latest-mac.yml`: installed copies of
+Depleted check the latest release for those and update themselves. Don't delete or rename
+them on a published release.
+
 To cut a release:
 
 1. Bump `version` in `package.json` in a PR and merge it.
@@ -63,7 +67,8 @@ To cut a release:
    and try the `Depleted-test-build` download on a Mac.
 3. Tag `main` and push the tag: `git tag v1.2.3 && git push origin v1.2.3`.
 
-The Developer ID certificate expires on Feb 1, 2027 (see issue #34).
+The Developer ID certificate expires on Feb 1, 2027 (see issue #34). Renew it under the same
+Team ID: macOS only installs an update signed by the same team as the installed app.
 
 ## Code style
 

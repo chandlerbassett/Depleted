@@ -94,6 +94,10 @@ frameworks via a small bundled Swift helper.
 3. Allow **Screen Recording** when the onboarding asks (or in
    **System Settings → Privacy & Security → Screen Recording**), then quit and reopen Depleted.
 
+Depleted keeps itself up to date from this repo's releases (from 1.1.0 on). When an update
+has downloaded, a **Restart to update** button appears next to the version in the top right;
+otherwise it installs the next time you quit.
+
 ### Verify your download (optional)
 
 Every release is built by this repository's [release workflow](.github/workflows/release.yml)

@@ -27,6 +27,7 @@ import { NativeCaptureRecorder } from './recorder/NativeCaptureRecorder'
 import type { CaptureRecorder } from './recorder/CaptureRecorder'
 import { nativeHelperPath } from './recorder/nativeHelperPath'
 import { MythicPlusStateMachine } from './recorder/MythicPlusStateMachine'
+import { setupAutoUpdater } from './updater'
 import type { ProcessingRequiredEvent } from './recorder/types'
 import { StorageManager, ffmpegMediaTools, nativeMediaTools, type MediaTools } from './storage/StorageManager'
 import { resolveFfmpegPath } from './system/ffmpeg'
@@ -292,6 +293,7 @@ function startApp(): void {
   registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 
   const mainWindow = createWindow(stateMachine, storageManager)
+  setupAutoUpdater(mainWindow, () => recorder.isRecording())
 
   // Create tray on startup if the setting is enabled, and react to changes.
   if (configStore.get('minimizeToTray')) {

@@ -210,6 +210,10 @@ export interface IpcCommands {
   'system:openUrl': { params: { url: string }; result: { success: boolean; error?: string } }
   'system:relaunch': { params: void; result: void }
   'system:getPlatform': { params: void; result: { platform: string } }
+  'system:getVersion': { params: void; result: { version: string } }
+  // Auto-update: the version of a downloaded update, and restarting into it
+  'updater:getReady': { params: void; result: { version: string | null } }
+  'updater:install': { params: void; result: { installed: boolean } }
 
   // Test mode — records a short clip of the capture source so the user can verify
   // the app will work before running a key.
@@ -226,6 +230,7 @@ export interface IpcCommands {
 export interface IpcEvents {
   'recorder:statusChanged': { status: RecorderStatus; zone?: string }
   'recorder:error': { message: string }
+  'updater:ready': { version: string }
   // Fired after a recording is successfully post-processed
   'storage:recordingProcessed': { recording: Recording }
   // Fired on startup when orphaned recording directories are found
