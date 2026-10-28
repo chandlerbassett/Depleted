@@ -8,13 +8,17 @@ import { autoUpdater } from 'electron-updater'
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
-export function setupAutoUpdater(window: BrowserWindow, isRecording: () => boolean): void {
+// beforeInstall runs just before the app quits to install: quitAndInstall() closes the
+// windows before 'before-quit' fires, so anything that keeps a window open on close
+// (minimize to tray) has to know it's a quit by then.
+export function setupAutoUpdater(window: BrowserWindow, isRecording: () => boolean, beforeInstall: () => void): void {
   // The version of an update that has finished downloading, if any
   let readyVersion: string | null = null
 
   ipcMain.handle('updater:getReady', (): { version: string | null } => ({ version: readyVersion }))
   ipcMain.handle('updater:install', (): { installed: boolean } => {
     if (readyVersion === null || isRecording()) return { installed: false }
+    beforeInstall()
     autoUpdater.quitAndInstall()
     return { installed: true }
   })

@@ -75,8 +75,12 @@ const appVersion = ref('')
 const updateVersion = ref<string | null>(null)
 const isRecording = computed(() => status.value === 'recording')
 
+const installingUpdate = ref(false)
+
 async function installUpdate(): Promise<void> {
-  await window.electron.invoke('updater:install')
+  installingUpdate.value = true
+  const { installed } = await window.electron.invoke('updater:install')
+  installingUpdate.value = installed
 }
 
 // -------------------------------------------------------------------------
@@ -276,11 +280,11 @@ const statusTextClass = computed(() => {
         <button
           v-if="updateVersion"
           class="text-xs px-2 py-0.5 rounded bg-amber-600/20 text-amber-300 hover:bg-amber-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          :disabled="isRecording"
+          :disabled="isRecording || installingUpdate"
           :title="isRecording ? 'Available after this recording ends' : `Restart into Depleted ${updateVersion}`"
           @click="installUpdate"
         >
-          Restart to update
+          {{ installingUpdate ? 'Restarting…' : 'Restart to update' }}
         </button>
 
         <span
