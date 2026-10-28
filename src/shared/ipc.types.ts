@@ -248,7 +248,7 @@ export interface AppConfig {
   // desktopCapturer source name to capture, or 'auto' to auto-detect the WoW window
   // by title. Persisted by name (not source id — ids aren't stable across restarts).
   captureSourceHint: string
-  videoResolution: string // "native" | "2560x1440" | "1920x1080" | "1280x720"
+  videoResolution: string // "3840x2160" | "native" | "2560x1440" | "1920x1080" | "1280x720"
   autoCleanupDays: number | null // null = disabled
   autoCleanupMaxGb: number | null // null = disabled
   minimizeToTray: boolean

@@ -61,7 +61,7 @@ function linesUpTo(eventType: string): string[] {
 // unless a test says otherwise.
 const KEY_START = new Date(2026, 9, 27, 20, 0, 5)
 
-function setup(options: { recorderLagMs?: number; idleTimeoutSecs?: number } = {}): {
+function setup(options: { recorderLagMs?: number; idleTimeoutSecs?: number; armedRestartSecs?: number } = {}): {
   watcher: FakeWatcher
   recorder: FakeRecorder
   machine: MythicPlusStateMachine
@@ -77,7 +77,8 @@ function setup(options: { recorderLagMs?: number; idleTimeoutSecs?: number } = {
       rawRecordingsDir: '/tmp/raw',
       postRollSecs: 8,
       abandonTimeoutSecs: 180,
-      idleTimeoutSecs: options.idleTimeoutSecs ?? 3600
+      idleTimeoutSecs: options.idleTimeoutSecs ?? 3600,
+      armedRestartSecs: options.armedRestartSecs
     }
   )
   const processed: ProcessingRequiredEvent[] = []
@@ -401,5 +402,80 @@ describe('MythicPlusStateMachine', () => {
     await vi.runAllTimersAsync()
 
     expect(processed[0]!.mythicPlus!.deathCount).toBe(0)
+  })
+
+  // -------------------------------------------------------------------------
+  // Pre-roll: arming on dungeon entry
+  // -------------------------------------------------------------------------
+
+  const ENTER_MYTHIC = '10/27/2026 19:59:00.0000  ZONE_CHANGE,2660,"Ara-Kara, City of Echoes",23'
+  const ENTERED_AT = new Date(2026, 9, 27, 19, 59, 0)
+
+  it('arms on entering a Mythic dungeon and keeps 15 s before the key start', async () => {
+    const { watcher, recorder, processed } = setup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.startMock).toHaveBeenCalledOnce()
+
+    vi.setSystemTime(KEY_START)
+    watcher.feed(LINES.filter((l) => !l.includes('ZONE_CHANGE')))
+    await vi.runAllTimersAsync()
+
+    // The key took over the armed recording rather than starting another
+    expect(recorder.startMock).toHaveBeenCalledOnce()
+    const ev = processed[0]!
+    expect(ev.recordingStartedAt.getTime()).toBe(ENTERED_AT.getTime())
+    expect(ev.matchStartedAt.getTime()).toBe(KEY_START.getTime() - 15_000)
+    expect(ev.timeline[0]).toMatchObject({ type: 'key-start', timestamp: 15 })
+    // First boss pull is at 20:01:00, 55 s into the key
+    expect(ev.mythicPlus!.encounters[0]!.start).toBe(70)
+  })
+
+  it('does not arm in the open world or on an old ZONE_CHANGE', async () => {
+    const { watcher, recorder } = setup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed(['10/27/2026 19:59:00.0000  ZONE_CHANGE,2552,"Dornogal",0'])
+    watcher.feed(['10/27/2026 18:00:00.0000  ZONE_CHANGE,2660,"Ara-Kara, City of Echoes",23'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.startMock).not.toHaveBeenCalled()
+  })
+
+  it('throws the armed recording away on leaving without a key', async () => {
+    const { watcher, recorder, machine, processed } = setup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    watcher.feed(['10/27/2026 19:59:30.0000  ZONE_CHANGE,2552,"Dornogal",0'])
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(recorder.stopMock).toHaveBeenCalledOnce()
+    expect(recorder.isRecording()).toBe(false)
+    expect(processed).toHaveLength(0)
+    expect(machine.getStatus()).toBe('idle')
+  })
+
+  it('restarts a long armed recording so it stays small', async () => {
+    const { watcher, recorder } = setup({ armedRestartSecs: 60 })
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    // The old file is deleted (real fs) before the new recording starts
+    await vi.waitFor(() => expect(recorder.startMock).toHaveBeenCalledTimes(2))
+
+    expect(recorder.stopMock).toHaveBeenCalledOnce()
+    expect(recorder.isRecording()).toBe(true)
+  })
+
+  it('frees an armed recorder for a test recording', async () => {
+    const { watcher, recorder, machine } = setup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    await machine.releaseArmedRecorder()
+
+    expect(recorder.isRecording()).toBe(false)
+    expect(machine.getStatus()).toBe('idle')
   })
 })

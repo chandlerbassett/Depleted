@@ -395,7 +395,7 @@ const CODECS = [
             </p>
             <div class="flex gap-2 flex-wrap">
               <button
-                v-for="res in ['native', '2560x1440', '1920x1080', '1280x720']"
+                v-for="res in ['3840x2160', 'native', '2560x1440', '1920x1080', '1280x720']"
                 :key="res"
                 class="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
                 :class="
@@ -405,11 +405,12 @@ const CODECS = [
                 "
                 @click="setResolution(res)"
               >
-                {{ res === 'native' ? 'Native' : res }}
+                {{ res === 'native' ? 'Native' : res === '3840x2160' ? '4K' : res }}
               </button>
             </div>
             <p class="text-xs text-zinc-600 mt-1.5">
-              Native = record at full screen resolution (e.g. 2560×1440). Downscale to save space.
+              4K = the sharpest, from your screen's full Retina pixels (never upscaled); pair it with 100 Mbps.
+              Native = the window's size in points (half the pixels on a Retina screen). Downscale to save space.
             </p>
           </div>
 

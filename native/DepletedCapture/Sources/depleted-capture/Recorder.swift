@@ -66,10 +66,10 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     init(options: RecordOptions, window: SCWindow, scale: CGFloat) {
         self.options = options
 
-        // "native" is the window's size in points, not Retina pixels: a full-screen window
-        // on a 5K display is 6720x3780 pixels, which the encoder can't keep up with at
-        // 30fps (a test dropped to ~7fps). Points give 1:1 on non-Retina displays and
-        // are capped at 4K either way.
+        // "native" is the window's size in points, not Retina pixels, capped at 4K. On a
+        // 5K display that's 3360x1890; "--resolution 3840x2160" records 4K from the Retina
+        // pixels instead. (On an M-series Mac Studio, 4K HEVC at 100 Mbps kept WoW's ~57fps
+        // with no drops; full 6720x3780 just about kept up, so it isn't offered.)
         let pixels = CGSize(width: window.frame.width * scale, height: window.frame.height * scale)
         let box = options.maxSize
             ?? CGSize(width: min(window.frame.width, 3840), height: min(window.frame.height, 2160))
