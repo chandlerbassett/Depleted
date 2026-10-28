@@ -1,9 +1,9 @@
 // Re-signs the app bundle after electron-builder's ad-hoc sign so that Info.plist is
 // bound and the TCC identifier matches the bundle ID. Uses the stable local identity
 // from signingIdentity.js when there is one, so Screen Recording survives rebuilds.
-// Only runs on macOS when no Developer ID is configured in electron-builder.yml.
+// Only runs on macOS, and not when electron-builder signed with a Developer ID.
 
-const { execFileSync } = require('child_process')
+const { execFileSync, spawnSync } = require('child_process')
 const { signingIdentity } = require('./signingIdentity')
 
 module.exports = async function afterSign({ appOutDir, packager, electronPlatformName }) {
@@ -13,12 +13,17 @@ module.exports = async function afterSign({ appOutDir, packager, electronPlatfor
   // nonexistent .app bundle instead of the .exe electron-builder actually produced.
   if (electronPlatformName !== 'darwin') return
 
-  const configured = packager.config.mac?.identity
-  // Skip when a real Developer ID is configured — it handles signing correctly.
-  if (configured && configured !== '-') return
+  const appPath = `${appOutDir}/${packager.appInfo.productFilename}.app`
+  // Signed (and notarized) with a Developer ID already: re-signing would break both
+  if (developerIdSigned(appPath)) return
 
   const identity = signingIdentity()
-  const appPath = `${appOutDir}/${packager.appInfo.productFilename}.app`
   console.log(`[afterSign] Re-signing ${appPath} with ${identity === '-' ? 'ad-hoc' : `"${identity}"`}`)
   execFileSync('codesign', ['--force', '--deep', '--sign', identity, appPath], { stdio: 'inherit' })
+}
+
+function developerIdSigned(appPath) {
+  // codesign prints the signature details on stderr
+  const { stderr } = spawnSync('codesign', ['-dvv', appPath], { encoding: 'utf8' })
+  return (stderr ?? '').includes('Authority=Developer ID Application')
 }

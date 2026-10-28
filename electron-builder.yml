@@ -39,13 +39,15 @@ mac:
   minimumSystemVersion: "13.0"
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  hardenedRuntime: false
+  # Notarization needs the hardened runtime. Local builds re-signed by build/afterSign.js
+  # don't get it, which is fine: they never leave this Mac.
+  hardenedRuntime: true
   gatekeeperAssess: false
-  # null = no Developer ID. build/afterSign.js then signs with the stable local
-  # certificate from scripts/create-signing-cert.sh if it exists (so Screen Recording
-  # permission survives rebuilds), else ad-hoc. For notarised public distribution,
-  # remove this line and set CSC_LINK / CSC_KEY_PASSWORD or use the Xcode keychain.
-  identity: null
+  # Signing: a "Developer ID Application" certificate (CSC_LINK / CSC_KEY_PASSWORD in the
+  # release workflow, or found in the keychain) signs the app, and APPLE_ID /
+  # APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID notarize it. Without one, build/afterSign.js
+  # signs with the stable local certificate from scripts/create-signing-cert.sh if it
+  # exists (so Screen Recording permission survives rebuilds), else ad-hoc.
   extendInfo:
     # Required since macOS 10.15 for any app that captures the screen.
     NSScreenCaptureUsageDescription: >-

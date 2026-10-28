@@ -31,10 +31,22 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build & package
+      - name: Build, sign & notarize
+        # Signs with the Developer ID certificate and notarizes when these secrets are set
+        # (see CONTRIBUTING.md). Without them the DMG is ad-hoc signed and not notarized.
         run: npm run build:mac -- --publish never
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Check the signature
+        run: |
+          app="$(ls -d dist/mac-arm64/*.app)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=4 "$app" || echo "::warning::Not notarized: Gatekeeper will warn on first launch"
 
       - name: Upload DMG to release
         uses: softprops/action-gh-release@v3
