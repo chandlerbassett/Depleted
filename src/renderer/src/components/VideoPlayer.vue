@@ -73,7 +73,8 @@ const mythicPlus = computed(() => props.recording.metadata.mythicPlus)
 const resultLabel = computed(() => {
   const mp = mythicPlus.value
   const outcome = mp.outcome === 'completed' ? 'Completed' : mp.outcome === 'depleted' ? 'Depleted' : 'Abandoned'
-  return `+${mp.keystoneLevel} ${outcome}`
+  // Level 0: recovered after a crash with no key info
+  return mp.keystoneLevel > 0 ? `+${mp.keystoneLevel} ${outcome}` : outcome
 })
 const zone = computed(() => props.recording.metadata.zone)
 const formattedDuration = computed(() => fmtSecs(props.recording.metadata.duration))

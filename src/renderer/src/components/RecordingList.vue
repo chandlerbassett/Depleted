@@ -137,7 +137,11 @@ const isEmpty = computed(() => props.recordings.length === 0)
             <!-- Info -->
             <div class="flex-1 min-w-0 px-3 py-2.5 flex flex-col justify-between">
               <div class="flex items-start gap-1.5 flex-wrap">
-                <span class="text-[10px] px-1.5 py-0.5 rounded-full leading-none bg-teal-900/60 text-teal-300">
+                <!-- Level 0: recovered after a crash with no key info -->
+                <span
+                  v-if="item.metadata.mythicPlus.keystoneLevel > 0"
+                  class="text-[10px] px-1.5 py-0.5 rounded-full leading-none bg-teal-900/60 text-teal-300"
+                >
                   +{{ item.metadata.mythicPlus.keystoneLevel }}
                 </span>
                 <span

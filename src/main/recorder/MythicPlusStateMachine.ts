@@ -58,7 +58,7 @@ import type {
 } from '../combatlog/CombatLogParser'
 import type { CaptureRecorder, RecorderOptions } from './CaptureRecorder'
 import { CoachCollector } from '../coach/CoachCollector'
-import type { ProcessingRequiredEvent, StateMachineEventMap } from './types'
+import { rawInfoPath, type ProcessingRequiredEvent, type RawRecordingInfo, type StateMachineEventMap } from './types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -189,6 +189,21 @@ export class MythicPlusStateMachine extends EventEmitter {
     await this.disarming
   }
 
+  // Quitting: a key still running is saved as abandoned, up to now rather than the last
+  // log line (the log can stall well before the player stops), instead of leaving its
+  // raw file behind. An armed recording with no key is thrown away. Resolves once the
+  // recorder has stopped and processingRequired has been emitted.
+  async finishForQuit(): Promise<void> {
+    const session = this.session
+    if (session !== null && !session.ending) {
+      const endTimestamp = new Date(session.lastLogTimestamp.getTime() + (Date.now() - session.lastLogWallMs))
+      this.finalize('abandoned', endTimestamp, null)
+    }
+    this.cutPostRoll?.()
+    this.disarm()
+    await Promise.all([this.finalizing, this.disarming])
+  }
+
   override emit<K extends keyof StateMachineEventMap>(
     event: K,
     payload: StateMachineEventMap[K]
@@ -301,9 +316,30 @@ export class MythicPlusStateMachine extends EventEmitter {
             return ok
           })
         : previousStop.then(() => this.startRecorder(session))
+    void session.started.then((ok) => {
+      if (ok) void this.writeRawInfo(session)
+    })
     session.idleTimer = setInterval(() => this.checkIdle(session), 30_000)
     this.session = session
     this.transitionTo('recording', `${e.zoneName} +${e.keystoneLevel}`)
+  }
+
+  private async writeRawInfo(session: KeySession): Promise<void> {
+    const info: RawRecordingInfo = {
+      zoneName: session.start.zoneName,
+      instanceId: session.start.instanceId,
+      challengeModeId: session.start.challengeModeId,
+      keystoneLevel: session.start.keystoneLevel,
+      affixIds: session.start.affixIds,
+      keyStartedAt: session.start.timestamp.toISOString(),
+      recordingStartedAt: (session.recordingStartedAt ?? session.start.timestamp).toISOString(),
+      preRollSecs: this.options.preRollSecs ?? MYTHIC_PLUS_PRE_ROLL_SECS
+    }
+    try {
+      await fs.writeFile(rawInfoPath(session.rawOutputPath), JSON.stringify(info))
+    } catch (err) {
+      console.error('[MythicPlus] Could not write the raw recording info:', err instanceof Error ? err.message : String(err))
+    }
   }
 
   private async startRecorder(session: KeySession): Promise<boolean> {

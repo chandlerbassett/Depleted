@@ -344,3 +344,69 @@ describe('StorageManager.processRecording', () => {
     expect(capturedArgs[0]?.[1]).toBe('0.000')
   })
 })
+
+// ---------------------------------------------------------------------------
+// recoverRawRecordings
+// ---------------------------------------------------------------------------
+
+describe('StorageManager.recoverRawRecordings', () => {
+  const writeOutputs = vi.fn(async (_ffmpegPath: string, args: string[]) => {
+    await fs.writeFile(args[args.length - 1]!, '')
+  })
+
+  it('saves a raw file with its info file as an abandoned key', async () => {
+    const rawPath = join(tmpDir, 'raw_mplus_murder-row_20261028T130357.mp4')
+    await fs.writeFile(rawPath, 'video')
+    await fs.writeFile(
+      `${rawPath}.json`,
+      JSON.stringify({
+        zoneName: 'Murder Row',
+        instanceId: 2813,
+        challengeModeId: 587,
+        keystoneLevel: 20,
+        affixIds: [10, 9, 147],
+        keyStartedAt: '2026-10-28T13:03:57.307Z',
+        recordingStartedAt: '2026-10-28T13:03:58.000Z',
+        preRollSecs: 15
+      })
+    )
+    // The recorder stopped 6.5 minutes after it started
+    const stoppedAt = new Date('2026-10-28T13:10:28.000Z')
+    await fs.utimes(rawPath, stoppedAt, stoppedAt)
+
+    const manager = new StorageManager(tmpDir)
+    const [recording] = await manager.recoverRawRecordings([rawPath], ffmpegMediaTools('ffmpeg', writeOutputs))
+
+    expect(recording!.id).toBe('2026-10-28_13-03-58_MurderRow_M20_abandoned')
+    expect(recording!.metadata.mythicPlus).toMatchObject({ keystoneLevel: 20, instanceId: 2813, outcome: 'abandoned' })
+    expect(recording!.metadata.duration).toBe(390)
+    await expect(fs.access(rawPath)).rejects.toThrow()
+    await expect(fs.access(`${rawPath}.json`)).rejects.toThrow()
+    expect((await manager.getRecordings()).map((r) => r.id)).toEqual([recording!.id])
+  })
+
+  it('falls back to the file name when there is no info file', async () => {
+    const rawPath = join(tmpDir, 'raw_mplus_murder-row_20261028T130357.mp4')
+    await fs.writeFile(rawPath, 'video')
+    const stoppedAt = new Date('2026-10-28T13:10:27.000Z')
+    await fs.utimes(rawPath, stoppedAt, stoppedAt)
+
+    const manager = new StorageManager(tmpDir)
+    const [recording] = await manager.recoverRawRecordings([rawPath], ffmpegMediaTools('ffmpeg', writeOutputs))
+
+    expect(recording!.metadata.zone).toBe('Murder Row')
+    expect(recording!.metadata.date).toBe('2026-10-28T13:03:57.000Z')
+    expect(recording!.metadata.duration).toBe(390)
+    expect(recording!.metadata.mythicPlus!.keystoneLevel).toBe(0)
+  })
+
+  it('skips empty files and names it does not recognize', async () => {
+    const empty = join(tmpDir, 'raw_mplus_murder-row_20261028T130357.mp4')
+    const other = join(tmpDir, 'something.mp4')
+    await fs.writeFile(empty, '')
+    await fs.writeFile(other, 'video')
+
+    const manager = new StorageManager(tmpDir)
+    expect(await manager.recoverRawRecordings([empty, other], ffmpegMediaTools('ffmpeg', writeOutputs))).toEqual([])
+  })
+})

@@ -404,6 +404,46 @@ describe('MythicPlusStateMachine', () => {
     expect(processed[0]!.mythicPlus!.deathCount).toBe(0)
   })
 
+  it('saves a reset-and-restarted key as abandoned when the app quits mid-key', async () => {
+    // Seen on a real Murder Row log: a reset, the next START 0.25 s later, then the log
+    // stopped with no END and the app was quit.
+    const { watcher, recorder, machine, processed } = setup()
+    watcher.feed(linesUpTo('CHALLENGE_MODE_START'))
+    await vi.advanceTimersByTimeAsync(0)
+    const restartedAt = new Date(2026, 9, 27, 20, 5, 0, 250)
+    vi.setSystemTime(restartedAt)
+    watcher.feed([
+      '10/27/2026 20:05:00.0000  CHALLENGE_MODE_END,2660,0,0,0,0.000000,0.000000',
+      '10/27/2026 20:05:00.2500  CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[148,9,152,10]'
+    ])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(processed).toHaveLength(1)
+    expect(recorder.startMock).toHaveBeenCalledTimes(2)
+
+    // The log has nothing after the restart; quit a minute later
+    vi.setSystemTime(new Date(restartedAt.getTime() + 60_000))
+    await machine.finishForQuit()
+
+    expect(recorder.isRecording()).toBe(false)
+    expect(processed).toHaveLength(2)
+    const second = processed[1]!
+    expect(second.mythicPlus!.outcome).toBe('abandoned')
+    // Keeps the footage up to the quit, not just to the last log line
+    expect(second.durationSecs).toBeCloseTo(60, 0)
+    expect(machine.getStatus()).toBe('idle')
+  })
+
+  it('throws an armed recording away on quit', async () => {
+    const { watcher, recorder, machine, processed } = setup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    await machine.finishForQuit()
+
+    expect(recorder.isRecording()).toBe(false)
+    expect(processed).toHaveLength(0)
+  })
+
   // -------------------------------------------------------------------------
   // Pre-roll: arming on dungeon entry
   // -------------------------------------------------------------------------

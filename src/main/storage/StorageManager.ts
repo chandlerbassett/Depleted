@@ -5,7 +5,10 @@
 //   2. Trim raw video to exact key duration (no re-encode; see MediaTools)
 //   3. Generate thumbnail from the trimmed video
 //   4. Write metadata.json
-//   5. Delete the raw (untrimmed) file
+//   5. Delete the raw (untrimmed) file and its info file
+//
+// recoverRawRecordings() saves raw files left behind by a crash or force-quit, as
+// abandoned keys, on the next launch.
 //
 // The trim offset is the wall-clock difference between when recording started and
 // where the kept footage begins (event.matchStartedAt).
@@ -17,10 +20,10 @@
 //   findOrphanedRecordings() — directories that have a recording video but no metadata.json
 
 import { promises as fs } from 'fs'
-import { join, extname } from 'path'
+import { join, extname, basename } from 'path'
 import { spawn } from 'child_process'
-import type { Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
-import type { ProcessingRequiredEvent } from '../recorder/types'
+import type { MythicPlusInfo, Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
+import { rawInfoPath, type ProcessingRequiredEvent, type RawRecordingInfo } from '../recorder/types'
 import { runHelperCommand } from '../recorder/nativeHelper'
 import { writeMetadata, readMetadata, writeCoachData, readCoachData } from './MetadataWriter'
 import type { CoachData } from '@shared/coach.types'
@@ -136,6 +139,7 @@ export class StorageManager {
     if (event.coach !== undefined) await writeCoachData(dirPath, event.coach)
 
     await fs.unlink(event.rawPath)
+    await fs.rm(rawInfoPath(event.rawPath), { force: true })
 
     return {
       id: dirName,
@@ -144,6 +148,25 @@ export class StorageManager {
       thumbnailPath,
       metadata
     }
+  }
+
+  // Saves raw recordings that never got processed (the app crashed or was force-quit
+  // mid-key) as abandoned keys. Pass only files that existed before recording could
+  // start this session. Uses the info file written at key start when there is one;
+  // otherwise the zone and start time come from the file name and the level is unknown.
+  async recoverRawRecordings(rawPaths: string[], media: MediaTools): Promise<Recording[]> {
+    const recovered: Recording[] = []
+    for (const rawPath of rawPaths) {
+      try {
+        const event = await buildRecoveryEvent(rawPath)
+        if (event === null) continue
+        recovered.push(await this.processRecording(event, media))
+        console.warn(`[Storage] Recovered ${rawPath}`)
+      } catch (err) {
+        console.error(`[Storage] Could not recover ${rawPath}:`, err instanceof Error ? err.message : String(err))
+      }
+    }
+    return recovered
   }
 
   // -------------------------------------------------------------------------
@@ -287,6 +310,85 @@ export function buildMetadata(
     playerDamageTaken: Object.keys(event.playerDamageTaken).length > 0 ? event.playerDamageTaken : undefined,
     playerHealingDone: Object.keys(event.playerHealingDone).length > 0 ? event.playerHealingDone : undefined,
     mythicPlus: event.mythicPlus
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recovery
+// ---------------------------------------------------------------------------
+
+const RAW_NAME_RE = /^raw_mplus_(.+)_(\d{8}T\d{6})\.(mp4|webm)$/
+
+export async function buildRecoveryEvent(rawPath: string): Promise<ProcessingRequiredEvent | null> {
+  const name = basename(rawPath)
+  const match = RAW_NAME_RE.exec(name)
+  if (match === null) return null
+  const stat = await fs.stat(rawPath)
+  if (stat.size === 0) return null
+  const info = await readRawInfo(rawPath)
+
+  let zoneName: string
+  let matchStartedAt: Date
+  let recordingStartedAt: Date
+  let mythicPlus: MythicPlusInfo
+  if (info !== null) {
+    zoneName = info.zoneName
+    recordingStartedAt = new Date(info.recordingStartedAt)
+    const keyStartedAt = new Date(info.keyStartedAt)
+    // Same lead-in as a normal save: at most preRollSecs before the key start
+    matchStartedAt = new Date(Math.max(recordingStartedAt.getTime(), keyStartedAt.getTime() - info.preRollSecs * 1000))
+    mythicPlus = emptyMythicPlus(info.instanceId, info.challengeModeId, info.keystoneLevel, info.affixIds)
+  } else {
+    // "murder-row" → "Murder Row"; the time is when the recording started (UTC)
+    zoneName = match[1]!.split('-').filter((w) => w.length > 0).map((w) => w[0]!.toUpperCase() + w.slice(1)).join(' ')
+    const ts = match[2]!
+    recordingStartedAt = new Date(
+      `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}T${ts.slice(9, 11)}:${ts.slice(11, 13)}:${ts.slice(13, 15)}Z`
+    )
+    matchStartedAt = recordingStartedAt
+    mythicPlus = emptyMythicPlus(0, 0, 0, [])
+  }
+  // The recorder last wrote the file when it stopped
+  const durationSecs = Math.max(1, Math.round((stat.mtime.getTime() - matchStartedAt.getTime()) / 1000))
+
+  return {
+    rawPath,
+    zoneName,
+    result: 'LOSS',
+    durationSecs,
+    matchStartedAt,
+    recordingStartedAt,
+    timeline: [],
+    knownSpecs: {},
+    teamComp: [],
+    playerDamageDone: {},
+    playerDamageTaken: {},
+    playerHealingDone: {},
+    mythicPlus
+  }
+}
+
+async function readRawInfo(rawPath: string): Promise<RawRecordingInfo | null> {
+  try {
+    return JSON.parse(await fs.readFile(rawInfoPath(rawPath), 'utf8')) as RawRecordingInfo
+  } catch {
+    return null
+  }
+}
+
+function emptyMythicPlus(instanceId: number, challengeModeId: number, keystoneLevel: number, affixIds: number[]): MythicPlusInfo {
+  return {
+    instanceId,
+    challengeModeId,
+    keystoneLevel,
+    affixIds,
+    outcome: 'abandoned',
+    totalTimeMs: 0,
+    score: null,
+    encounters: [],
+    deathCount: 0,
+    deathsByPlayer: {},
+    interruptsByPlayer: {}
   }
 }
 
