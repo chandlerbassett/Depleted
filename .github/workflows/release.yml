@@ -23,6 +23,9 @@ jobs:
   build-mac:
     name: macOS (arm64)
     runs-on: macos-latest
+    # The signing certificate and notarization key live in this environment, which only
+    # v* tags and main can deploy to, so no other branch's workflow can read them
+    environment: release
 
     steps:
       # Actions are pinned to commits; Dependabot keeps them current
@@ -77,21 +80,26 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain"
 
-      - name: Load notarization secrets
-        # Only the ones that are set: an empty APPLE_ID still switches notarization on
+      - name: Load the notarization key
+        # An App Store Connect API key (Developer role). electron-builder notarizes the app
+        # with it when APPLE_API_KEY (a path to the .p8), APPLE_API_KEY_ID and
+        # APPLE_API_ISSUER are set.
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
-          for name in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [ -n "${!name}" ]; then
-              echo "$name=${!name}" >> "$GITHUB_ENV"
-              echo "$name: set"
-            else
-              echo "::warning::$name is not set"
-            fi
-          done
+          if [ -z "$API_KEY_P8" ] || [ -z "$API_KEY_ID" ] || [ -z "$API_ISSUER" ]; then
+            echo "::warning::APPLE_API_KEY, APPLE_API_KEY_ID or APPLE_API_ISSUER is not set: the build won't be notarized"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8"
+          (umask 077 && printf '%s\n' "$API_KEY_P8" > "$key")
+          {
+            echo "APPLE_API_KEY=$key"
+            echo "APPLE_API_KEY_ID=$API_KEY_ID"
+            echo "APPLE_API_ISSUER=$API_ISSUER"
+          } >> "$GITHUB_ENV"
 
       - name: Build, sign & notarize
         # Signs with the Developer ID certificate and notarizes when the secrets are set
@@ -103,13 +111,13 @@ jobs:
         # image too, then puts the DMG's new hash in latest-mac.yml.
         run: |
           identity="$(security find-identity -v -p codesigning | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
-          if [ -z "$identity" ] || [ -z "${APPLE_ID:-}" ]; then
+          if [ -z "$identity" ] || [ -z "${APPLE_API_KEY:-}" ]; then
             echo "::warning::No Developer ID certificate or notarization secrets: the DMG itself stays unsigned"
             exit 0
           fi
           for dmg in dist/*.dmg; do
             codesign --sign "$identity" --timestamp "$dmg"
-            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+            xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
             xcrun stapler staple "$dmg"
           done
           node build/updateManifest.js dist/latest-mac.yml dist/*.dmg

@@ -42,15 +42,17 @@ class and spec. Please prefer changes that keep it data-driven over hand-written
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the DMG and attaches it
 to a GitHub release. It signs the app and the DMG with a Developer ID and notarizes both when these
-repository secrets are set:
+secrets are set in the repository's `release` environment. Keep them out of repository-level
+secrets: the environment only deploys to `v*` tags and `main`, so a workflow on any other branch
+can't read them.
 
 | Secret | What it is |
 |--------|------------|
 | `MAC_CERTIFICATE_P12_BASE64` | The *Developer ID Application* certificate and its private key, exported from Keychain Access as a `.p12` and base64 encoded (`base64 -i cert.p12 \| pbcopy`) |
 | `MAC_CERTIFICATE_PASSWORD` | The password chosen when exporting the `.p12` |
-| `APPLE_ID` | The Apple Account email of the developer account |
-| `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password from [account.apple.com](https://account.apple.com) → Sign-In and Security |
-| `APPLE_TEAM_ID` | The 10-character Team ID from [developer.apple.com/account](https://developer.apple.com/account) → Membership details |
+| `APPLE_API_KEY` | The whole `.p8` file of an App Store Connect API key with the Developer role (App Store Connect → Users and Access → Integrations → Team Keys), including its BEGIN and END lines |
+| `APPLE_API_KEY_ID` | That key's Key ID |
+| `APPLE_API_ISSUER` | The Issuer ID shown above the keys list |
 
 A tag build refuses to publish unless the app and the DMG are notarized, the tagged commit is on `main`,
 and the tag matches the `version` in `package.json`. It also attaches a `SHA256SUMS.txt` and
