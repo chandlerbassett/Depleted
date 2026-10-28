@@ -1,5 +1,6 @@
-# Weekly update PRs. Minor and patch updates come grouped in one PR per ecosystem;
-# major versions get their own PR so they can be tested on their own.
+# Weekly update PRs, minor and patch updates grouped into one PR per ecosystem.
+# npm major versions are left out: they need testing on a Mac and are done by hand.
+# Security fixes still arrive for every version, majors included.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -10,6 +11,9 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
