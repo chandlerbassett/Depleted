@@ -2,9 +2,9 @@
 
 The native helper Depleted runs on macOS for everything video:
 
-- **record**: captures the WoW window and game audio with ScreenCaptureKit, and encodes
+- **record**: captures the game window and game audio with ScreenCaptureKit, and encodes
   H.264 (or HEVC) on the hardware encoder through AVAssetWriter, straight to `.mp4`
-- **trim**: cuts a recording to the key or match without re-encoding (AVAssetExportSession passthrough)
+- **trim**: cuts a recording to the key without re-encoding (AVAssetExportSession passthrough)
 - **thumbnail**: grabs a frame for the recording list (AVAssetImageGenerator)
 
 The app spawns it as a child process and reads one JSON event per line from its stdout

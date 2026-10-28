@@ -1,7 +1,7 @@
 appId: com.chandlerbassett.depleted
 productName: Depleted
-# Based on WoW Arena Recorder (MIT) — keep the original copyright notice.
-copyright: Copyright © 2024 Aleksandr Kravchenko; © 2026 Depleted contributors
+# Forked from wowArenaAnalyzer (MIT): keep the original copyright notice.
+copyright: Copyright © 2024 Aleksandr Kravchenko; © 2026 Chandler Bassett
 
 # electron-vite outputs to out/; electron-builder picks it up from there.
 directories:
@@ -49,11 +49,10 @@ mac:
   extendInfo:
     # Required since macOS 10.15 for any app that captures the screen.
     NSScreenCaptureUsageDescription: >-
-      Depleted captures the WoW window to record Mythic+ keys.
-      This permission is used only while a key or match is in progress.
+      Depleted captures the game window to record your Mythic+ keys.
+      It only records in Mythic dungeons, or when you run a test recording.
 
-# App icon: build/icon.icns (mac) and build/icon.png (other platforms), picked up from
-# buildResources by default.
+# App icon: build/icon.icns, picked up from buildResources by default.
 dmg:
   title: "${productName} ${version}"
   background: build/background.png   # background@2x.png next to it is used on Retina
@@ -67,19 +66,3 @@ dmg:
       y: 170
       type: link
       path: /Applications
-
-# ---------------------------------------------------------------------------
-# Windows
-# ---------------------------------------------------------------------------
-win:
-  target:
-    - target: nsis
-      arch:
-        - x64
-  publisherName: Aleksandr Kravchenko
-
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
-  createStartMenuShortcut: true

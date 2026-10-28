@@ -2,13 +2,25 @@
   "name": "depleted",
   "productName": "Depleted",
   "version": "1.0.19",
-  "description": "Mythic+ recorder for World of Warcraft on macOS — auto-records via the combat log",
+  "description": "Mythic+ recorder and coach for macOS: records every key from the combat log and reviews it against top Warcraft Logs runs",
   "main": "out/main/index.js",
-  "author": "Aleksandr Kravchenko",
+  "author": "Chandler Bassett",
   "license": "MIT",
+  "homepage": "https://github.com/chandlerbassett/Depleted#readme",
+  "bugs": {
+    "url": "https://github.com/chandlerbassett/Depleted/issues"
+  },
+  "keywords": [
+    "mythic-plus",
+    "screen-recorder",
+    "combat-log",
+    "macos",
+    "electron",
+    "screencapturekit"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/krav559108/wowArenaAnalyzer.git"
+    "url": "git+https://github.com/chandlerbassett/Depleted.git"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -16,7 +28,6 @@
     "preview": "electron-vite preview",
     "build:native": "bash native/build.sh",
     "build:mac": "npm run build:native && npm run build && electron-builder --mac",
-    "build:win": "npm run build && electron-builder --win",
     "lint": "eslint . --ext .ts,.vue --max-warnings 0",
     "format": "prettier --write .",
     "test": "vitest run",
@@ -50,5 +61,8 @@
     "vite": "^5.0.0",
     "vitest": "^1.0.0",
     "vue-tsc": "^2.0.0"
-  }
+  },
+  "contributors": [
+    "Aleksandr Kravchenko (original wowArenaAnalyzer)"
+  ]
 }

@@ -11,3 +11,4 @@ docs/
 CLAUDE.md
 native/bin/
 native/DepletedCapture/.build/
+*.tsbuildinfo

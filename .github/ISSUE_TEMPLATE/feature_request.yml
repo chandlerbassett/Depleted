@@ -1,19 +1,16 @@
 name: Feature request
-description: Suggest an idea or improvement
+description: Suggest an idea or an improvement
 labels: [enhancement]
 body:
   - type: textarea
     id: problem
     attributes:
       label: What problem would this solve?
-      description: What are you trying to do that the app doesn't support well today?
+      description: What are you trying to do that Depleted doesn't handle well today?
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
-      description: What would you like to see instead?
-    validations:
-      required: false
+      label: What would you like to see?

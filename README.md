@@ -1,200 +1,234 @@
-<img src="build/icon.png" width="128" alt="Depleted icon">
+<p align="center">
+  <img src="build/icon.png" width="160" alt="Depleted app icon: a cracked gold hourglass">
+</p>
 
-# Depleted.app
+<h1 align="center">Depleted</h1>
 
-**A Mythic+ recorder for World of Warcraft on macOS.**
+<p align="center">
+  <strong>A Mythic+ recorder and coach for macOS.</strong><br>
+  Records every key on its own, lines the video up with the combat log, and shows you the moments worth rewatching.
+</p>
 
-Automatically records your World of Warcraft **Mythic+ keys** on macOS, syncs the video with
-the combat log, and puts the moments that matter on a timeline: boss kills, wipes, party
-deaths, interrupts. Click a marker to jump straight to it.
-
-The goal is a native-feeling macOS take on what [Warcraft Recorder](https://warcraftrecorder.com/)
-does on Windows. It records Mythic+ only; the original project's arena features have been
-removed.
-
-> 🚧 **Early and in active development.** Mythic+ log parsing has been checked against real
-> 12.x keys, but full recordings haven't been tested end to end yet. Expect rough edges.
+<p align="center">
+  <a href="https://github.com/chandlerbassett/Depleted/actions/workflows/ci.yml"><img src="https://github.com/chandlerbassett/Depleted/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B%20%C2%B7%20Apple%20silicon-111?logo=apple" alt="macOS 13+ on Apple silicon">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
 
 ---
 
-## What it does today
+Depleted watches your combat log while you play. When a key starts it is already recording,
+and when the key ends it trims the video, files it with the dungeon, level, timer and score,
+and drops every boss pull, death and interrupt on a timeline you can click through. Its Coach
+then reviews any player in the group against the top logged runs of their spec in the same
+dungeon and key level, and every note it makes jumps the video to the moment it is about.
 
-**Mythic+**
-- Records the WoW window and game audio with ScreenCaptureKit, encoded to H.264 MP4 on the
-  Mac's hardware video encoder, so recording costs very little CPU while you play
-- Starts recording when the key is activated (`CHALLENGE_MODE_START`) and stops about 18 seconds
-  after it ends (`CHALLENGE_MODE_END`), so the completion screen is included
-- Marks every boss pull as a **kill** or **wipe**
-- Marks **party deaths**, each with a recap of the last 10 seconds of damage taken
-- Marks **interrupts** and counts them per player
-- Saves each run with its key level, affixes, outcome (**completed / depleted / abandoned**),
-  timer and score
+<p align="center">
+  <img src=".github/assets/screenshot-recording.svg" width="860" alt="A recorded key with its event timeline">
+</p>
+
+<table>
+  <tr>
+    <td><img src=".github/assets/screenshot-coach.svg" alt="The Coach panel"></td>
+    <td><img src=".github/assets/screenshot-trends.svg" alt="Trends across keys"></td>
+  </tr>
+</table>
+
+## Features
+
+**Recording**
+
+- Native capture with ScreenCaptureKit and the Mac's hardware video encoder, so recording
+  costs very little CPU while you play
+- HEVC by default (H.264 if you prefer), with quality presets of 30, 50 and 80 Mbps or a
+  custom bitrate up to 100 Mbps, and resolutions up to 4K from your display's full Retina pixels
+- Colors that match the game: capture is converted and tagged as sRGB / BT.709, so footage
+  from a P3 display doesn't play back washed out
+- Records the game's audio with no extra audio tools
+- A 15 second **pre-roll**: recording arms when you enter the dungeon, so the countdown is in
+  the video, and the clip ends about 18 seconds after the key so the completion screen is too
+- Keys you leave and don't come back to within 3 minutes are saved as *abandoned* instead of lost
+
+**Review**
+
+- Every run is saved with its dungeon, key level, affixes, outcome (completed, depleted or
+  abandoned), timer and score
+- A timeline with boss **kills and wipes**, **party deaths** (each with the last 10 seconds of
+  damage taken) and **interrupts**
 - **DPS and HPS meters** for the party, with pet damage credited to its owner
-- Click a party member's name to open them on **Raider.IO**, **Warcraft Logs** or the Armory
-- A **Coach** panel for any party member, any class: time spent casting, gaps with no casts
-  mid-pull, throughput cooldowns that sat ready, stretches where their damage share dropped,
-  and which defensives looked ready when they died. Every moment jumps the video to it
-- The Coach also compares the key with the **top Warcraft Logs runs** of the same spec, dungeon
-  and key level: output, cooldowns top players press on cooldown (and how soon in the opener),
-  potions, and core spells cast much less. Learned from the logs, so it works for every spec.
-  Needs your own free API client from warcraftlogs.com/api/clients, entered in Settings
-- If you leave the dungeon and don't return within 3 minutes, the key is saved as
-  *abandoned* rather than thrown away
+- Click any party member to open them on **Raider.IO**, **Warcraft Logs** or the Armory
 
-Recordings appear in the list on the left. Open one to watch it with its event timeline.
+**Coach**
 
-## Roadmap
+- Reviews any party member, any class and spec: time spent casting, mid-pull gaps with no
+  casts, throughput cooldowns that sat ready, and which defensives looked ready when they died
+- Compares the key with the **top Warcraft Logs runs** of the same spec, dungeon and key level:
+  output, how soon and how often top players press their cooldowns, potions, and core spells
+  cast much less. It learns this from the logs, so it works for every spec without hand-written rules
+- Gear- and talent-aware: a spell you can't cast with your build isn't flagged as missing
+- A **recap** for each key and **Trends** across keys, so you can see what keeps coming up
+- Every finding jumps the video to the moment it describes
 
-1. ~~Record M+ keys on the existing capture pipeline~~ ✅
-2. Polish the M+ view: run list with timer/upgrade level, per-boss breakdown, damage meters
-3. ~~Replace capture with native **ScreenCaptureKit + VideoToolbox**~~ ✅ (still to do: a pre-roll
-   buffer so the countdown isn't missed)
-4. "Good / bad moment" detection: avoidable damage, missed kicks, defensive usage on deaths
-   (started: the Coach panel)
-5. ~~Coach comparisons with top Warcraft Logs players of the same spec, dungeon and key level~~ ✅
-   (next: talents and pull-by-pull damage)
+**Companion addon**
 
----
+- **DepletedCompanion** tells the app which character you're playing and turns on combat
+  logging when you enter a dungeon, so you never lose a key to a forgotten `/combatlog`
 
 ## Requirements
 
-- macOS 13 (Ventura) or later on Apple silicon (Intel Macs aren't supported)
-- Xcode Command Line Tools to build from source (`xcode-select --install`)
-- Screen Recording permission (the app prompts you during onboarding)
-- **Advanced Combat Logging** turned on in WoW (see below)
+- A Mac with **Apple silicon** (M1 or later) running **macOS 13 Ventura** or later. Intel Macs
+  aren't supported.
+- **Advanced Combat Logging** turned on in the game (see [Setup](#setup))
+- **Screen Recording** permission for Depleted
+- Optional: a free Warcraft Logs API client, for the Coach's comparison with top players
 
-Nothing else to install: capture, encoding, trimming and thumbnails all use macOS's own
-ScreenCaptureKit and AVFoundation, through a small Swift helper the app bundles
-(`native/DepletedCapture`). The codebase still builds for Windows (where it falls back to
-Chromium capture and needs FFmpeg), but macOS is the focus and the only platform being tested.
+Nothing else to install. Capture, encoding, trimming and thumbnails all go through macOS's own
+frameworks via a small bundled Swift helper.
 
----
+## Install
 
-## Install (from source)
+Depleted isn't notarized by Apple, so macOS asks you to confirm it the first time.
 
-There are no published releases of this version yet. To build and run it locally:
+1. Download the latest `.dmg` from [Releases](https://github.com/chandlerbassett/Depleted/releases)
+   and drag **Depleted** into **Applications**. (No release yet? [Build it from source](#building-from-source).)
+2. Open it. If macOS says it can't verify the developer, open
+   **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
+   Or clear the quarantine flag from Terminal:
 
-```bash
-npm install
-npm run build:native     # builds the Swift capture helper into native/bin/
-npm run dev              # run with hot reload
-npm run build:mac        # or build a .dmg into dist/ (builds the helper too)
-```
+   ```bash
+   xattr -cr /Applications/Depleted.app
+   ```
 
-The build isn't code-signed, so the first time you open a `.dmg` build, clear the quarantine flag:
+3. Allow **Screen Recording** when the onboarding asks (or in
+   **System Settings → Privacy & Security → Screen Recording**), then quit and reopen Depleted.
 
-```bash
-sudo xattr -cr "/Applications/Depleted.app"
-```
+> **If Screen Recording keeps asking again:** macOS ties the permission to the app's code
+> signature. Builds that are only ad-hoc signed get a new signature every time, so the grant is
+> lost on each update. Remove Depleted from the Screen Recording list with **–** (turning the
+> toggle off isn't enough), reopen the app and turn it back on. Building from source with the
+> local signing certificate below avoids this for good.
 
-> ⚠️ **After every rebuild you must re-grant Screen Recording permission.** macOS ties the
-> permission to the app's code signature, which changes with each build:
-> 1. **System Settings → Privacy & Security → Screen Recording**
-> 2. Select the app and click **–** to remove it (just toggling it off isn't enough)
-> 3. Quit and relaunch the app. It re-adds itself, and you can then turn the toggle **on**
+## Setup
 
----
+### 1. Turn on Advanced Combat Logging
 
-## In-game setup
+In game: **Esc → Options → System → Network → Advanced Combat Logging**. You only do this once.
+The game writes combat logs to `_retail_/Logs/`, and Depleted follows the newest one automatically.
 
-### Advanced Combat Logging (required)
+### 2. Install the companion addon (recommended)
 
-**Esc → Options → System → Network → check "Advanced Combat Logging"**
+Install it from the onboarding screen or **Settings → WoW Addon**. Or copy `addon/DepletedCompanion`
+into `_retail_/Interface/AddOns/` and `/reload` in game. Type `/depleted` in game to check it's loaded.
 
-You only need to set this once. WoW writes combat logs to `_retail_/Logs/WoWCombatLog-*.txt`,
-and the app follows the newest one automatically.
+### 3. Connect Warcraft Logs (optional, for the Coach)
 
-### Companion addon (recommended)
+The Coach's comparison with top players uses the Warcraft Logs API with your own free client:
 
-The app ships with a small addon, **DepletedCompanion**, that:
+1. Sign in at [warcraftlogs.com/api/clients](https://www.warcraftlogs.com/api/clients) and create
+   a client. Any name works; use `http://localhost` as the redirect URL and leave
+   **Public Client** unchecked.
+2. In Depleted, open **Settings → Warcraft Logs**, paste the client ID and secret, and click **Connect**.
 
-- tells the recorder which character you're playing
-- turns on combat logging automatically when you enter a dungeon and when a key starts, so you never lose a run to a forgotten `/combatlog`
-- prints "Key started. Depleted should be recording." in chat when a key begins
+The secret is stored encrypted with your macOS Keychain and is only ever sent to Warcraft Logs.
+Without a client, the Coach still reviews each key on its own.
 
-Install it from the onboarding screen or **Settings → Addon**, or copy
-`addon/DepletedCompanion` into `/Applications/World of Warcraft/_retail_/Interface/AddOns/`,
-then `/reload` in game. Type `/depleted` in game for info.
+### 4. Play
 
-> Upgrading from the original **ArenaRecorderCompanion**? Install DepletedCompanion and delete
-> the old `ArenaRecorderCompanion` folder from your AddOns.
-
----
-
-## How recording works
-
-1. Open the app before you start the key
-2. The app watches the combat log and starts recording on its own
-3. When the key ends, the app stops recording, trims the video, makes a thumbnail
-   and adds the run to the list
-4. Click a recording to watch it, and click timeline markers to jump to them
-
----
+Open Depleted before you zone into the dungeon. It records, trims and lists the key by itself.
+Click a recording to watch it, and click any marker or Coach note to jump to that moment.
 
 ## Settings
 
-| Setting | Description |
-|---------|-------------|
-| WoW Path | Your WoW installation folder (auto-detected) |
-| Storage Path | Where recordings are saved (default: `~/Movies/Depleted`) |
-| Video Bitrate | Recording quality in kbps (default: 8000) |
-| FPS | Frames per second (default: 30) |
-| Resolution | Output resolution, or `native` to match your display |
-| Capture Window | Which window to record. Auto-detects WoW by default |
-| Auto Cleanup | Delete old recordings after N days or once storage passes N GB |
+| Setting | What it does |
+|---------|--------------|
+| WoW Installation | Your game folder (detected automatically) |
+| Recording Storage | Where recordings go (default `~/Movies/Depleted`) |
+| Video Quality | 30 / 50 / 80 Mbps presets or Custom up to 100 Mbps; HEVC or H.264; 4K, Native, 1440p, 1080p or 720p; 30 or 60 fps; and which window to capture (found automatically) |
+| WoW Addon | Install or update DepletedCompanion |
+| Auto-Cleanup | Delete old recordings after N days or once they pass N GB |
+| Character Stats | Where player names link to (Raider.IO, Warcraft Logs or the Armory) and your region |
+| Warcraft Logs | Your API client for the Coach |
+| Test Mode | Record a short test clip to check capture and audio |
 
-Game audio is captured automatically through system loopback, so no extra audio tools are needed.
+A 30 minute key at 30 Mbps is close to 7 GB, so pick a storage folder with room, or turn on auto cleanup.
 
----
+## Building from source
 
-## Known limitations
-
-- **Big files on long keys.** At the default 8 Mbps, a 35-minute key is roughly 2 GB. Lower
-  the bitrate in Settings if that's too much; the hardware encoder holds up well at 5-6 Mbps.
-- **The first few seconds of a key can be missed**, because recording starts once the app
-  reads the key-start line from the log.
-- **A key completed over time may still be labeled completed.** The log's success flag
-  doesn't say whether the timer was beaten.
-- The build isn't code-signed (see Install above).
-
----
-
-## Development
+You need Node.js 22 and the Xcode Command Line Tools (`xcode-select --install`).
 
 ```bash
+git clone https://github.com/chandlerbassett/Depleted.git
+cd Depleted
 npm install
-npm run build:native # Swift capture helper (macOS)
-npm run dev          # dev mode with hot reload
-npm test             # vitest
-npm run lint
-npm run build        # production build (no packaging)
-npm run build:mac    # macOS .dmg
+
+# Optional, once per Mac: a local code-signing certificate so Screen Recording
+# permission survives rebuilds (see below)
+./scripts/create-signing-cert.sh
+
+npm run dev          # run with hot reload
+npm run build:mac    # or build dist/Depleted-<version>-arm64.dmg
 ```
 
-### Project structure
+`npm run build:native` builds just the Swift capture helper into `native/bin/`. `build:mac` and
+`dev` need it, and `build:mac` builds it for you.
+
+**About signing.** Without a Developer ID, builds are ad-hoc signed and macOS forgets the Screen
+Recording grant after every rebuild. `scripts/create-signing-cert.sh` creates a self-signed
+certificate called *Depleted Local Signing* in your login keychain, and every later build is
+signed with it, so the grant sticks. It only exists on your Mac and doesn't make builds trusted
+anywhere else. To sign with another identity, set `DEPLETED_SIGN_IDENTITY`.
+
+### Development
+
+```bash
+npm test             # unit tests (vitest)
+npm run lint
+npm run build        # compile without packaging
+```
 
 ```
 src/
-  main/
-    combatlog/   — log watcher + parser (Mythic+ events)
-    recorder/    — NativeCaptureRecorder (macOS helper), MythicPlusStateMachine
-    storage/     — trimming, thumbnails, metadata, recordings library
-    ipc/         — main ↔ renderer channels
-  renderer/src/  — Vue 3 + Pinia UI
-  shared/        — types and constants shared by main and renderer
+  main/            Electron main process
+    combatlog/     log watcher and parser
+    recorder/      Mythic+ state machine and the native capture bridge
+    coach/         key review and Warcraft Logs benchmarks
+    storage/       trimming, thumbnails, metadata, recordings library
+  renderer/src/    Vue 3 + Pinia UI
+  shared/          types and constants shared by both
 native/
-  DepletedCapture/    — Swift helper: ScreenCaptureKit capture, hardware encode, trim, thumbnail
+  DepletedCapture/ Swift helper: ScreenCaptureKit capture, hardware encode, trim, thumbnail
 addon/
-  DepletedCompanion/  — WoW addon (Lua)
-tests/
-  fixtures/      — sample Mythic+ combat log
+  DepletedCompanion/  the in-game companion addon (Lua)
+tests/             vitest suites and a sample Mythic+ combat log
 ```
 
----
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## Known limitations
+
+- **A key finished over time may still say completed.** The combat log's success flag doesn't
+  say whether the timer was beaten.
+- **The Coach's top-player comparison uses Warcraft Logs API points.** Benchmarks are cached
+  on disk for three days, so each dungeon, spec and level is only fetched once in that time.
+- Not notarized yet, so macOS asks you to confirm the app on first launch.
 
 ## Credits
 
-Depleted is built on [**WoW Arena Recorder**](https://github.com/krav559108/wowArenaAnalyzer)
-by Aleksandr Kravchenko (MIT licensed), which provides the capture pipeline, combat log
-parser and playback UI. Huge thanks to them. If you play arena, the original project is the
-one for you.
+Depleted started as a fork of [**wowArenaAnalyzer**](https://github.com/krav559108/wowArenaAnalyzer)
+by Aleksandr Kravchenko (MIT), which provided the original Electron app, combat log watcher and
+parser, and playback UI. Thank you! Its arena features have since been replaced with Mythic+
+recording, native capture and the Coach. If you play arena, the original project is the one for you.
+
+Top-player data comes from [Warcraft Logs](https://www.warcraftlogs.com/). Player links go to
+[Raider.IO](https://raider.io/) and [Warcraft Logs](https://www.warcraftlogs.com/).
+
+## License
+
+[MIT](LICENSE). Copyright © 2024 Aleksandr Kravchenko and © 2026 Chandler Bassett.
+
+## Disclaimer
+
+Depleted is an independent fan project. It is not affiliated with, endorsed by or sponsored by
+Blizzard Entertainment. World of Warcraft and Warcraft are trademarks or registered trademarks of
+Blizzard Entertainment, Inc. in the U.S. and/or other countries. Depleted only reads the combat log
+the game writes and records your screen. It doesn't read or modify game memory or automate gameplay.
