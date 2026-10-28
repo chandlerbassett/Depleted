@@ -12,6 +12,36 @@ export const MIN_RUNS = 5
 // A spell counts as a cooldown top players press on cooldown when their typical gap
 // between uses is at least this long…
 const COOLDOWN_MIN_GAP_SECS = 20
+// Movement spells. Top players often press them on cooldown to get around faster, which
+// the logs can't tell apart from a throughput cooldown, but nobody gets better at a key
+// by being told to press Aspect of the Cheetah in the opener.
+const MOVEMENT_SPELL_IDS = new Set([
+  186257, // Aspect of the Cheetah
+  781, // Disengage
+  2983, // Sprint
+  1953, // Blink
+  212653, // Shimmer
+  1850, // Dash
+  252216, // Tiger Dash
+  106898, // Stampeding Roar
+  77764, // Stampeding Roar (cat)
+  77761, // Stampeding Roar (bear)
+  109132, // Roll
+  115008, // Chi Torpedo
+  116841, // Tiger's Lust
+  6544, // Heroic Leap
+  121536, // Angelic Feather
+  73325, // Leap of Faith
+  300728, // Door of Shadows
+  2645, // Ghost Wolf
+  192077, // Wind Rush Totem
+  190784, // Divine Steed
+  358267, // Hover
+  48265, // Death's Advance
+  212552, // Wraith Walk
+  111400, // Burning Rush
+  108843 // Blazing Speed
+])
 // …barely longer than their shortest gap (defensives and utility wait for the right
 // moment, so their gaps vary far more)…
 const ON_COOLDOWN_REGULARITY = 1.4
@@ -57,6 +87,8 @@ export interface CooldownComparison {
   // Seconds into the first pull of the first use; null if never used
   topFirst: number
   yourFirst: number | null
+  // The player's first use only came once the first pull was over
+  yourFirstAfterPull?: boolean
   // Share of top runs that used it at all
   usedBy: number
 }
@@ -173,6 +205,7 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
   const neverUsed: NeverUsedSpell[] = []
   const never: Array<{ spellId: number; usedBy: number; uses: number }> = []
   for (const [spellId, s] of stats) {
+    if (MOVEMENT_SPELL_IDS.has(spellId)) continue
     const usedBy = s.uses.length / runs.length
     if (usedBy < USED_BY_SHARE) continue
     const mine = yours.get(spellId) ?? []
@@ -199,6 +232,7 @@ export function compareWithTop(data: CoachData, guid: string, bench: Benchmark):
         topInterval: typicalGap,
         topFirst: Math.max(0, medianOf(s.firsts)),
         yourFirst: mine.length > 0 ? Math.max(0, mine[0]! - firstPull) : null,
+        yourFirstAfterPull: mine.length > 0 && pulls.length > 0 && mine[0]! >= pulls[0]!.end,
         usedBy
       })
     } else {
@@ -350,11 +384,15 @@ function sourceNote(spell: string, source: SpellSource): string | null {
   if (source.has === true) return null
   const what = source.kind === 'item' ? (source.name ?? 'an item') : 'a talent'
   const count = `${source.takenBy} of ${source.of} top players`
+  // On-use trinkets usually share their effect's name: "X comes from X" says nothing
+  const sameName = source.kind === 'item' && source.name === spell
   if (source.has === false) {
+    if (sameName) return `${spell} is an item you don't use. ${count} do.`
     return source.kind === 'item'
       ? `${spell} comes from ${what}, which you don't use. ${count} do.`
       : `${spell} comes from a talent you don't take. ${count} do.`
   }
+  if (sameName) return `${spell} is an item (${count} have it).`
   return `${spell} comes from ${what} (${count} have it).`
 }
 
@@ -387,12 +425,18 @@ function buildFindings(
     }
 
     if (cd.topFirst <= OPENER_SECS && cd.yourFirst !== null && cd.yourFirst - cd.topFirst >= OPENER_LATE_SECS) {
+      // Pressed only once the first pull was over: "425s into the first pull" reads as
+      // if the pull lasted that long
+      const you =
+        cd.yourFirstAfterPull === true
+          ? `You didn't press it until ${fmtClock(firstPull + cd.yourFirst)}, after the first pull.`
+          : `You pressed it ${Math.round(cd.yourFirst)}s in.`
       findings.push({
         kind: 'benchmark',
         issue: `opener:${cd.spellId}`,
         at: firstPull,
         title: `Late ${cd.name} in the opener`,
-        detail: `${most(cd)} press it ${Math.round(cd.topFirst)}s into the first pull. You pressed it ${Math.round(cd.yourFirst)}s in.`,
+        detail: `${most(cd)} press it ${Math.round(cd.topFirst)}s into the first pull. ${you}`,
         weight: 20 + (cd.yourFirst - cd.topFirst) / 3
       })
     }

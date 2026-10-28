@@ -115,6 +115,27 @@ describe('compareWithTop', () => {
     expect(c.findings.map((f) => f.title)).toContain('Late Bestial Wrath in the opener')
   })
 
+  it('says when the late opener only came after the first pull', () => {
+    // Fighting 20-60 s, then a break, then the rest of the key
+    const data = key(times(200, 30, DURATION).map((t): [number, number] => [t, WRATH]))
+    for (let s = 60; s < 120; s++) data.players[0]!.damage[s] = 0
+    const f = compareWithTop(data, 'Player-1', bench())!.findings.find((x) => x.issue === `opener:${WRATH}`)!
+    expect(f.detail).toBe("Top players press it 2s into the first pull. You didn't press it until 3:20, after the first pull.")
+  })
+
+  it('leaves movement spells out, even when top players press them on cooldown', () => {
+    const CHEETAH = 186257
+    const b = bench()
+    for (const run of b.runs) run.casts.push(...times(11, 30, DURATION).map((t): [number, number] => [t, CHEETAH]))
+    b.spellNames[CHEETAH] = 'Aspect of the Cheetah'
+    const casts = times(22, 30, DURATION).map((t): [number, number] => [t, WRATH])
+    casts.push([400, CHEETAH])
+    const c = compareWithTop(key(casts), 'Player-1', b)!
+    expect(c.cooldowns.map((cd) => cd.name)).toEqual(['Bestial Wrath'])
+    expect(c.findings.filter((f) => f.title.includes('Cheetah'))).toEqual([])
+    expect(c.neverUsed.map((n) => n.name)).not.toContain('Aspect of the Cheetah')
+  })
+
   it('lists core spells cast much less than top players', () => {
     const casts = times(20, 30, DURATION).map((t): [number, number] => [t, WRATH])
     casts.push(...times(20, 20, DURATION).map((t): [number, number] => [t, COBRA]))
@@ -155,7 +176,7 @@ describe('compareWithTop', () => {
       const c = compareWithTop(key([[25, WRATH]], [1000, 1001, OTHER_TRINKET], [[90001, 100001, 1]]), 'Player-1', gearBench())!
       const n = c.neverUsed.find((x) => x.spellId === ON_USE)!
       expect(n.source).toEqual({ kind: 'item', name: 'Ara-Kara Sacbrood', takenBy: 8, of: 10, has: false })
-      expect(n.note).toBe("Ara-Kara Sacbrood comes from Ara-Kara Sacbrood, which you don't use. 8 of 10 top players do.")
+      expect(n.note).toBe("Ara-Kara Sacbrood is an item you don't use. 8 of 10 top players do.")
       expect(c.findings.filter((f) => f.title.includes('Sacbrood'))).toEqual([])
       const t = c.neverUsed.find((x) => x.spellId === BURST)!
       expect(t.source).toMatchObject({ kind: 'talent', has: false, takenBy: 6 })
@@ -179,7 +200,7 @@ describe('compareWithTop', () => {
       const c = compareWithTop(key([[25, WRATH]]), 'Player-1', gearBench())!
       const n = c.neverUsed.find((x) => x.spellId === ON_USE)!
       expect(n.source).toMatchObject({ kind: 'item', has: null })
-      expect(n.note).toBe('Ara-Kara Sacbrood comes from Ara-Kara Sacbrood (8 of 10 top players have it).')
+      expect(n.note).toBe('Ara-Kara Sacbrood is an item (8 of 10 top players have it).')
     })
 
     it('keeps the old side note when every top run casts it', () => {
