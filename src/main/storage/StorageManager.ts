@@ -284,14 +284,13 @@ function generateThumbnail(
 // Metadata builder
 // ---------------------------------------------------------------------------
 
-// Builds RecordingMetadata from a processing event.
-// playerName/playerClass/playerSpec are not yet available from the combat log.
 export function buildDirName(event: ProcessingRequiredEvent): string {
   const zone = event.zoneName.replace(/[^a-zA-Z0-9]/g, '')
   const date = formatDateTime(event.matchStartedAt)
   return `${date}_${zone}_M${event.mythicPlus.keystoneLevel}_${event.mythicPlus.outcome}`
 }
 
+// Builds RecordingMetadata from a processing event.
 export function buildMetadata(
   event: ProcessingRequiredEvent,
   timeline: TimelineEvent[],
@@ -304,9 +303,9 @@ export function buildMetadata(
     result: event.result,
     duration: event.durationSecs,
     videoExt,
-    playerName: '',
-    playerClass: '',
-    playerSpec: '',
+    playerName: event.player?.name ?? '',
+    playerClass: event.player?.class ?? '',
+    playerSpec: event.player?.spec ?? '',
     teamComp: event.teamComp,
     knownSpecs: event.knownSpecs,
     events: timeline,

@@ -250,6 +250,20 @@ describe('MythicPlusStateMachine', () => {
     expect(e.coach!.spellNames[49028]).toBe('Dancing Rune Weapon')
   })
 
+  it('names the recording player from the unit the log flags as theirs', async () => {
+    const { watcher, processed } = setup()
+    const extra = [
+      '10/27/2026 20:00:06.0000  COMBATANT_INFO,Player-1329-0A000001,1,100,200,300,400,0,0,0,500,500,500,0,0,0,' +
+        '600,600,600,0,700,250,[(10,20,1)],(0,0,0,0),[],[],[],0,0,0,0'
+    ]
+    const keyStart = LINES.findIndex((l) => l.includes('  CHALLENGE_MODE_START,'))
+    watcher.feed([...LINES.slice(0, keyStart + 1), ...extra, ...LINES.slice(keyStart + 1)])
+    await vi.runAllTimersAsync()
+
+    // Tankguy is flagged 0x511 (mine); Healgal's 0x512 is only party
+    expect(processed[0]!.player).toEqual({ name: 'Tankguy-Illidan-US', class: 'Death Knight', spec: 'Blood' })
+  })
+
   it('shifts the timeline when the recorder starts after the key', async () => {
     const { watcher, processed } = setup({ recorderLagMs: 3000 })
     watcher.feed(LINES)

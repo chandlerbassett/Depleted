@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
-import { chmodSync, readdirSync } from 'fs'
+import { chmodSync, mkdirSync, readdirSync } from 'fs'
 import Store from 'electron-store'
 
 // On macOS, Electron's getDisplayMedia({ audio: 'loopback' }) has historically returned
@@ -92,6 +92,18 @@ function trackSave(save: Promise<unknown>): void {
   void save.finally(() => pendingSaves.delete(save))
 }
 
+// Recordings show other people's names and the user's play, so other accounts on a shared
+// Mac shouldn't be able to open them. Only the default folder is tightened after the
+// fact: a folder the user picked keeps the permissions they gave it.
+function makeRecordingsFolderPrivate(storagePath: string): void {
+  try {
+    mkdirSync(storagePath, { recursive: true, mode: 0o700 })
+    if (storagePath === DEFAULT_STORAGE_PATH) chmodSync(storagePath, 0o700)
+  } catch (err) {
+    console.warn('[Storage] Could not make the recordings folder private:', err)
+  }
+}
+
 function listRawRecordings(rawDir: string): string[] {
   try {
     return readdirSync(rawDir)
@@ -116,6 +128,7 @@ function createPipeline(): {
   const storagePath = configStore.get('storagePath')
   const logsDir = join(wowPath, COMBAT_LOG_RELATIVE_DIR)
   const rawDir = join(storagePath, 'raw')
+  makeRecordingsFolderPrivate(storagePath)
 
   const watcher = new CombatLogWatcher({ dir: logsDir, glob: COMBAT_LOG_GLOB })
   // macOS records, trims and thumbnails with the native helper (ScreenCaptureKit +

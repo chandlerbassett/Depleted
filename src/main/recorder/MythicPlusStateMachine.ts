@@ -83,6 +83,11 @@ const UNIT_FLAG_AFFILIATION_MINE = 0x1
 const UNIT_FLAG_AFFILIATION_PARTY = 0x2
 const UNIT_FLAG_TYPE_PLAYER = 0x400
 
+// The player whose combat log this is (the one recording)
+function isLocalPlayer(guid: string, flags: number): boolean {
+  return guid.startsWith('Player-') && (flags & UNIT_FLAG_TYPE_PLAYER) !== 0 && (flags & UNIT_FLAG_AFFILIATION_MINE) !== 0
+}
+
 function isPartyPlayer(flags: number): boolean {
   return (
     (flags & UNIT_FLAG_TYPE_PLAYER) !== 0 &&
@@ -120,6 +125,8 @@ interface KeySession {
   openEncounter: OpenEncounter | null
   // Party member GUID → name, from COMBATANT_INFO and party-flagged events
   roster: Map<string, string>
+  // GUID of the player recording, from the first unit flagged as theirs
+  selfGuid: string | null
   recentDamageByGuid: Map<string, DeathHit[]>
   deathsByPlayer: Map<string, number>
   interruptsByPlayer: Map<string, number>
@@ -295,6 +302,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       encounters: [],
       openEncounter: null,
       roster: new Map(),
+      selfGuid: null,
       recentDamageByGuid: new Map(),
       deathsByPlayer: new Map(),
       interruptsByPlayer: new Map(),
@@ -563,6 +571,11 @@ export class MythicPlusStateMachine extends EventEmitter {
       if (spec !== undefined) knownSpecs[p.name] = spec.spec
     }
 
+    // The recording player, from the unit the log flags as theirs
+    const self = coach.players.find((p) => p.guid === session.selfGuid)
+    const selfSpec = self?.specId != null ? WOW_SPEC_ID_MAP[self.specId] : undefined
+    const selfName = session.selfGuid !== null ? (session.roster.get(session.selfGuid) ?? self?.name ?? '') : ''
+
     const event: ProcessingRequiredEvent = {
       rawPath: finalPath,
       zoneName: session.start.zoneName,
@@ -573,6 +586,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       timeline,
       knownSpecs,
       teamComp: [...session.roster.values()],
+      player: { name: selfName, class: selfSpec?.class ?? '', spec: selfSpec?.spec ?? '' },
       playerDamageDone: Object.fromEntries(session.dmgDoneByName),
       playerDamageTaken: Object.fromEntries(session.dmgTakenByName),
       playerHealingDone: Object.fromEntries(session.healDoneByName),
@@ -765,6 +779,8 @@ export class MythicPlusStateMachine extends EventEmitter {
   private onSpellDamage(e: SpellDamageEvent): void {
     const session = this.activeSession()
     if (session === null) return
+    this.noteSelf(session, e.casterGuid, e.casterFlags)
+    this.noteSelf(session, e.targetGuid, e.targetFlags ?? 0)
 
     if (e.casterGuid.startsWith('Player-') && isPartyPlayer(e.casterFlags)) {
       this.learnPartyMember(e.casterGuid, e.casterName)
@@ -809,6 +825,7 @@ export class MythicPlusStateMachine extends EventEmitter {
   private onSpellCast(e: SpellCastEvent, isStart: boolean): void {
     const session = this.activeSession()
     if (session === null) return
+    this.noteSelf(session, e.casterGuid, e.casterFlags)
     if (!session.roster.has(e.casterGuid)) {
       if (!isPartyPlayer(e.casterFlags)) return
       this.learnPartyMember(e.casterGuid, e.casterName)
@@ -828,6 +845,7 @@ export class MythicPlusStateMachine extends EventEmitter {
   private onDamageDone(e: DamageDoneEvent): void {
     const session = this.activeSession()
     if (session === null || !e.casterName) return
+    this.noteSelf(session, e.casterGuid, e.casterFlags)
     if (!session.roster.has(e.casterGuid)) {
       if (!isPartyPlayer(e.casterFlags)) return
       this.learnPartyMember(e.casterGuid, e.casterName)
@@ -849,6 +867,10 @@ export class MythicPlusStateMachine extends EventEmitter {
   private learnPartyMember(guid: string, name: string): void {
     if (this.session === null || !name) return
     this.session.roster.set(guid, name)
+  }
+
+  private noteSelf(session: KeySession, guid: string, flags: number): void {
+    if (session.selfGuid === null && isLocalPlayer(guid, flags)) session.selfGuid = guid
   }
 
   // Seconds since the key started (log time). Re-based to video time in doFinalize.

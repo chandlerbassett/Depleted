@@ -1,7 +1,7 @@
 {
   "name": "depleted",
   "productName": "Depleted",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "Mythic+ recorder and coach for macOS: records every key from the combat log and reviews it against top Warcraft Logs runs",
   "main": "out/main/index.js",
   "author": "Chandler Bassett",
@@ -36,17 +36,11 @@
   "dependencies": {
     "chokidar": "^3.5.0",
     "electron-store": "^8.2.0",
-    "electron-updater": "^6.8.11",
-    "fluent-ffmpeg": "^2.1.0",
-    "naive-ui": "^2.38.0",
-    "pinia": "^2.1.0",
-    "vue": "^3.4.0",
-    "vue-router": "^4.3.0"
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "@electron/fuses": "^1.8.0",
     "@eslint/js": "^9.0.0",
-    "@types/fluent-ffmpeg": "^2.1.0",
     "@types/node": "^22.0.0",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/tsconfig": "^0.9.1",
@@ -56,12 +50,16 @@
     "electron-vite": "^6.0.0",
     "eslint": "^9.0.0",
     "eslint-plugin-vue": "^9.0.0",
+    "naive-ui": "^2.38.0",
+    "pinia": "^2.1.0",
     "prettier": "^3.0.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.58.2",
     "vite": "^7.3.7",
     "vitest": "^5.0.5",
+    "vue": "^3.4.0",
+    "vue-router": "^4.3.0",
     "vue-tsc": "^2.0.0"
   },
   "contributors": [
