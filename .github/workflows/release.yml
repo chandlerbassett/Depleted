@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  # A test build: signed and notarized like a release, kept as a download on the run
+  # instead of being published
+  workflow_dispatch:
 
 # Required to create GitHub releases and upload assets.
 permissions:
@@ -48,7 +51,16 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=4 "$app" || echo "::warning::Not notarized: Gatekeeper will warn on first launch"
 
+      - name: Keep the DMG on the run (test builds)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: Depleted-test-build
+          path: dist/*.dmg
+          retention-days: 7
+
       - name: Upload DMG to release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
