@@ -6,9 +6,8 @@
 // The account directory name is not predictable (it's a Battle.net account ID),
 // so we glob for all accounts and return the most recently modified match.
 
-import { readFileSync, statSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
-import glob from 'glob'
 import { ADDON_NAME, ADDON_STALE_MS, MIN_ADDON_VERSION } from '@shared/constants'
 
 export interface AddonCharacterInfo {
@@ -27,18 +26,23 @@ export interface AddonCharacterInfo {
   version: string | null
 }
 
-export function readAddonCharacterInfo(wowPath: string): AddonCharacterInfo | null {
-  const pattern = join(
-    wowPath,
-    '_retail_',
-    'WTF',
-    'Account',
-    '*',
-    'SavedVariables',
-    `${ADDON_NAME}.lua`
-  ).replace(/\\/g, '/')
+// {wowPath}/_retail_/WTF/Account/*/SavedVariables/DepletedCompanion.lua that exist
+function savedVarsFiles(wowPath: string): string[] {
+  const accountsDir = join(wowPath, '_retail_', 'WTF', 'Account')
+  let accounts: string[]
+  try {
+    accounts = readdirSync(accountsDir)
+  } catch {
+    return []
+  }
+  return accounts
+    .filter((name) => !name.startsWith('.'))
+    .map((name) => join(accountsDir, name, 'SavedVariables', `${ADDON_NAME}.lua`))
+    .filter((file) => existsSync(file))
+}
 
-  const files = glob.sync(pattern)
+export function readAddonCharacterInfo(wowPath: string): AddonCharacterInfo | null {
+  const files = savedVarsFiles(wowPath)
   if (files.length === 0) return null
 
   // Pick the most recently modified file if there are multiple accounts

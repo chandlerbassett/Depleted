@@ -10,9 +10,8 @@
 // On file rotation (size < offset), resets offset to 0.
 
 import { EventEmitter } from 'events'
-import { promises as fs, statSync } from 'fs'
+import { promises as fs, readdirSync, statSync } from 'fs'
 import { join, resolve as resolvePath } from 'path'
-import glob from 'glob'
 import chokidar from 'chokidar'
 import { CombatLogParser } from './CombatLogParser'
 import type { ParserEventMap } from './CombatLogParser'
@@ -83,7 +82,7 @@ export class CombatLogWatcher extends EventEmitter {
       // Glob mode: find all already-existing log files right now, synchronously.
       // Pick the most recently modified one and seek its offset to EOF so we never
       // replay historical matches from sessions before this app launch.
-      const existing = glob.sync(watchPath)
+      const existing = matchingFiles(this.target.dir, this.target.glob)
       if (existing.length > 0) {
         const mostRecent = resolvePath(existing
           .map((f) => {
@@ -229,4 +228,18 @@ export class CombatLogWatcher extends EventEmitter {
       }
     }
   }
+}
+
+// Files in dir whose names match a pattern where * stands for any characters
+// ("WoWCombatLog*.txt"), as chokidar matches them while watching
+export function matchingFiles(dir: string, pattern: string): string[] {
+  const literal = pattern.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+  const re = new RegExp(`^${literal.join('.*')}$`)
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return []
+  }
+  return names.filter((name) => !name.startsWith('.') && re.test(name)).map((name) => join(dir, name))
 }

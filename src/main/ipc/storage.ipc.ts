@@ -26,11 +26,13 @@ export function registerStorageIpc(storageManager: StorageManager): void {
   ipcMain.handle('storage:deleteRecording', async (event, params: { id: string }) => {
     const recordings = await storageManager.getRecordings()
     const recording = recordings.find((r) => r.id === params.id)
+    // Only ever a run in the library, never some other folder in the storage path
+    if (recording === undefined) return { deleted: false }
     const window = BrowserWindow.fromWebContents(event.sender)
     const options = {
       type: 'warning' as const,
       message: 'Delete this run?',
-      detail: `${recording === undefined ? 'This recording' : describeRun(recording)} and its Coach notes will be moved to the Trash.`,
+      detail: `${describeRun(recording)} and its Coach notes will be moved to the Trash.`,
       buttons: ['Move to Trash', 'Cancel'],
       defaultId: 1,
       cancelId: 1
@@ -39,7 +41,7 @@ export function registerStorageIpc(storageManager: StorageManager): void {
       ? await dialog.showMessageBox(options)
       : await dialog.showMessageBox(window, options)
     if (response !== 0) return { deleted: false }
-    await storageManager.deleteRecording(params.id, (dirPath) => shell.trashItem(dirPath))
+    await storageManager.deleteRecording(recording.id, (dirPath) => shell.trashItem(dirPath))
     return { deleted: true }
   })
 
