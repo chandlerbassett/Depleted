@@ -249,7 +249,22 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-app.whenReady().then(() => {
+// One copy at a time: a second one would watch the same combat log and record the
+// same key. Opening the app again brings the running one forward.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win === undefined) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  })
+  app.whenReady().then(startApp)
+}
+
+function startApp(): void {
   registerSystemIpc(configStore)
   registerConfigIpc(configStore)
 
@@ -317,7 +332,7 @@ app.whenReady().then(() => {
       .catch((err: Error) => console.error('[Main] Failed to stop recorder on quit:', err.message))
       .finally(() => app.quit())
   })
-})
+}
 
 // Quit on window close on all platforms — this is a utility app, not a menu-bar app.
 app.on('window-all-closed', () => {
