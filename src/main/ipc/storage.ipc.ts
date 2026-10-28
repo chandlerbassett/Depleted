@@ -2,7 +2,7 @@
 //
 // Commands (ipcMain.handle):
 //   storage:getRecordings    — returns all Recording[] sorted newest first
-//   storage:deleteRecording  — deletes a recording directory by id
+//   storage:deleteRecording  — asks first, then moves a recording directory to the Trash
 //   storage:openFolder       — opens a recording directory in Finder
 //   storage:getCoachData     — a recording's coach.json, or null
 //
@@ -10,10 +10,10 @@
 //   storage:recordingProcessed   — new recording is ready
 //   storage:orphanedRecordings   — incomplete recordings found on startup
 
-import { ipcMain, shell } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'path'
-import type { BrowserWindow } from 'electron'
 import type { StorageManager } from '../storage/StorageManager'
+import type { Recording } from '@shared/ipc.types'
 
 // Register ipcMain.handle commands — call ONCE at app startup.
 export function registerStorageIpc(storageManager: StorageManager): void {
@@ -21,8 +21,26 @@ export function registerStorageIpc(storageManager: StorageManager): void {
     return storageManager.getRecordings()
   })
 
-  ipcMain.handle('storage:deleteRecording', async (_event, params: { id: string }) => {
-    await storageManager.deleteRecording(params.id)
+  // One misclick shouldn't cost a whole key: confirm on a sheet (Cancel is the default
+  // button, so Return doesn't delete), then move it to the Trash so it can be put back.
+  ipcMain.handle('storage:deleteRecording', async (event, params: { id: string }) => {
+    const recordings = await storageManager.getRecordings()
+    const recording = recordings.find((r) => r.id === params.id)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const options = {
+      type: 'warning' as const,
+      message: 'Delete this run?',
+      detail: `${recording === undefined ? 'This recording' : describeRun(recording)} and its Coach notes will be moved to the Trash.`,
+      buttons: ['Move to Trash', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1
+    }
+    const { response } = window === null
+      ? await dialog.showMessageBox(options)
+      : await dialog.showMessageBox(window, options)
+    if (response !== 0) return { deleted: false }
+    await storageManager.deleteRecording(params.id, (dirPath) => shell.trashItem(dirPath))
+    return { deleted: true }
   })
 
   ipcMain.handle('storage:getCoachData', async (_event, params: { id: string }) => {
@@ -35,6 +53,14 @@ export function registerStorageIpc(storageManager: StorageManager): void {
     if (recording === undefined) return
     shell.showItemInFolder(join(recording.path, 'recording.mp4'))
   })
+}
+
+// "Ruby Life Pools +15 from Oct 27, 2026"
+export function describeRun(recording: Recording): string {
+  const { zone, date, mythicPlus } = recording.metadata
+  const level = mythicPlus.keystoneLevel > 0 ? ` +${mythicPlus.keystoneLevel}` : ''
+  const day = new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${zone || 'This run'}${level} from ${day}`
 }
 
 // Wire push events (main → renderer) to a specific BrowserWindow.

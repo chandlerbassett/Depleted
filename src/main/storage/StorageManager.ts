@@ -203,11 +203,15 @@ export class StorageManager {
 
   // Deletes a recording directory by id.
   // Rejects if the id looks like a path traversal attempt.
-  async deleteRecording(id: string): Promise<void> {
+  // remove defaults to deleting for good; the app passes shell.trashItem instead
+  async deleteRecording(
+    id: string,
+    remove: (dirPath: string) => Promise<void> = (dirPath) => fs.rm(dirPath, { recursive: true, force: true })
+  ): Promise<void> {
     if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) {
       throw new Error(`Invalid recording id: ${id}`)
     }
-    await fs.rm(join(this.storagePath, id), { recursive: true, force: true })
+    await remove(join(this.storagePath, id))
   }
 
   async getCoachData(id: string): Promise<CoachData | null> {

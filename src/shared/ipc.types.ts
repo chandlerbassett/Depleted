@@ -152,7 +152,7 @@ export interface IpcCommands {
 
   // Storage
   'storage:getRecordings': { params: void; result: Recording[] }
-  'storage:deleteRecording': { params: { id: string }; result: void }
+  'storage:deleteRecording': { params: { id: string }; result: { deleted: boolean } }
   'storage:openFolder': { params: { id: string }; result: void }
   'storage:getCoachData': { params: { id: string }; result: CoachData | null }
 

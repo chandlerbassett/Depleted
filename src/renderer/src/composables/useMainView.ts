@@ -21,8 +21,8 @@ export function useMainView() {
   }
 
   async function deleteRecording(id: string): Promise<void> {
-    await window.electron.invoke('storage:deleteRecording', { id })
-    recordingsStore.remove(id)
+    const { deleted } = await window.electron.invoke('storage:deleteRecording', { id })
+    if (deleted) recordingsStore.remove(id)
   }
 
   async function openFolder(id: string): Promise<void> {
