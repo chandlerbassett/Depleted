@@ -58,8 +58,8 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
   # Signing: a "Developer ID Application" certificate (CSC_LINK / CSC_KEY_PASSWORD in the
-  # release workflow, or found in the keychain) signs the app, and APPLE_ID /
-  # APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID notarize it. Without one, build/afterSign.js
+  # release workflow, or found in the keychain) signs the app, and an App Store Connect
+  # API key (APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER) notarizes it. Without one, build/afterSign.js
   # signs with the stable local certificate from scripts/create-signing-cert.sh if it
   # exists (so Screen Recording permission survives rebuilds), else ad-hoc.
   extendInfo:
