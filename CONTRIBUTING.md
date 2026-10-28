@@ -38,6 +38,22 @@ Intel Macs and Windows are out of scope.
 The Coach learns what good play looks like from top Warcraft Logs runs, so it works for every
 class and spec. Please prefer changes that keep it data-driven over hand-written per-spec rules.
 
+## Releases (maintainers)
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the DMG and attaches it
+to a GitHub release. It signs the app with a Developer ID and notarizes it when these
+repository secrets are set:
+
+| Secret | What it is |
+|--------|------------|
+| `MAC_CERTIFICATE_P12_BASE64` | The *Developer ID Application* certificate and its private key, exported from Keychain Access as a `.p12` and base64 encoded (`base64 -i cert.p12 \| pbcopy`) |
+| `MAC_CERTIFICATE_PASSWORD` | The password chosen when exporting the `.p12` |
+| `APPLE_ID` | The Apple Account email of the developer account |
+| `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password from [account.apple.com](https://account.apple.com) → Sign-In and Security |
+| `APPLE_TEAM_ID` | The 10-character Team ID from [developer.apple.com/account](https://developer.apple.com/account) → Membership details |
+
+Without them the release is still built, just ad-hoc signed and not notarized.
+
 ## Code style
 
 TypeScript and Vue 3 with Prettier (`npm run format`). Comments explain *why* rather than *what*.
