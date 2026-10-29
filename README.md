@@ -57,6 +57,7 @@ dungeon and key level, and every note it makes jumps the video to the moment it 
   damage taken) and **interrupts**
 - **DPS and HPS meters** for the party, with pet damage credited to its owner
 - Click any party member to open them on **Raider.IO**, **Warcraft Logs** or the Armory
+- Deleting a run asks first and moves it to the Trash, so a stray click can be undone
 
 **Coach**
 
@@ -147,6 +148,22 @@ Without a client, the Coach still reviews each key on its own.
 
 Open Depleted before you zone into the dungeon. It records, trims and lists the key by itself.
 Click a recording to watch it, and click any marker or Coach note to jump to that moment.
+
+When a key ends, everything Depleted needs (the timeline and the Coach's data) is saved next to
+the video, so you can delete old combat logs whenever you like. Keep a log only if you want to
+upload that key to Warcraft Logs.
+
+## Privacy and security
+
+Your recordings, timelines and Coach data stay on your Mac, in a folder only your user account
+can read. Depleted only goes online for two things: checking this repo's releases for updates,
+and, if you connect it, the Warcraft Logs API with your own client. Player links open in your
+browser.
+
+The app runs with Electron's sandbox and context isolation on, a strict content security
+policy, and a short allowlist of permissions. Releases are built only from `main` by a
+protected release workflow, notarized by Apple, and checked by macOS's code signature before
+an update installs. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Settings
 
