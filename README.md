@@ -239,6 +239,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 - **The Coach's top-player comparison uses Warcraft Logs API points.** Benchmarks are cached
   on disk for three days, so each dungeon, spec and level is only fetched once in that time.
 
+If something goes wrong, Depleted's log is at `~/Library/Logs/Depleted/main.log`. Attaching it
+to a [bug report](https://github.com/chandlerbassett/Depleted/issues/new/choose) helps a lot.
+
 ## Credits
 
 Depleted started as a fork of [**wowArenaAnalyzer**](https://github.com/krav559108/wowArenaAnalyzer)
