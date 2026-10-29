@@ -1,6 +1,8 @@
 # Weekly update PRs, minor and patch updates grouped into one PR per ecosystem.
 # npm major versions are left out: they need testing on a Mac and are done by hand.
-# Security fixes still arrive for every version, majors included.
+# Electron is the exception. It only patches its newest three majors, so each major
+# arrives as its own PR to test on a Mac before merging. Security fixes still arrive
+# for every version, majors included.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -11,8 +13,31 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    # Every direct dependency but electron: a new dependency needs a pattern here too
     ignore:
-      - dependency-name: '*'
+      - dependency-name: '@*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'electron-*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'eslint*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'typescript*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'vite*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'vue*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'autoprefixer'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'chokidar'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'naive-ui'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'pinia'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'prettier'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'tailwindcss'
         update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions

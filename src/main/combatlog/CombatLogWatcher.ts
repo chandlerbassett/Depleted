@@ -16,6 +16,9 @@ import chokidar from 'chokidar'
 import { CombatLogParser } from './CombatLogParser'
 import type { ParserEventMap } from './CombatLogParser'
 
+// The most read from the log at once when catching up
+const READ_CHUNK_BYTES = 4 * 1024 * 1024
+
 export interface WatcherOptions {
   // Use polling instead of native fs events. Useful on network drives.
   usePolling?: boolean
@@ -187,41 +190,47 @@ export class CombatLogWatcher extends EventEmitter {
     }
   }
 
+  // Parses the complete lines added since the last read. A line WoW is still writing
+  // (no newline yet) is left for the next read, and big catch-ups are read in chunks.
   private async doRead(filePath: string): Promise<void> {
-    let stat: { size: number }
+    let size: number
     try {
-      stat = await fs.stat(filePath)
+      size = (await fs.stat(filePath)).size
     } catch {
       return
     }
 
-    const { size } = stat
-    const offset = this.fileOffsets.get(filePath) ?? 0
-
+    let offset = this.fileOffsets.get(filePath) ?? 0
     // File rotation: size shrank — reset to beginning
-    if (size < offset) {
-      this.fileOffsets.set(filePath, 0)
+    if (size < offset) offset = 0
+    if (size === offset) {
+      this.fileOffsets.set(filePath, offset)
+      return
     }
 
-    if (size === (this.fileOffsets.get(filePath) ?? 0)) return
-
-    const currentOffset = this.fileOffsets.get(filePath) ?? 0
-    const byteCount = size - currentOffset
-    const buffer = Buffer.alloc(byteCount)
     const fd = await fs.open(filePath, 'r')
-
     try {
-      await fd.read(buffer, 0, byteCount, currentOffset)
+      const buffer = Buffer.alloc(Math.min(READ_CHUNK_BYTES, size - offset))
+      while (offset < size) {
+        const { bytesRead } = await fd.read(buffer, 0, Math.min(buffer.length, size - offset), offset)
+        if (bytesRead === 0) break
+        const lastNewline = buffer.lastIndexOf(0x0a, bytesRead - 1)
+        // No newline yet: the line is still being written. Wait for the rest, unless it
+        // fills a whole chunk, which no combat log line does.
+        if (lastNewline < 0 && bytesRead < buffer.length) break
+        const end = lastNewline < 0 ? bytesRead : lastNewline + 1
+        this.processText(buffer.toString('utf8', 0, end))
+        offset += end
+        this.fileOffsets.set(filePath, offset)
+      }
     } finally {
       await fd.close()
     }
+    this.fileOffsets.set(filePath, offset)
+  }
 
-    this.fileOffsets.set(filePath, size)
-
-    const text = buffer.toString('utf8')
-    const lines = text.split('\n')
-
-    for (const line of lines) {
+  private processText(text: string): void {
+    for (const line of text.split('\n')) {
       const trimmed = line.trim()
       if (trimmed.length > 0) {
         this.parser.processLine(trimmed)
