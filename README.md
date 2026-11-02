@@ -5,8 +5,8 @@
 <h1 align="center">Depleted</h1>
 
 <p align="center">
-  <strong>A Mythic+ recorder and coach for macOS.</strong><br>
-  Records every key on its own, lines the video up with the combat log, and shows you the moments worth rewatching.
+  <strong>A PvE recorder and coach for macOS.</strong><br>
+  Records your runs on its own, lines the video up with the combat log, and shows you the moments worth rewatching.
 </p>
 
 <p align="center">
@@ -17,11 +17,15 @@
 
 ---
 
-Depleted watches your combat log while you play. When a key starts it is already recording,
-and when the key ends it trims the video, files it with the dungeon, level, timer and score,
-and drops every boss pull, death and interrupt on a timeline you can click through. Its Coach
-then reviews any player in the group against the top logged runs of their spec in the same
-dungeon and key level, and every note it makes jumps the video to the moment it is about.
+Depleted watches your combat log while you play and records your PvE content without you
+pressing a thing. Today that's **Mythic+**: when a key starts it is already recording, and when
+the key ends it trims the video, files it with the dungeon, level, timer and score, and drops
+every boss pull, death and interrupt on a timeline you can click through. **Raid boss pulls**
+are next (see [What's coming](#whats-coming)).
+
+You can cut clips from any recording, jump to the run's fight on Warcraft Logs, and have the
+Coach review any player in the group against the top logged runs of their spec. Every note it
+makes jumps the video to the moment it is about.
 
 <p align="center">
   <img src=".github/assets/screenshot-recording.png" width="860" alt="A recorded key with its event timeline">
@@ -65,7 +69,7 @@ dungeon and key level, and every note it makes jumps the video to the moment it 
   public or unlisted report that someone in the group uploaded, links to it, and shows
   everyone's parse
 
-**Coach**
+**Coach** (Mythic+)
 
 - Reviews any party member, any class and spec: time spent casting, mid-pull gaps with no
   casts, throughput cooldowns that sat ready, and which defensives looked ready when they died
@@ -80,6 +84,14 @@ dungeon and key level, and every note it makes jumps the video to the moment it 
 
 - **DepletedCompanion** tells the app which character you're playing and turns on combat
   logging when you enter a dungeon, so you never lose a key to a forgotten `/combatlog`
+
+## What's coming
+
+- **Raids.** Every boss pull on the difficulties you pick becomes its own recording, kill or
+  wipe, with a 60 second pre-roll so the pull timer is in the video. This waits on a rolling
+  capture buffer ([#67](https://github.com/chandlerbassett/Depleted/issues/67)), so the recorder
+  only keeps the last minute on disk between pulls instead of recording all night. The raid
+  work itself is in [#72](https://github.com/chandlerbassett/Depleted/pull/72).
 
 ## Requirements
 
@@ -154,7 +166,7 @@ Without a client, the Coach still reviews each key on its own, and runs just don
 
 ### 4. Play
 
-Open Depleted before you zone into the dungeon. It records, trims and lists the key by itself.
+Open Depleted before you zone in. It records, trims and lists each key by itself.
 Click a recording to watch it, and click any marker or Coach note to jump to that moment.
 
 When a key ends, everything Depleted needs (the timeline and the Coach's data) is saved next to
@@ -257,7 +269,7 @@ to a [bug report](https://github.com/chandlerbassett/Depleted/issues/new/choose)
 
 Depleted started as a fork of [**wowArenaAnalyzer**](https://github.com/krav559108/wowArenaAnalyzer)
 by Aleksandr Kravchenko (MIT), which provided the original Electron app, combat log watcher and
-parser, and playback UI. Thank you! Its arena features have since been replaced with Mythic+
+parser, and playback UI. Thank you! Its arena features have since been replaced with PvE
 recording, native capture and the Coach. If you play arena, the original project is the one for you.
 
 Thanks to [TommiTMX](https://github.com/TommiTMX) for clips, the Warcraft Logs fight link, and
