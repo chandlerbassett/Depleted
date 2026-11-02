@@ -13,6 +13,10 @@ if security find-identity -p codesigning | grep -q "\"$name\""; then
   exit 0
 fi
 
+# Apple's LibreSSL, not a Homebrew OpenSSL 3 earlier on PATH: OpenSSL 3 encrypts the .p12
+# in a format `security import` can't read, and it fails as a wrong password
+openssl=/usr/bin/openssl
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -29,10 +33,10 @@ keyUsage = critical, digitalSignature
 extendedKeyUsage = critical, codeSigning
 CNF
 
-openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+"$openssl" req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -keyout "$tmp/key.pem" -out "$tmp/cert.pem" -config "$tmp/cert.cnf"
 # The .p12 only exists inside $tmp, so its password doesn't need to be secret
-openssl pkcs12 -export -inkey "$tmp/key.pem" -in "$tmp/cert.pem" \
+"$openssl" pkcs12 -export -inkey "$tmp/key.pem" -in "$tmp/cert.pem" \
   -name "$name" -out "$tmp/cert.p12" -passout pass:depleted
 security import "$tmp/cert.p12" -k "$keychain" -P depleted -T /usr/bin/codesign
 
