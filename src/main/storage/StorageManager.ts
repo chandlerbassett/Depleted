@@ -27,11 +27,13 @@ import { rawInfoPath, type ProcessingRequiredEvent, type RawRecordingInfo } from
 import { runHelperCommand } from '../recorder/nativeHelper'
 import { writeMetadata, readMetadata, writeCoachData, readCoachData } from './MetadataWriter'
 import type { CoachData } from '@shared/coach.types'
+import type { WclFightLink } from '@shared/wclFight.types'
 
 const SUMMARY_CACHE_FILENAME = 'coach-summaries.json'
 const CLIPS_DIRNAME = 'clips'
 // clip_12m34s-13m21s.mp4; the range in the name is the clip's place in the recording
 const CLIP_NAME_RE = /^clip_(\d+)m(\d{2})s-(\d+)m(\d{2})s(?:_(\d+))?\.(mp4|webm)$/
+const WCL_FIGHT_FILENAME = 'wcl-fight.json'
 
 // ---------------------------------------------------------------------------
 // Media tools — trim + thumbnail. The depleted-capture helper (AVFoundation) on macOS,
@@ -286,6 +288,20 @@ export class StorageManager {
     if (rest.length > 0 || recordingId === undefined || fileName === undefined || !isRecordingId(recordingId)) return null
     if (!CLIP_NAME_RE.test(fileName)) return null
     return readClip(join(this.storagePath, recordingId, CLIPS_DIRNAME), recordingId, fileName)
+  }
+
+  async readWclFight(id: string): Promise<WclFightLink | null> {
+    if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return null
+    try {
+      return JSON.parse(await fs.readFile(join(this.storagePath, id, WCL_FIGHT_FILENAME), 'utf8')) as WclFightLink
+    } catch {
+      return null
+    }
+  }
+
+  async writeWclFight(id: string, link: WclFightLink): Promise<void> {
+    if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return
+    await fs.writeFile(join(this.storagePath, id, WCL_FIGHT_FILENAME), JSON.stringify(link), 'utf8')
   }
 
   // Returns paths of directories that contain a recording video but no metadata.json.
