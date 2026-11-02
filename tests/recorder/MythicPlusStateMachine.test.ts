@@ -496,6 +496,20 @@ describe('MythicPlusStateMachine', () => {
     expect(ev.mythicPlus!.encounters[0]!.start).toBe(70)
   })
 
+  it('reports why the armed recording failed when a key takes it over', async () => {
+    const { watcher, recorder, machine } = setup()
+    recorder.startMock.mockRejectedValueOnce(new Error('Screen Recording permission denied'))
+    const errors: string[] = []
+    machine.on('error', (e) => errors.push(e.message))
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    watcher.feed(linesUpTo('CHALLENGE_MODE_START').filter((l) => !l.includes('ZONE_CHANGE')))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(errors).toEqual(['Failed to start recording: Screen Recording permission denied'])
+    expect(machine.getStatus()).toBe('error')
+  })
+
   it('does not arm in the open world or on an old ZONE_CHANGE', async () => {
     const { watcher, recorder } = setup()
     vi.setSystemTime(ENTERED_AT)
