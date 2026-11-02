@@ -4,7 +4,7 @@
 // an app restart to take effect in the recording pipeline.
 
 import { ref, computed, onMounted } from 'vue'
-import type { AppConfig, CaptureSource, StatsSite, VideoCodec, WowRegion } from '@shared/ipc.types'
+import type { AppConfig, CaptureSource, RaidDifficulty, StatsSite, VideoCodec, WowRegion } from '@shared/ipc.types'
 import { useStatsLinkStore } from '@/stores/statsLinkStore'
 import { normalizeStatsSite } from '@/utils/characterLinks'
 
@@ -212,6 +212,18 @@ export function useSettings() {
   })
 
   // -------------------------------------------------------------------------
+  // Raid recording
+  // -------------------------------------------------------------------------
+
+  const raidDifficulties = computed<RaidDifficulty[]>(() => config.value?.raidDifficulties ?? [])
+
+  async function toggleRaidDifficulty(difficulty: RaidDifficulty): Promise<void> {
+    const current = raidDifficulties.value
+    const next = current.includes(difficulty) ? current.filter((d) => d !== difficulty) : [...current, difficulty]
+    await set('raidDifficulties', next)
+  }
+
+  // -------------------------------------------------------------------------
   // Character stats site + region
   // -------------------------------------------------------------------------
 
@@ -274,6 +286,8 @@ export function useSettings() {
     minimizeToTray,
     statsSite,
     wowRegion,
+    raidDifficulties,
+    toggleRaidDifficulty,
     pickWowPath,
     pickStoragePath,
     setFps,

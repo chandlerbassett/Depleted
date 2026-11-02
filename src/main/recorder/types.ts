@@ -2,14 +2,21 @@
 // stored recording.
 
 import type { CoachData } from '@shared/coach.types'
-import type { MythicPlusInfo, RecorderStatus, RecordingResult, TimelineEvent } from '@shared/ipc.types'
+import type {
+  MythicPlusInfo,
+  RaidDifficulty,
+  RaidInfo,
+  RecorderStatus,
+  RecordingResult,
+  TimelineEvent
+} from '@shared/ipc.types'
 
-// Emitted when a key's recording is complete and ready for post-processing
+// Emitted when a key's or raid pull's recording is complete and ready for post-processing
 // (trim / thumbnail / metadata).
 export interface ProcessingRequiredEvent {
   rawPath: string
   zoneName: string
-  // WIN = key completed (see mythicPlus.outcome)
+  // WIN = key completed or boss killed (see mythicPlus.outcome / raid.outcome)
   result: RecordingResult
   durationSecs: number
   // Where the kept footage starts (the key start, less any lead-in)
@@ -29,7 +36,9 @@ export interface ProcessingRequiredEvent {
   playerDamageDone: Record<string, number>
   playerDamageTaken: Record<string, number>
   playerHealingDone: Record<string, number>
-  mythicPlus: MythicPlusInfo
+  // Exactly one is set
+  mythicPlus?: MythicPlusInfo
+  raid?: RaidInfo
   // Per-player casts, buffs and per-second damage/healing — saved as coach.json
   coach?: CoachData
 }
@@ -42,10 +51,18 @@ export interface RawRecordingInfo {
   challengeModeId: number
   keystoneLevel: number
   affixIds: number[]
-  // Key start (log time) and when the recorder came up (wall clock), ISO strings
+  // Key or pull start (log time) and when the recorder came up (wall clock), ISO strings
   keyStartedAt: string
   recordingStartedAt: string
   preRollSecs: number
+  // Set for a raid pull (the key fields above are then 0 / empty)
+  raid?: {
+    encounterId: number
+    encounterName: string
+    difficulty: RaidDifficulty
+    groupSize: number
+    pullNumber: number
+  }
 }
 
 export function rawInfoPath(rawPath: string): string {

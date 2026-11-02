@@ -5,15 +5,16 @@
 import type { CoachData } from './coach.types'
 import type { KeySummary } from './coachRecap'
 import type { BenchmarkResult } from './benchmark.types'
+import type { WclFightResult } from './wclFight.types'
 
 // ---------------------------------------------------------------------------
 // Bracket and result types
 // ---------------------------------------------------------------------------
 
-// Depleted records Mythic+ keys only. Recordings from the arena era (other brackets)
-// may still be on disk; StorageManager skips them.
-export type RecordingBracket = 'mythic-plus'
-// WIN = key completed, LOSS = depleted or abandoned (MythicPlusInfo.outcome has the detail)
+// Recordings from the arena era (other brackets) may still be on disk; StorageManager
+// skips them.
+export type RecordingBracket = 'mythic-plus' | 'raid'
+// WIN = key completed or boss killed, LOSS = depleted, abandoned or wiped
 export type RecordingResult = 'WIN' | 'LOSS'
 
 export type RecorderStatus = 'idle' | 'waiting' | 'recording' | 'processing' | 'error'
@@ -27,6 +28,7 @@ export type TimelineEventType =
   | 'interrupt'
   | 'key-start'
   | 'key-end'
+  | 'pull-start'
   | 'boss-kill'
   | 'boss-wipe'
 
@@ -97,7 +99,9 @@ export interface RecordingMetadata {
   playerDamageDone?: Record<string, number>
   playerDamageTaken?: Record<string, number>
   playerHealingDone?: Record<string, number>
-  mythicPlus: MythicPlusInfo
+  // Exactly one is set, matching bracket
+  mythicPlus?: MythicPlusInfo
+  raid?: RaidInfo
   events: TimelineEvent[]
 }
 
@@ -132,12 +136,50 @@ export interface MythicPlusInfo {
   interruptsByPlayer: Record<string, number>
 }
 
+export type RaidDifficulty = 'lfr' | 'normal' | 'heroic' | 'mythic'
+
+export type RaidOutcome = 'kill' | 'wipe'
+
+// One boss pull in a raid
+export interface RaidInfo {
+  instanceId: number
+  encounterId: number
+  encounterName: string
+  difficulty: RaidDifficulty
+  groupSize: number
+  outcome: RaidOutcome
+  // From ENCOUNTER_END, 0 when the pull never ended cleanly
+  fightTimeMs: number
+  // 1 for the first pull of this boss since entering the raid; 0 when unknown (recovered)
+  pullNumber: number
+  deathCount: number
+  deathsByPlayer: Record<string, number>
+  interruptsByPlayer: Record<string, number>
+}
+
 export interface Recording {
   id: string // directory name
   path: string // absolute path to directory
   videoPath: string
   thumbnailPath: string
   metadata: RecordingMetadata
+  // Oldest first
+  clips: Clip[]
+}
+
+// A part of a recording cut out with storage:saveClip, kept in the recording's clips/
+export interface Clip {
+  // "<recording id>/<file name>"
+  id: string
+  recordingId: string
+  fileName: string
+  videoPath: string
+  // null when no thumbnail could be made
+  thumbnailPath: string | null
+  // Seconds into the recording
+  start: number
+  end: number
+  createdAt: string
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +197,11 @@ export interface IpcCommands {
   'storage:deleteRecording': { params: { id: string }; result: { deleted: boolean } }
   'storage:openFolder': { params: { id: string }; result: void }
   'storage:getCoachData': { params: { id: string }; result: CoachData | null }
+  // Cuts start..end (seconds into the video) into the recording's clips/ folder
+  'storage:saveClip': { params: { id: string; start: number; end: number }; result: Clip }
+  // Asks first, then moves the clip to the Trash
+  'storage:deleteClip': { params: { id: string }; result: { deleted: boolean } }
+  'storage:showClip': { params: { id: string }; result: void }
 
   // Coach: comparing with top Warcraft Logs players. The secret never comes back.
   'coach:getWclStatus': { params: void; result: { configured: boolean; clientId: string | null } }
@@ -174,6 +221,10 @@ export interface IpcCommands {
     params: { playerName: string; fetchMissing: boolean }
     result: { summaries: KeySummary[]; wclConfigured: boolean }
   }
+
+  // The recording's fight on Warcraft Logs. refresh: look again instead of the saved one
+  // (parses fill in once WCL ranks a kill)
+  'coach:findWclFight': { params: { id: string; refresh: boolean }; result: WclFightResult }
 
   // Config
   'config:get': { params: { key: string }; result: unknown }
@@ -271,6 +322,8 @@ export interface AppConfig {
   onboardingComplete: boolean
   statsSite: StatsSite
   wowRegion: WowRegion
+  // Raid difficulties whose boss pulls are recorded; empty turns raid recording off
+  raidDifficulties: RaidDifficulty[]
 }
 
 export interface CaptureSource {

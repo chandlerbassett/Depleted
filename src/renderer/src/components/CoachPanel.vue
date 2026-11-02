@@ -12,6 +12,8 @@ const props = defineProps<{
   // Dungeon name and key level, to find top players' runs to compare with
   dungeon: string
   keyLevel: number
+  // A raid pull: there are no top runs or earlier keys to compare it with
+  raid?: boolean
   // When the key was recorded, to find the player's earlier keys
   date: string
   playerColor: (name: string) => string
@@ -76,7 +78,7 @@ const bench = computed(() => (benchKey.value !== null ? benchmarks.value.get(ben
 async function loadBenchmark(): Promise<void> {
   const key = benchKey.value
   const specId = selectedSpecId.value
-  if (key === null || specId === null || benchmarks.value.has(key)) return
+  if (props.raid === true || key === null || specId === null || benchmarks.value.has(key)) return
   benchmarks.value.set(key, 'loading')
   const result = await window.electron
     .invoke('coach:getBenchmark', { specId, dungeon: props.dungeon, keyLevel: props.keyLevel })
@@ -111,7 +113,7 @@ const history = ref(new Map<string, KeySummary[] | 'loading'>())
 const selectedName = computed(() => coach.value?.players.find((p) => p.guid === selectedGuid.value)?.name ?? null)
 
 async function loadHistory(name: string | null): Promise<void> {
-  if (name === null || history.value.has(name)) return
+  if (props.raid === true || name === null || history.value.has(name)) return
   history.value.set(name, 'loading')
   const result = await window.electron
     .invoke('coach:getKeySummaries', { playerName: name, fetchMissing: false })
@@ -245,7 +247,7 @@ function pct(t: number): string {
             v-if="recapIssues.length === 0"
             class="mt-1 text-xs text-zinc-600"
           >
-            Nothing stood out in this key.
+            Nothing stood out in this {{ raid ? 'pull' : 'key' }}.
           </p>
           <p
             v-if="bench === 'loading'"
@@ -323,12 +325,12 @@ function pct(t: number): string {
             v-if="moments.length === 0"
             class="text-xs text-zinc-600 py-1"
           >
-            Nothing stood out in this key.
+            Nothing stood out in this {{ raid ? 'pull' : 'key' }}.
           </p>
         </div>
 
         <!-- Compared with top players of this spec, dungeon and key level (Warcraft Logs) -->
-        <div>
+        <div v-if="!raid">
           <p class="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
             Compared with top players
           </p>

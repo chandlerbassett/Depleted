@@ -1,9 +1,9 @@
 -- DepletedCompanion (formerly ArenaRecorderCompanion)
 -- 1. Writes your character's GUID, name, realm, class and spec to SavedVariables
 --    so the Depleted desktop app can tell which party member you are.
--- 2. Automatically enables combat logging when you enter a dungeon and when a
---    Mythic+ key starts, so the app always has a log to follow — even if you
---    forgot to type /combatlog.
+-- 2. Automatically enables combat logging when you enter a dungeon or raid and
+--    when a Mythic+ key starts, so the app always has a log to follow, even if
+--    you forgot to type /combatlog.
 --
 -- SavedVariables file location:
 --   WTF/Account/<AccountName>/SavedVariables/DepletedCompanion.lua
@@ -12,7 +12,7 @@
 
 DepletedDB = DepletedDB or {}
 
-local ADDON_VERSION = "2.1.0"
+local ADDON_VERSION = "2.2.0"
 
 -- ---------------------------------------------------------------------------
 -- Character info
@@ -54,8 +54,8 @@ end
 
 local PREFIX = "|cff2dd4bfDepleted|r"
 
--- Ensures combat logging is active. Called on entering a dungeon and when a key
--- starts, so the desktop app sees CHALLENGE_MODE_START.
+-- Ensures combat logging is active. Called on entering a dungeon or raid and when a
+-- key starts, so the desktop app sees CHALLENGE_MODE_START and ENCOUNTER_START.
 local function EnsureCombatLogging()
     if not LoggingCombat() then
         LoggingCombat(true)
@@ -63,10 +63,10 @@ local function EnsureCombatLogging()
     end
 end
 
--- Returns true inside a 5-player dungeon (where Mythic+ happens).
+-- Returns true inside a 5-player dungeon (where Mythic+ happens) or a raid.
 local function IsInRecordableInstance()
     local _, instanceType = IsInInstance()
-    return instanceType == "party"
+    return instanceType == "party" or instanceType == "raid"
 end
 
 -- ---------------------------------------------------------------------------
@@ -81,8 +81,8 @@ local function PrintAbout()
     print("It does |cffff4444two|r small things:")
     print("  |cffffff00 1.|r Saves your character GUID, name, class and spec to")
     print("     SavedVariables so the app knows which party member is |cff00ff00you|r.")
-    print("  |cffffff00 2.|r Automatically turns on combat logging in dungeons")
-    print("     and when a Mythic+ key starts, so no runs are missed.")
+    print("  |cffffff00 2.|r Automatically turns on combat logging in dungeons,")
+    print("     raids and when a Mythic+ key starts, so no runs are missed.
     print("|cffaaaaaa----------------------------------------|r")
     print("|cff00ff00What it does NOT do:|r")
     print("  - Does not read game memory")
@@ -125,8 +125,8 @@ frame:SetScript("OnEvent", function(_, event)
     C_Timer.After(1, function()
         SaveCharacterInfo()
 
-        -- Entering a dungeon: make sure the combat log is running before the key
-        -- starts. This is what lets the desktop app catch the start.
+        -- Entering a dungeon or raid: make sure the combat log is running before the
+        -- key or first pull starts. This is what lets the desktop app catch the start.
         if event == "PLAYER_ENTERING_WORLD" and IsInRecordableInstance() then
             EnsureCombatLogging()
         end

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import type { Recording, TimelineEventType } from '@shared/ipc.types'
+import type { Clip, Recording, TimelineEventType } from '@shared/ipc.types'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useStatsLinkStore } from '@/stores/statsLinkStore'
 import { useRecordingsStore } from '@/stores/recordingsStore'
@@ -10,12 +10,17 @@ import TimelineCanvas from './TimelineCanvas.vue'
 import MeterWidget from './MeterWidget.vue'
 import DeathLog from './DeathLog.vue'
 import CoachPanel from './CoachPanel.vue'
+import ClipControls from './ClipControls.vue'
+import WclFightPanel from './WclFightPanel.vue'
+import SidebarClipRow from './SidebarClipRow.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, WOW_SPEC_ID_MAP } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
 import { computeMeter } from '@/composables/useMeters'
+import { levelBadge, outcomeLabel, recordingTitle } from '@/utils/recordingLabels'
 
 const props = defineProps<{ recording: Recording }>()
+const emit = defineEmits<{ deleteClip: [clip: Clip] }>()
 
 const playerStore = usePlayerStore()
 const { currentTime, duration } = storeToRefs(playerStore)
@@ -69,14 +74,17 @@ watch(
 
 const result = computed(() => props.recording.metadata.result)
 const mythicPlus = computed(() => props.recording.metadata.mythicPlus)
-// The key's level and how it ended
+const isRaid = computed(() => props.recording.metadata.raid !== undefined)
 const resultLabel = computed(() => {
-  const mp = mythicPlus.value
-  const outcome = mp.outcome === 'completed' ? 'Completed' : mp.outcome === 'depleted' ? 'Depleted' : 'Abandoned'
-  // Level 0: recovered after a crash with no key info
-  return mp.keystoneLevel > 0 ? `+${mp.keystoneLevel} ${outcome}` : outcome
+  const meta = props.recording.metadata
+  const badge = levelBadge(meta)
+  return badge !== null ? `${badge} ${outcomeLabel(meta)}` : outcomeLabel(meta)
 })
 const zone = computed(() => props.recording.metadata.zone)
+const title = computed(() => recordingTitle(props.recording.metadata))
+const subtitle = computed(() =>
+  [isRaid.value ? zone.value : null, formattedDate.value, formattedDuration.value].filter((p) => p !== null).join(' · ')
+)
 const formattedDuration = computed(() => fmtSecs(props.recording.metadata.duration))
 const formattedDate = computed(() => formatDate(props.recording.metadata.date))
 const currentTimeLabel = computed(() => fmtSecs(currentTime.value))
@@ -114,6 +122,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   'boss-wipe': 'Wipe',
   'key-start': 'Key start',
   'key-end': 'Key end',
+  'pull-start': 'Pull',
 }
 
 const legendItems = [
@@ -181,6 +190,12 @@ function playerColor(name: string): string {
   return cls !== undefined ? (CLASS_COLORS[cls] ?? '#d4d4d8') : '#d4d4d8'
 }
 
+// Warcraft Logs ranks players by name alone
+function shortNameColor(name: string): string {
+  const full = props.recording.metadata.teamComp.find((n) => n === name || n.startsWith(`${name}-`))
+  return playerColor(full ?? name)
+}
+
 function playerSpec(name: string): string {
   // Primary: reliable spec from COMBATANT_INFO (saved to metadata.knownSpecs)
   const saved = props.recording.metadata.knownSpecs
@@ -238,16 +253,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 // Coach — per-player review with jump-to-video moments
 // -------------------------------------------------------------------------
 const showCoach = ref(true)
+const showWcl = ref(true)
 
 // -------------------------------------------------------------------------
 // Meters — Details!/Skada-style per-player Damage Done / Healing Done
 // -------------------------------------------------------------------------
 const showMeters = ref(false)
 
-// Per-second rates use the key timer (the video also has the post-roll)
+// Per-second rates use the key timer or fight time (the video also has the pre- and post-roll)
 const meterSecs = computed(() => {
-  const keyMs = props.recording.metadata.mythicPlus.totalTimeMs
-  return keyMs > 0 ? keyMs / 1000 : props.recording.metadata.duration
+  const { mythicPlus: mp, raid, duration } = props.recording.metadata
+  const ms = raid?.fightTimeMs ?? mp?.totalTimeMs ?? 0
+  return ms > 0 ? ms / 1000 : duration
 })
 const dmgDoneMeter = computed(() => computeMeter(props.recording.metadata.playerDamageDone, meterSecs.value))
 const healDoneMeter = computed(() => computeMeter(props.recording.metadata.playerHealingDone, meterSecs.value))
@@ -348,6 +365,13 @@ function fmtK(n: number): string {
       </button>
     </div>
 
+    <ClipControls
+      v-if="!isFullscreen"
+      :recording-id="recording.id"
+      :current-time="currentTime"
+      @seek="seekTo"
+    />
+
     <!-- Timeline (always visible) -->
     <div class="flex-shrink-0 px-4 pb-2">
       <div class="flex items-center justify-between text-xs text-zinc-600 mb-1">
@@ -387,10 +411,10 @@ function fmtK(n: number): string {
       <div class="flex items-center gap-3 pt-1">
         <div class="flex-1 min-w-0">
           <h3 class="text-sm font-semibold text-white truncate">
-            {{ zone }}
+            {{ title }}
           </h3>
           <p class="text-xs text-zinc-500 mt-0.5">
-            {{ formattedDate }} · {{ formattedDuration }}
+            {{ subtitle }}
           </p>
         </div>
         <span
@@ -407,7 +431,7 @@ function fmtK(n: number): string {
           class="text-xs font-semibold uppercase tracking-wider mb-2"
           style="color: #f0b429;"
         >
-          Party
+          {{ isRaid ? 'Raid' : 'Party' }}
         </p>
         <div class="grid grid-cols-2 gap-x-3">
           <button
@@ -445,9 +469,44 @@ function fmtK(n: number): string {
           :recording-id="recording.id"
           :dungeon="zone"
           :key-level="mythicPlus?.keystoneLevel ?? 0"
+          :raid="isRaid"
           :date="recording.metadata.date"
           :player-color="playerColor"
           @seek="handleSeek"
+        />
+      </div>
+
+      <!-- This recording's clips -->
+      <div v-if="recording.clips.length > 0">
+        <p class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+          Clips
+        </p>
+        <SidebarClipRow
+          v-for="clip in recording.clips"
+          :key="clip.id"
+          :clip="clip"
+          :selected="false"
+          @select="seekTo(clip.start)"
+          @delete="emit('deleteClip', clip)"
+        />
+        <p class="text-[10px] text-zinc-600 mt-1">
+          Click a clip to jump to it here; open it on its own from Clips in the sidebar.
+        </p>
+      </div>
+
+      <!-- The fight's log and parses on Warcraft Logs -->
+      <div>
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showWcl = !showWcl"
+        >
+          <span>Warcraft Logs</span>
+          <span class="text-zinc-600">{{ showWcl ? '▲' : '▼' }}</span>
+        </button>
+        <WclFightPanel
+          v-if="showWcl"
+          :recording-id="recording.id"
+          :player-color="shortNameColor"
         />
       </div>
 
@@ -572,7 +631,7 @@ function fmtK(n: number): string {
             v-if="eventsListItems.length === 0"
             class="text-xs text-zinc-600 py-2 text-center"
           >
-            No tracked events in this key
+            No tracked events in this {{ isRaid ? 'pull' : 'key' }}
           </p>
         </div>
       </div>
