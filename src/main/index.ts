@@ -126,6 +126,7 @@ function createPipeline(): {
   recorder: CaptureRecorder
   stateMachine: MythicPlusStateMachine
   storageManager: StorageManager
+  mediaTools: () => MediaTools | null
 } {
   const wowPath = configStore.get('wowPath')
   const storagePath = configStore.get('storagePath')
@@ -198,7 +199,7 @@ function createPipeline(): {
   watcher.start()
   console.warn(`[Main] Combat log watcher started: ${logsDir}/${COMBAT_LOG_GLOB}`)
 
-  return { watcher, recorder, stateMachine, storageManager }
+  return { watcher, recorder, stateMachine, storageManager, mediaTools }
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +345,7 @@ function startApp(): void {
   registerSystemIpc(configStore)
   registerConfigIpc(configStore)
 
-  const { recorder, stateMachine, storageManager } = createPipeline()
+  const { recorder, stateMachine, storageManager, mediaTools } = createPipeline()
 
   // Keep recorder options in sync with config changes (e.g. window selection in Settings).
   const recorderConfigKeys = ['videoBitrate', 'videoFps', 'videoCodec', 'captureSourceHint', 'videoResolution'] as const
@@ -363,7 +364,7 @@ function startApp(): void {
 
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)
-  registerStorageIpc(storageManager)
+  registerStorageIpc(storageManager, mediaTools)
   registerCoachIpc(storageManager)
   registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 

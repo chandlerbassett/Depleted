@@ -138,6 +138,23 @@ export interface Recording {
   videoPath: string
   thumbnailPath: string
   metadata: RecordingMetadata
+  // Oldest first
+  clips: Clip[]
+}
+
+// A part of a recording cut out with storage:saveClip, kept in the recording's clips/
+export interface Clip {
+  // "<recording id>/<file name>"
+  id: string
+  recordingId: string
+  fileName: string
+  videoPath: string
+  // null when no thumbnail could be made
+  thumbnailPath: string | null
+  // Seconds into the recording
+  start: number
+  end: number
+  createdAt: string
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +172,11 @@ export interface IpcCommands {
   'storage:deleteRecording': { params: { id: string }; result: { deleted: boolean } }
   'storage:openFolder': { params: { id: string }; result: void }
   'storage:getCoachData': { params: { id: string }; result: CoachData | null }
+  // Cuts start..end (seconds into the video) into the recording's clips/ folder
+  'storage:saveClip': { params: { id: string; start: number; end: number }; result: Clip }
+  // Asks first, then moves the clip to the Trash
+  'storage:deleteClip': { params: { id: string }; result: { deleted: boolean } }
+  'storage:showClip': { params: { id: string }; result: void }
 
   // Coach: comparing with top Warcraft Logs players. The secret never comes back.
   'coach:getWclStatus': { params: void; result: { configured: boolean; clientId: string | null } }

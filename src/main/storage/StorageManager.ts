@@ -22,13 +22,16 @@
 import { promises as fs } from 'fs'
 import { join, extname, basename } from 'path'
 import { spawn } from 'child_process'
-import type { MythicPlusInfo, Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
+import type { Clip, MythicPlusInfo, Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
 import { rawInfoPath, type ProcessingRequiredEvent, type RawRecordingInfo } from '../recorder/types'
 import { runHelperCommand } from '../recorder/nativeHelper'
 import { writeMetadata, readMetadata, writeCoachData, readCoachData } from './MetadataWriter'
 import type { CoachData } from '@shared/coach.types'
 
 const SUMMARY_CACHE_FILENAME = 'coach-summaries.json'
+const CLIPS_DIRNAME = 'clips'
+// clip_12m34s-13m21s.mp4; the range in the name is the clip's place in the recording
+const CLIP_NAME_RE = /^clip_(\d+)m(\d{2})s-(\d+)m(\d{2})s(?:_(\d+))?\.(mp4|webm)$/
 
 // ---------------------------------------------------------------------------
 // Media tools — trim + thumbnail. The depleted-capture helper (AVFoundation) on macOS,
@@ -148,7 +151,8 @@ export class StorageManager {
       path: dirPath,
       videoPath,
       thumbnailPath,
-      metadata
+      metadata,
+      clips: []
     }
   }
 
@@ -195,7 +199,8 @@ export class StorageManager {
         path: dirPath,
         videoPath: join(dirPath, `recording.${metadata.videoExt ?? 'mp4'}`),
         thumbnailPath: join(dirPath, 'thumbnail.jpg'),
-        metadata
+        metadata,
+        clips: await listClips(dirPath, entry.name)
       })
     }
 
@@ -235,6 +240,52 @@ export class StorageManager {
   async writeSummaryCache(id: string, cache: unknown): Promise<void> {
     if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return
     await fs.writeFile(join(this.storagePath, id, SUMMARY_CACHE_FILENAME), JSON.stringify(cache), 'utf8')
+  }
+
+  // Cuts startSecs..endSecs of a recording into its clips/ folder, without re-encoding
+  // (so the cut lands on the nearest keyframe, about a second at most). Returns the path.
+  async saveClip(id: string, startSecs: number, endSecs: number, media: MediaTools): Promise<Clip> {
+    if (!isRecordingId(id)) throw new Error(`Invalid recording id: ${id}`)
+    const dirPath = join(this.storagePath, id)
+    const metadata = await readMetadata(dirPath)
+    if (metadata === null) throw new Error('Recording not found')
+    const start = Math.max(0, startSecs)
+    const end = Math.min(metadata.duration, endSecs)
+    if (!(end - start >= 1)) throw new Error('A clip needs to be at least a second long')
+    const ext = metadata.videoExt ?? 'mp4'
+    const clipsDir = join(dirPath, CLIPS_DIRNAME)
+    await fs.mkdir(clipsDir, { recursive: true })
+    const base = `clip_${clockLabel(start)}-${clockLabel(end)}`
+    let fileName = `${base}.${ext}`
+    for (let n = 2; await fileExists(join(clipsDir, fileName)); n++) fileName = `${base}_${n}.${ext}`
+    const clipPath = join(clipsDir, fileName)
+    await media.trim(join(dirPath, `recording.${ext}`), clipPath, start, Math.round((end - start) * 1000) / 1000)
+    try {
+      await media.thumbnail(clipPath, clipThumbnailPath(clipPath))
+    } catch (err) {
+      console.warn('[Storage] No thumbnail for the clip:', err instanceof Error ? err.message : String(err))
+    }
+    const clip = await readClip(clipsDir, id, fileName)
+    if (clip === null) throw new Error('The clip was not written')
+    return clip
+  }
+
+  // Moves a clip and its thumbnail out of the library. remove defaults to deleting for good.
+  async deleteClip(
+    clipId: string,
+    remove: (path: string) => Promise<void> = (path) => fs.rm(path, { force: true })
+  ): Promise<void> {
+    const clip = await this.getClip(clipId)
+    if (clip === null) throw new Error(`No such clip: ${clipId}`)
+    await remove(clip.videoPath)
+    if (clip.thumbnailPath !== null) await remove(clip.thumbnailPath)
+  }
+
+  async getClip(clipId: string): Promise<Clip | null> {
+    const [recordingId, fileName, ...rest] = clipId.split('/')
+    if (rest.length > 0 || recordingId === undefined || fileName === undefined || !isRecordingId(recordingId)) return null
+    if (!CLIP_NAME_RE.test(fileName)) return null
+    return readClip(join(this.storagePath, recordingId, CLIPS_DIRNAME), recordingId, fileName)
   }
 
   // Returns paths of directories that contain a recording video but no metadata.json.
@@ -416,6 +467,54 @@ function emptyMythicPlus(instanceId: number, challengeModeId: number, keystoneLe
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
+
+async function listClips(dirPath: string, recordingId: string): Promise<Clip[]> {
+  const clipsDir = join(dirPath, CLIPS_DIRNAME)
+  const clips: Clip[] = []
+  for (const entry of await safeReaddir(clipsDir)) {
+    if (!entry.isFile() || !CLIP_NAME_RE.test(entry.name)) continue
+    const clip = await readClip(clipsDir, recordingId, entry.name)
+    if (clip !== null) clips.push(clip)
+  }
+  return clips.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
+async function readClip(clipsDir: string, recordingId: string, fileName: string): Promise<Clip | null> {
+  const m = CLIP_NAME_RE.exec(fileName)
+  if (m === null) return null
+  const videoPath = join(clipsDir, fileName)
+  let createdAt: string
+  try {
+    createdAt = (await fs.stat(videoPath)).mtime.toISOString()
+  } catch {
+    return null
+  }
+  const thumb = clipThumbnailPath(videoPath)
+  return {
+    id: `${recordingId}/${fileName}`,
+    recordingId,
+    fileName,
+    videoPath,
+    thumbnailPath: (await fileExists(thumb)) ? thumb : null,
+    start: Number(m[1]) * 60 + Number(m[2]),
+    end: Number(m[3]) * 60 + Number(m[4]),
+    createdAt
+  }
+}
+
+function clipThumbnailPath(clipPath: string): string {
+  return clipPath.replace(/\.(mp4|webm)$/, '.jpg')
+}
+
+// 754.2 → "12m34s", safe in a file name
+function clockLabel(secs: number): string {
+  const s = Math.floor(secs)
+  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`
+}
+
+function isRecordingId(id: string): boolean {
+  return !!id && id !== '..' && id !== '.' && !id.includes('/') && !id.includes('\\')
+}
 
 // Reads a directory, returning an empty array if the directory does not exist.
 async function safeReaddir(dirPath: string): Promise<import('fs').Dirent[]> {
