@@ -23,6 +23,11 @@ export const MYTHIC_PLUS_PRE_ROLL_SECS = 15
 export const MYTHIC_PLUS_ARMED_RESTART_SECS = 600
 // Mythic+: stop arming after this long in the dungeon with no key started.
 export const MYTHIC_PLUS_ARMED_MAX_SECS = 3600
+// Length of the rolling buffer the recorder keeps while armed (native capture). A
+// recording opens with up to this much footage from before it was started, so it has to
+// cover the pre-roll plus the delay before the app reads the log line that starts it
+// (WoW writes the combat log to disk in batches). ~0.9 GB at 80 Mbps, deleted as it goes.
+export const PRE_ROLL_BUFFER_SECS = 90
 // Mythic+: only arm on a ZONE_CHANGE logged within this long of now.
 export const MYTHIC_PLUS_ARM_MAX_LOG_AGE_SECS = 120
 // ZONE_CHANGE difficulty IDs for a Mythic dungeon: 23 before the key goes in, 8 once

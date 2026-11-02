@@ -4,10 +4,13 @@
 // starting rather than clobbering a test clip.
 //
 // State transitions:
-//   idle (armed)            : zoneChanged into a Mythic dungeon — recorder.start() is called
-//                             here, so the key going in and the countdown are on video
-//   idle       → recording  : challengeModeStart — takes over the armed recording, or calls
-//                             recorder.start() if nothing was armed
+//   idle (armed)            : zoneChanged into a Mythic dungeon — the recorder's rolling
+//                             buffer starts (native capture), or recorder.start() is called
+//                             (other recorders), so the key going in and the countdown are
+//                             on video
+//   idle       → recording  : challengeModeStart — recorder.start() opens a file with the
+//                             buffered footage, takes over the armed recording, or starts
+//                             fresh if nothing was armed
 //   recording  → processing : challengeModeEnd (after MYTHIC_PLUS_POST_ROLL_SECS), or
 //                             MYTHIC_PLUS_ABANDON_TIMEOUT_SECS after leaving the dungeon,
 //                             or a new challengeModeStart while a key is still open
@@ -37,7 +40,8 @@ import {
   MYTHIC_PLUS_ARMED_RESTART_SECS,
   MYTHIC_PLUS_IDLE_TIMEOUT_SECS,
   MYTHIC_PLUS_POST_ROLL_SECS,
-  MYTHIC_PLUS_PRE_ROLL_SECS
+  MYTHIC_PLUS_PRE_ROLL_SECS,
+  PRE_ROLL_BUFFER_SECS
 } from '@shared/constants'
 import type { CombatLogWatcher } from '../combatlog/CombatLogWatcher'
 import type {
@@ -74,6 +78,8 @@ export interface MythicPlusStateMachineOptions {
   // 0 turns off arming on dungeon entry (the video then starts at the key start)
   preRollSecs?: number
   armedRestartSecs?: number
+  // Rolling buffer length when the recorder has one (see PRE_ROLL_BUFFER_SECS)
+  bufferSecs?: number
   abandonTimeoutSecs?: number
   idleTimeoutSecs?: number
 }
@@ -101,9 +107,13 @@ interface OpenEncounter {
   startRelSecs: number
 }
 
-// A recording started on entering a Mythic dungeon, before any key — the next
-// CHALLENGE_MODE_START takes it over, and the trim keeps only the pre-roll before the key.
+// Armed on entering a Mythic dungeon, before any key. With a rolling buffer (native
+// capture) that's all it is: the next CHALLENGE_MODE_START opens a file that starts with
+// the buffered footage. Otherwise it's a real recording the key takes over. Either way
+// the trim keeps only the pre-roll before the key.
 interface ArmedRecording {
+  // Rolling buffer rather than a recording; rawOutputPath is unused
+  buffered: boolean
   instanceId: number
   rawOutputPath: string
   started: Promise<boolean>
@@ -195,6 +205,7 @@ export class MythicPlusStateMachine extends EventEmitter {
   async releaseArmedRecorder(): Promise<void> {
     this.disarm()
     await this.disarming
+    if (this.session === null) await this.stopBuffer()
   }
 
   // Quitting: a key still running is saved as abandoned, up to now rather than the last
@@ -210,6 +221,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.cutPostRoll?.()
     this.disarm()
     await Promise.all([this.finalizing, this.disarming])
+    await this.stopBuffer()
   }
 
   override emit<K extends keyof StateMachineEventMap>(
@@ -249,8 +261,13 @@ export class MythicPlusStateMachine extends EventEmitter {
   }
 
   private bindRecorderEvents(): void {
+    this.recorder.on('bufferStopped', ({ message }) => {
+      if (this.armed?.buffered !== true) return
+      console.error('[MythicPlus] The pre-roll buffer stopped:', message)
+      this.clearArmed()
+    })
     this.recorder.on('unexpectedStop', ({ outputPath }) => {
-      if (this.armed !== null) {
+      if (this.armed !== null && !this.armed.buffered) {
         console.error('[MythicPlus] Armed recording stopped unexpectedly')
         this.clearArmed()
         void discardFile(outputPath)
@@ -289,9 +306,12 @@ export class MythicPlusStateMachine extends EventEmitter {
     // The session is installed synchronously: the watcher hands over log lines in
     // batches, so the first boss pull (or even the END) can arrive in the same tick.
     // Take over the recording armed on entering this dungeon, if there is one.
-    const armed = this.armed !== null && this.armed.instanceId === e.instanceId ? this.armed : null
-    if (armed !== null) this.clearArmed()
+    const sameInstance = this.armed !== null && this.armed.instanceId === e.instanceId ? this.armed : null
+    if (sameInstance !== null) this.clearArmed()
     else this.disarm()
+    // A buffer isn't taken over: recorder.start() below opens a file from it
+    const armed = sameInstance !== null && !sameInstance.buffered ? sameInstance : null
+    const buffering = sameInstance?.buffered === true ? sameInstance.started : Promise.resolve(false)
     const rawPath = armed?.rawOutputPath ?? buildRawPath(this.options.rawRecordingsDir, e.zoneName, e.timestamp)
     const previousStop = Promise.all([this.finalizing, this.disarming]).then(() => undefined)
     const session: KeySession = {
@@ -324,7 +344,7 @@ export class MythicPlusStateMachine extends EventEmitter {
             if (!ok) this.failSession(session, armed.failure ?? 'the armed recording did not start')
             return ok
           })
-        : previousStop.then(() => this.startRecorder(session))
+        : Promise.all([previousStop, buffering]).then(() => this.startRecorder(session))
     void session.started.then((ok) => {
       if (ok) void this.writeRawInfo(session)
     })
@@ -353,9 +373,10 @@ export class MythicPlusStateMachine extends EventEmitter {
 
   private async startRecorder(session: KeySession): Promise<boolean> {
     try {
-      await this.recorder.start(session.rawOutputPath, this.options.recorder)
-      // Set AFTER the recorder confirms capture — used for the trim offset.
-      session.recordingStartedAt = new Date()
+      const firstFrameAt = await this.recorder.start(session.rawOutputPath, this.options.recorder)
+      // When the file's first frame was captured: before now if it opens with buffered
+      // footage, otherwise read AFTER the recorder confirms capture. Used for the trim offset.
+      session.recordingStartedAt = firstFrameAt instanceof Date ? firstFrameAt : new Date()
       console.warn(`[MythicPlus] Recorder started: ${session.rawOutputPath}`)
       return true
     } catch (err) {
@@ -383,7 +404,12 @@ export class MythicPlusStateMachine extends EventEmitter {
     if (this.armed !== null || this.session !== null) return
     // Busy and not because of us: test mode has it.
     if (this.recorder.isRecording() && this.disarmsInFlight === 0) return
+    if (this.canBuffer()) {
+      this.armBuffer(instanceId, zoneName)
+      return
+    }
     const armed: ArmedRecording = {
+      buffered: false,
       instanceId,
       rawOutputPath: buildRawPath(this.options.rawRecordingsDir, zoneName, timestamp),
       started: Promise.resolve(false),
@@ -425,6 +451,63 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.armed = armed
   }
 
+  private canBuffer(): boolean {
+    return this.recorder.startBuffer !== undefined && this.recorder.stopBuffer !== undefined
+  }
+
+  private bufferDir(): string {
+    return join(this.options.rawRecordingsDir, '.buffer')
+  }
+
+  // Starts the recorder's rolling buffer. Nothing is written beyond the buffer until a
+  // key starts, so there's nothing to restart; it gives up after the same hour.
+  private armBuffer(instanceId: number, zoneName: string): void {
+    const armed: ArmedRecording = {
+      buffered: true,
+      instanceId,
+      rawOutputPath: '',
+      started: Promise.resolve(false),
+      recordingStartedAt: null,
+      restartTimer: null,
+      cancelled: false,
+      failure: null
+    }
+    const previousStop = Promise.all([this.finalizing, this.disarming])
+    armed.started = previousStop.then(async () => {
+      if (armed.cancelled) return false
+      // Anything we were recording has stopped by now, so this is test mode — leave it be.
+      if (this.recorder.isRecording()) {
+        if (this.armed === armed) this.clearArmed()
+        return false
+      }
+      try {
+        const bufferSecs = this.options.bufferSecs ?? PRE_ROLL_BUFFER_SECS
+        await this.recorder.startBuffer?.(this.bufferDir(), bufferSecs, this.options.recorder)
+        console.warn(`[MythicPlus] Armed for a key in ${zoneName}: buffering the last ${bufferSecs}s`)
+        return true
+      } catch (err) {
+        armed.failure = err instanceof Error ? err.message : String(err)
+        console.error('[MythicPlus] Arming failed:', armed.failure)
+        if (this.armed === armed) this.clearArmed()
+        return false
+      }
+    })
+    armed.restartTimer = setTimeout(() => {
+      if (this.armed === armed) this.disarm()
+    }, MYTHIC_PLUS_ARMED_MAX_SECS * 1000)
+    this.armed = armed
+  }
+
+  // Ends the rolling buffer, if the recorder has one running.
+  private async stopBuffer(): Promise<void> {
+    if (this.recorder.isBuffering?.() !== true) return
+    try {
+      await this.recorder.stopBuffer?.()
+    } catch (err) {
+      console.error('[MythicPlus] Stopping the pre-roll buffer failed:', err instanceof Error ? err.message : String(err))
+    }
+  }
+
   private clearArmed(): void {
     if (this.armed?.restartTimer != null) clearTimeout(this.armed.restartTimer)
     this.armed = null
@@ -441,6 +524,11 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.disarming = previous.then(async () => {
       try {
         if (!(await armed.started)) return
+        if (armed.buffered) {
+          // A key that started meanwhile records from the buffer; leave it running then
+          if (this.session === null) await this.stopBuffer()
+          return
+        }
         const path = await this.recorder.stop()
         await discardFile(path)
       } catch (err) {
@@ -517,6 +605,9 @@ export class MythicPlusStateMachine extends EventEmitter {
     let finalPath: string
     try {
       finalPath = await this.recorder.stop()
+      // A recording from the buffer leaves it running. Nothing needs it after a key
+      // (it's armed again on the next zone-in) unless a new key or arming took over.
+      if ((this.session === null || this.session === session) && this.armed === null) await this.stopBuffer()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error('[MythicPlus] recorder.stop() failed:', message)

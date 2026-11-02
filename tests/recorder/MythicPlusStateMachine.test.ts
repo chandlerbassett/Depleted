@@ -39,11 +39,39 @@ class FakeRecorder extends EventEmitter {
   isRecording(): boolean {
     return this.recording
   }
-  start(path: string): Promise<void> {
+  start(path: string): Promise<void | Date> {
     return this.startMock(path) as Promise<void>
   }
   stop(): Promise<string> {
     return this.stopMock()
+  }
+}
+
+// A recorder with a rolling buffer, like NativeCaptureRecorder: start() while buffering
+// opens a file with up to bufferSecs of footage from before the call.
+class FakeBufferingRecorder extends FakeRecorder {
+  bufferStartedAtMs: number | null = null
+  bufferSecs = 0
+  startBufferMock = vi.fn(async (_dir: string, secs: number): Promise<void> => {
+    this.bufferStartedAtMs = Date.now()
+    this.bufferSecs = secs
+  })
+  stopBufferMock = vi.fn(async (): Promise<void> => {
+    this.bufferStartedAtMs = null
+  })
+  startBuffer(dir: string, secs: number): Promise<void> {
+    return this.startBufferMock(dir, secs)
+  }
+  stopBuffer(): Promise<void> {
+    return this.stopBufferMock()
+  }
+  isBuffering(): boolean {
+    return this.bufferStartedAtMs !== null
+  }
+  override async start(path: string): Promise<void | Date> {
+    await this.startMock(path)
+    if (this.bufferStartedAtMs === null) return new Date()
+    return new Date(Math.max(this.bufferStartedAtMs, Date.now() - this.bufferSecs * 1000))
   }
 }
 
@@ -61,14 +89,16 @@ function linesUpTo(eventType: string): string[] {
 // unless a test says otherwise.
 const KEY_START = new Date(2026, 9, 27, 20, 0, 5)
 
-function setup(options: { recorderLagMs?: number; idleTimeoutSecs?: number; armedRestartSecs?: number } = {}): {
+function setup(
+  options: { recorderLagMs?: number; idleTimeoutSecs?: number; armedRestartSecs?: number; buffering?: boolean } = {}
+): {
   watcher: FakeWatcher
   recorder: FakeRecorder
   machine: MythicPlusStateMachine
   processed: ProcessingRequiredEvent[]
 } {
   const watcher = new FakeWatcher()
-  const recorder = new FakeRecorder()
+  const recorder = options.buffering === true ? new FakeBufferingRecorder() : new FakeRecorder()
   vi.setSystemTime(new Date(KEY_START.getTime() + (options.recorderLagMs ?? 0)))
   const machine = new MythicPlusStateMachine(
     watcher as unknown as CombatLogWatcher,
@@ -545,5 +575,96 @@ describe('MythicPlusStateMachine', () => {
 
     expect(recorder.isRecording()).toBe(false)
     expect(machine.getStatus()).toBe('idle')
+  })
+
+  // -------------------------------------------------------------------------
+  // Pre-roll from the recorder's rolling buffer (native capture)
+  // -------------------------------------------------------------------------
+
+  function bufferingSetup(): ReturnType<typeof setup> & { recorder: FakeBufferingRecorder } {
+    return setup({ buffering: true }) as ReturnType<typeof setup> & { recorder: FakeBufferingRecorder }
+  }
+
+  it('arms by starting the buffer, then records the key from it', async () => {
+    const { watcher, recorder, processed } = bufferingSetup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.startBufferMock).toHaveBeenCalledWith('/tmp/raw/.buffer', 90)
+    // Nothing is being written beyond the buffer yet
+    expect(recorder.startMock).not.toHaveBeenCalled()
+
+    // Read 2 s after the key went in, as when the log is flushed late
+    vi.setSystemTime(KEY_START.getTime() + 2000)
+    watcher.feed(LINES.filter((l) => !l.includes('ZONE_CHANGE')))
+    await vi.runAllTimersAsync()
+
+    expect(recorder.startMock).toHaveBeenCalledOnce()
+    const ev = processed[0]!
+    // The file opens with everything buffered since zoning in (67 s < 90 s)...
+    expect(ev.recordingStartedAt.getTime()).toBe(ENTERED_AT.getTime())
+    // ...and the trim keeps 15 s before the key
+    expect(ev.matchStartedAt.getTime()).toBe(KEY_START.getTime() - 15_000)
+    expect(ev.timeline[0]).toMatchObject({ type: 'key-start', timestamp: 15 })
+    // The buffer isn't needed again until the next dungeon
+    expect(recorder.stopBufferMock).toHaveBeenCalledOnce()
+    expect(recorder.isBuffering()).toBe(false)
+  })
+
+  it('stops the buffer on leaving without a key', async () => {
+    const { watcher, recorder, machine, processed } = bufferingSetup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    watcher.feed(['10/27/2026 19:59:30.0000  ZONE_CHANGE,2552,"Dornogal",0'])
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(recorder.stopBufferMock).toHaveBeenCalledOnce()
+    expect(recorder.stopMock).not.toHaveBeenCalled()
+    expect(processed).toHaveLength(0)
+    expect(machine.getStatus()).toBe('idle')
+  })
+
+  it('keeps one buffer running while waiting for a key, and gives up after an hour', async () => {
+    const { watcher, recorder } = bufferingSetup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(30 * 60_000)
+    expect(recorder.startBufferMock).toHaveBeenCalledOnce()
+    expect(recorder.isBuffering()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(30 * 60_000)
+    expect(recorder.isBuffering()).toBe(false)
+  })
+
+  it('stops the buffer for a test recording and on quit', async () => {
+    const { watcher, recorder, machine } = bufferingSetup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    await machine.releaseArmedRecorder()
+    expect(recorder.isBuffering()).toBe(false)
+
+    watcher.feed(['10/27/2026 19:59:40.0000  ZONE_CHANGE,2660,"Ara-Kara, City of Echoes",23'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.isBuffering()).toBe(true)
+    await machine.finishForQuit()
+    expect(recorder.isBuffering()).toBe(false)
+  })
+
+  it('records a key from scratch if the buffer stopped on its own', async () => {
+    const { watcher, recorder, processed } = bufferingSetup()
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    recorder.bufferStartedAtMs = null
+    recorder.emit('bufferStopped', { message: 'Capture stopped: the window closed' })
+
+    vi.setSystemTime(KEY_START)
+    watcher.feed(LINES.filter((l) => !l.includes('ZONE_CHANGE')))
+    await vi.runAllTimersAsync()
+
+    expect(recorder.startMock).toHaveBeenCalledOnce()
+    expect(processed[0]!.recordingStartedAt.getTime()).toBe(KEY_START.getTime())
   })
 })
