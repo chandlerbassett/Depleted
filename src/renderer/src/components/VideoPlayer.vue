@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import type { Recording, TimelineEventType } from '@shared/ipc.types'
+import type { Clip, Recording, TimelineEventType } from '@shared/ipc.types'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useStatsLinkStore } from '@/stores/statsLinkStore'
 import { useRecordingsStore } from '@/stores/recordingsStore'
@@ -10,12 +10,15 @@ import TimelineCanvas from './TimelineCanvas.vue'
 import MeterWidget from './MeterWidget.vue'
 import DeathLog from './DeathLog.vue'
 import CoachPanel from './CoachPanel.vue'
+import ClipControls from './ClipControls.vue'
+import SidebarClipRow from './SidebarClipRow.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, WOW_SPEC_ID_MAP } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
 import { computeMeter } from '@/composables/useMeters'
 
 const props = defineProps<{ recording: Recording }>()
+const emit = defineEmits<{ deleteClip: [clip: Clip] }>()
 
 const playerStore = usePlayerStore()
 const { currentTime, duration } = storeToRefs(playerStore)
@@ -348,6 +351,13 @@ function fmtK(n: number): string {
       </button>
     </div>
 
+    <ClipControls
+      v-if="!isFullscreen"
+      :recording-id="recording.id"
+      :current-time="currentTime"
+      @seek="seekTo"
+    />
+
     <!-- Timeline (always visible) -->
     <div class="flex-shrink-0 px-4 pb-2">
       <div class="flex items-center justify-between text-xs text-zinc-600 mb-1">
@@ -449,6 +459,24 @@ function fmtK(n: number): string {
           :player-color="playerColor"
           @seek="handleSeek"
         />
+      </div>
+
+      <!-- This recording's clips -->
+      <div v-if="recording.clips.length > 0">
+        <p class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+          Clips
+        </p>
+        <SidebarClipRow
+          v-for="clip in recording.clips"
+          :key="clip.id"
+          :clip="clip"
+          :selected="false"
+          @select="seekTo(clip.start)"
+          @delete="emit('deleteClip', clip)"
+        />
+        <p class="text-[10px] text-zinc-600 mt-1">
+          Click a clip to jump to it here; open it on its own from Clips in the sidebar.
+        </p>
       </div>
 
       <!-- Meters — Details!/Skada-style Damage Done / Healing Done -->

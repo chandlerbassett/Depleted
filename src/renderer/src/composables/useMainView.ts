@@ -5,6 +5,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useRecordingsStore } from '@/stores/recordingsStore'
 import { useAppStore } from '@/stores/appStore'
+import type { Clip } from '@shared/ipc.types'
 
 export function useMainView() {
   const recordingsStore = useRecordingsStore()
@@ -27,6 +28,15 @@ export function useMainView() {
 
   async function openFolder(id: string): Promise<void> {
     await window.electron.invoke('storage:openFolder', { id })
+  }
+
+  async function deleteClip(clip: Clip): Promise<void> {
+    const { deleted } = await window.electron.invoke('storage:deleteClip', { id: clip.id })
+    if (deleted) recordingsStore.removeClip(clip)
+  }
+
+  async function showClip(clip: Clip): Promise<void> {
+    await window.electron.invoke('storage:showClip', { id: clip.id })
   }
 
   onMounted(async () => {
@@ -65,5 +75,5 @@ export function useMainView() {
     for (const unsub of unsubs) unsub()
   })
 
-  return { deleteRecording, openFolder }
+  return { deleteRecording, openFolder, deleteClip, showClip }
 }

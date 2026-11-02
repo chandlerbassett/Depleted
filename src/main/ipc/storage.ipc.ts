@@ -5,6 +5,9 @@
 //   storage:deleteRecording  — asks first, then moves a recording directory to the Trash
 //   storage:openFolder       — opens a recording directory in Finder
 //   storage:getCoachData     — a recording's coach.json, or null
+//   storage:saveClip         : cuts part of a recording into its clips/ folder
+//   storage:deleteClip       : asks first, then moves a clip to the Trash
+//   storage:showClip         : shows a clip in Finder
 //
 // Push events (webContents.send — fired from index.ts):
 //   storage:recordingProcessed   — new recording is ready
@@ -12,11 +15,42 @@
 
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'path'
-import type { StorageManager } from '../storage/StorageManager'
+import type { MediaTools, StorageManager } from '../storage/StorageManager'
 import type { Recording } from '@shared/ipc.types'
 
 // Register ipcMain.handle commands — call ONCE at app startup.
-export function registerStorageIpc(storageManager: StorageManager): void {
+export function registerStorageIpc(storageManager: StorageManager, mediaTools: () => MediaTools | null): void {
+  ipcMain.handle('storage:saveClip', async (_event, params: { id: string; start: number; end: number }) => {
+    const media = mediaTools()
+    if (media === null) throw new Error('The video tools are missing, so clips cannot be cut')
+    return storageManager.saveClip(params.id, params.start, params.end, media)
+  })
+
+  ipcMain.handle('storage:deleteClip', async (event, params: { id: string }) => {
+    const clip = await storageManager.getClip(params.id)
+    if (clip === null) return { deleted: false }
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const options = {
+      type: 'warning' as const,
+      message: 'Delete this clip?',
+      detail: 'It will be moved to the Trash. The full recording is kept.',
+      buttons: ['Move to Trash', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1
+    }
+    const { response } = window === null
+      ? await dialog.showMessageBox(options)
+      : await dialog.showMessageBox(window, options)
+    if (response !== 0) return { deleted: false }
+    await storageManager.deleteClip(clip.id, (path) => shell.trashItem(path))
+    return { deleted: true }
+  })
+
+  ipcMain.handle('storage:showClip', async (_event, params: { id: string }) => {
+    const clip = await storageManager.getClip(params.id)
+    if (clip !== null) shell.showItemInFolder(clip.videoPath)
+  })
+
   ipcMain.handle('storage:getRecordings', async () => {
     return storageManager.getRecordings()
   })

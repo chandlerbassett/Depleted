@@ -7,6 +7,7 @@ import { useStatsLinkStore } from '@/stores/statsLinkStore'
 import { useMainView } from '@/composables/useMainView'
 import RecordingList from '@/components/RecordingList.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
+import ClipPlayer from '@/components/ClipPlayer.vue'
 import SettingsView from '@/pages/SettingsView.vue'
 import AddonUpdateModal from '@/components/AddonUpdateModal.vue'
 import TrendsView from '@/components/TrendsView.vue'
@@ -15,15 +16,15 @@ const recordingsStore = useRecordingsStore()
 const statsLinkStore = useStatsLinkStore()
 
 const { status, currentZone, lastError, recordingStartedAt } = storeToRefs(appStore)
-const { selected, selectedId } = storeToRefs(recordingsStore)
+const { selected, selectedId, selectedClip, selectedClipId } = storeToRefs(recordingsStore)
 
-const { deleteRecording, openFolder } = useMainView()
+const { deleteRecording, openFolder, deleteClip, showClip } = useMainView()
 
 const settingsOpen = ref(false)
 
 // Trends across keys take over the main panel until a key is picked
 const trendsOpen = ref(false)
-watch(selectedId, () => { trendsOpen.value = false })
+watch([selectedId, selectedClipId], () => { trendsOpen.value = false })
 
 function openFromTrends(id: string, at: number): void {
   trendsOpen.value = false
@@ -362,6 +363,7 @@ const statusTextClass = computed(() => {
             :recordings="filteredRecordings"
             :on-delete="deleteRecording"
             :on-open-folder="openFolder"
+            :on-delete-clip="deleteClip"
           />
         </aside>
 
@@ -372,10 +374,19 @@ const statusTextClass = computed(() => {
             class="flex-1 min-h-0"
             @open="openFromTrends"
           />
+          <ClipPlayer
+            v-else-if="selectedClip !== null"
+            :clip="selectedClip.clip"
+            :recording="selectedClip.recording"
+            class="flex-1 min-h-0 overflow-y-auto"
+            @delete="deleteClip"
+            @show="showClip"
+          />
           <VideoPlayer
             v-else-if="selected !== null"
             :recording="selected"
             class="flex-1 min-h-0 overflow-y-auto"
+            @delete-clip="deleteClip"
           />
           <div
             v-else

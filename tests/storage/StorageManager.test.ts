@@ -426,3 +426,73 @@ describe('StorageManager.recoverRawRecordings', () => {
     expect(await manager.recoverRawRecordings([empty, other], ffmpegMediaTools('ffmpeg', writeOutputs))).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// saveClip
+// ---------------------------------------------------------------------------
+
+describe('StorageManager.saveClip', () => {
+  it('cuts the range into the clips folder', async () => {
+    const dirPath = join(tmpDir, KEY_ID)
+    await fs.mkdir(dirPath)
+    await writeMetadata(dirPath, SAMPLE_METADATA)
+    const runner = vi.fn(async (_ffmpegPath: string, args: string[]) => {
+      await fs.writeFile(args[args.length - 1]!, '')
+    })
+
+    const manager = new StorageManager(tmpDir)
+    const clip = await manager.saveClip(KEY_ID, 754.4, 801, ffmpegMediaTools('ffmpeg', runner))
+
+    expect(clip).toMatchObject({
+      id: `${KEY_ID}/clip_12m34s-13m21s.mp4`,
+      recordingId: KEY_ID,
+      videoPath: join(dirPath, 'clips', 'clip_12m34s-13m21s.mp4'),
+      thumbnailPath: join(dirPath, 'clips', 'clip_12m34s-13m21s.jpg'),
+      start: 754,
+      end: 801
+    })
+    const args = runner.mock.calls[0]![1]
+    expect(args.slice(0, 4)).toEqual(['-ss', '754.400', '-i', join(dirPath, 'recording.mp4')])
+    expect(args[args.indexOf('-t') + 1]).toBe('46.6')
+  })
+
+  it('lists clips with their recording, keeps same-range clips apart, and deletes one', async () => {
+    const dirPath = join(tmpDir, KEY_ID)
+    await fs.mkdir(dirPath)
+    await writeMetadata(dirPath, SAMPLE_METADATA)
+    const runner = vi.fn(async (_ffmpegPath: string, args: string[]) => {
+      await fs.writeFile(args[args.length - 1]!, '')
+    })
+    const manager = new StorageManager(tmpDir)
+    const media = ffmpegMediaTools('ffmpeg', runner)
+    const first = await manager.saveClip(KEY_ID, 60, 90, media)
+    const second = await manager.saveClip(KEY_ID, 60, 90, media)
+    expect(second.fileName).toBe('clip_1m00s-1m30s_2.mp4')
+
+    const [recording] = await manager.getRecordings()
+    expect(recording!.clips.map((c) => c.fileName).sort()).toEqual(['clip_1m00s-1m30s.mp4', 'clip_1m00s-1m30s_2.mp4'])
+
+    await manager.deleteClip(first.id)
+    const [after] = await manager.getRecordings()
+    expect(after!.clips.map((c) => c.id)).toEqual([second.id])
+    await expect(fs.access(first.thumbnailPath!)).rejects.toThrow()
+  })
+
+  it('refuses clip ids outside a recording', async () => {
+    const manager = new StorageManager(tmpDir)
+    expect(await manager.getClip('../etc/clip_0m00s-0m10s.mp4')).toBeNull()
+    expect(await manager.getClip(`${KEY_ID}/metadata.json`)).toBeNull()
+    expect(await manager.getClip(`${KEY_ID}/clips/clip_0m00s-0m10s.mp4`)).toBeNull()
+  })
+
+  it('refuses a clip under a second and a bad id', async () => {
+    const dirPath = join(tmpDir, KEY_ID)
+    await fs.mkdir(dirPath)
+    await writeMetadata(dirPath, SAMPLE_METADATA)
+    const manager = new StorageManager(tmpDir)
+    const media = ffmpegMediaTools('ffmpeg', vi.fn(async () => undefined))
+
+    await expect(manager.saveClip(KEY_ID, 10, 10.5, media)).rejects.toThrow('at least a second')
+    await expect(manager.saveClip('../x', 0, 10, media)).rejects.toThrow('Invalid recording id')
+  })
+})

@@ -58,6 +58,8 @@ dungeon and key level, and every note it makes jumps the video to the moment it 
 - **DPS and HPS meters** for the party, with pet damage credited to its owner
 - Click any party member to open them on **Raider.IO**, **Warcraft Logs** or the Armory
 - Deleting a run asks first and moves it to the Trash, so a stray click can be undone
+- **Clips**: mark a start and end (or take the last 30 seconds) to cut a clip without
+  re-encoding. Each run lists its clips, and all clips have their own section in the sidebar
 
 **Coach**
 
