@@ -364,7 +364,7 @@ function startApp(): void {
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)
   registerStorageIpc(storageManager)
-  registerCoachIpc(storageManager)
+  registerCoachIpc(storageManager, () => configStore.get('wowRegion'))
   registerTestModeIpc(recorder, stateMachine, configStore, configStore.get('storagePath'))
 
   const mainWindow = createWindow(stateMachine, storageManager)

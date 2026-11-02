@@ -10,6 +10,7 @@ import TimelineCanvas from './TimelineCanvas.vue'
 import MeterWidget from './MeterWidget.vue'
 import DeathLog from './DeathLog.vue'
 import CoachPanel from './CoachPanel.vue'
+import WclFightPanel from './WclFightPanel.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, WOW_SPEC_ID_MAP } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
@@ -181,6 +182,12 @@ function playerColor(name: string): string {
   return cls !== undefined ? (CLASS_COLORS[cls] ?? '#d4d4d8') : '#d4d4d8'
 }
 
+// Warcraft Logs ranks players by name alone
+function shortNameColor(name: string): string {
+  const full = props.recording.metadata.teamComp.find((n) => n === name || n.startsWith(`${name}-`))
+  return playerColor(full ?? name)
+}
+
 function playerSpec(name: string): string {
   // Primary: reliable spec from COMBATANT_INFO (saved to metadata.knownSpecs)
   const saved = props.recording.metadata.knownSpecs
@@ -238,6 +245,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 // Coach — per-player review with jump-to-video moments
 // -------------------------------------------------------------------------
 const showCoach = ref(true)
+const showWcl = ref(true)
 
 // -------------------------------------------------------------------------
 // Meters — Details!/Skada-style per-player Damage Done / Healing Done
@@ -448,6 +456,22 @@ function fmtK(n: number): string {
           :date="recording.metadata.date"
           :player-color="playerColor"
           @seek="handleSeek"
+        />
+      </div>
+
+      <!-- The fight's log and parses on Warcraft Logs -->
+      <div>
+        <button
+          class="flex items-center gap-2 text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2 hover:text-zinc-300 w-full text-left"
+          @click="showWcl = !showWcl"
+        >
+          <span>Warcraft Logs</span>
+          <span class="text-zinc-600">{{ showWcl ? '▲' : '▼' }}</span>
+        </button>
+        <WclFightPanel
+          v-if="showWcl"
+          :recording-id="recording.id"
+          :player-color="shortNameColor"
         />
       </div>
 
