@@ -111,6 +111,7 @@ interface ArmedRecording {
   restartTimer: ReturnType<typeof setTimeout> | null
   // Set when it's thrown away (left the dungeon, restart, test mode)
   cancelled: boolean
+  failure: string | null
 }
 
 interface KeySession {
@@ -320,7 +321,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       armed !== null
         ? armed.started.then((ok) => {
             session.recordingStartedAt = armed.recordingStartedAt
-            if (!ok) this.failSession(session, 'the armed recording did not start')
+            if (!ok) this.failSession(session, armed.failure ?? 'the armed recording did not start')
             return ok
           })
         : previousStop.then(() => this.startRecorder(session))
@@ -388,7 +389,8 @@ export class MythicPlusStateMachine extends EventEmitter {
       started: Promise.resolve(false),
       recordingStartedAt: null,
       restartTimer: null,
-      cancelled: false
+      cancelled: false,
+      failure: null
     }
     const previousStop = Promise.all([this.finalizing, this.disarming])
     armed.started = previousStop.then(async () => {
@@ -404,7 +406,8 @@ export class MythicPlusStateMachine extends EventEmitter {
         console.warn(`[MythicPlus] Armed for a key in ${zoneName}: ${armed.rawOutputPath}`)
         return true
       } catch (err) {
-        console.error('[MythicPlus] Arming failed:', err instanceof Error ? err.message : String(err))
+        armed.failure = err instanceof Error ? err.message : String(err)
+        console.error('[MythicPlus] Arming failed:', armed.failure)
         if (this.armed === armed) this.clearArmed()
         return false
       }
