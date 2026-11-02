@@ -7,11 +7,13 @@
 //   coach:getBenchmark     — top runs for a spec, dungeon and key level (cached)
 //   coach:listCharacters   — characters with coach data, for trends
 //   coach:getKeySummaries  — one character's keys boiled down for recap and trends
+//   coach:findWclFight     : the recording's fight on Warcraft Logs, with parses (cached)
 
 import { app, ipcMain } from 'electron'
 import { join } from 'path'
 import { WclClient, WclError, type WclCredentials } from '../coach/WclClient'
 import { BenchmarkService } from '../coach/BenchmarkService'
+import { WclFightFinder, type FightToFind } from '../coach/WclFightFinder'
 import { loadWclCredentials, saveWclCredentials, clearWclCredentials } from '../coach/wclCredentials'
 import { WOW_SPEC_ID_MAP } from '@shared/constants'
 import type { Benchmark, BenchmarkResult } from '@shared/benchmark.types'
@@ -19,7 +21,9 @@ import { reviewPlayer } from '@shared/coachAnalysis'
 import { compareWithTop } from '@shared/coachBenchmark'
 import { summarizeBosses, summarizeKey, isCharacter, type KeySummary } from '@shared/coachRecap'
 import type { StorageManager } from '../storage/StorageManager'
-import type { Recording } from '@shared/ipc.types'
+import type { Recording, WowRegion } from '@shared/ipc.types'
+import type { WclFightResult } from '@shared/wclFight.types'
+import { parseCharacterFullName, realmSlug } from '@shared/characterNames'
 
 // Bump when KeySummary or how it's worked out changes, so saved summaries are redone
 const SUMMARY_CACHE_VERSION = 2
@@ -30,7 +34,10 @@ interface SummaryCache {
   entries: Record<string, KeySummary>
 }
 
-export function registerCoachIpc(storageManager: StorageManager): void {
+// People to look up reports for: the one recording first, then a few of the group
+const FIGHT_LOOKUP_CHARACTERS = 4
+
+export function registerCoachIpc(storageManager: StorageManager, region: () => WowRegion): void {
   let service: BenchmarkService | null = null
   let serviceFor: string | null = null
 
@@ -62,6 +69,35 @@ export function registerCoachIpc(storageManager: StorageManager): void {
       return { ok: false, error: message }
     }
   })
+
+  ipcMain.handle(
+    'coach:findWclFight',
+    async (_event, params: { id: string; refresh: boolean }): Promise<WclFightResult> => {
+      if (!params.refresh) {
+        const cached = await storageManager.readWclFight(params.id)
+        if (cached !== null) return { status: 'ok', link: cached }
+      }
+      const creds = await loadWclCredentials()
+      if (creds === null) return { status: 'no-credentials' }
+      const rec = (await storageManager.getRecordings()).find((r) => r.id === params.id)
+      if (rec === undefined) return { status: 'error', message: 'Recording not found' }
+      try {
+        const link = await new WclFightFinder(new WclClient(creds)).find(fightToFind(rec, region()))
+        if (link === null) {
+          return {
+            status: 'not-found',
+            message: 'No public or unlisted Warcraft Logs report from this group has this fight yet'
+          }
+        }
+        await storageManager.writeWclFight(rec.id, link).catch((err: unknown) => {
+          console.warn('[Coach] Could not save the Warcraft Logs fight:', err instanceof Error ? err.message : String(err))
+        })
+        return { status: 'ok', link }
+      } catch (err) {
+        return { status: 'error', message: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
 
   ipcMain.handle('coach:clearWclCredentials', async () => {
     await clearWclCredentials()
@@ -196,4 +232,18 @@ export function registerCoachIpc(storageManager: StorageManager): void {
       return { summaries: out, wclConfigured: svc !== null }
     }
   )
+}
+
+function fightToFind(rec: Recording, defaultRegion: WowRegion): FightToFind {
+  const meta = rec.metadata
+  const start = meta.events.find((e) => e.type === 'key-start')
+  const names = [...new Set([meta.playerName, ...meta.teamComp].filter((n) => n.includes('-')))]
+  return {
+    startedAt: new Date(new Date(meta.date).getTime() + (start?.timestamp ?? 0) * 1000),
+    encounterId: null,
+    characters: names.slice(0, FIGHT_LOOKUP_CHARACTERS).map((n) => {
+      const c = parseCharacterFullName(n, defaultRegion)
+      return { name: c.name, serverSlug: realmSlug(c.realm), region: c.region }
+    })
+  }
 }

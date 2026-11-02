@@ -5,6 +5,7 @@
 import type { CoachData } from './coach.types'
 import type { KeySummary } from './coachRecap'
 import type { BenchmarkResult } from './benchmark.types'
+import type { WclFightResult } from './wclFight.types'
 
 // ---------------------------------------------------------------------------
 // Bracket and result types
@@ -196,6 +197,10 @@ export interface IpcCommands {
     params: { playerName: string; fetchMissing: boolean }
     result: { summaries: KeySummary[]; wclConfigured: boolean }
   }
+
+  // The recording's fight on Warcraft Logs. refresh: look again instead of the saved one
+  // (parses fill in once WCL ranks a kill)
+  'coach:findWclFight': { params: { id: string; refresh: boolean }; result: WclFightResult }
 
   // Config
   'config:get': { params: { key: string }; result: unknown }
