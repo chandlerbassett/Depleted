@@ -59,9 +59,11 @@ dungeon and key level, and every note it makes jumps the video to the moment it 
 - Click any party member to open them on **Raider.IO**, **Warcraft Logs** or the Armory
 - Deleting a run asks first and moves it to the Trash, so a stray click can be undone
 - **Clips**: mark a start and end (or take the last 30 seconds) to cut a clip without
-  re-encoding. Each run lists its clips, and all clips have their own section in the sidebar
-- With Warcraft Logs connected, each run links to its fight in a public or unlisted report
-  someone in the group uploaded, with everyone's parse
+  re-encoding. Each run lists its clips, and all clips have their own section in the sidebar.
+  Clips are saved in a `clips` folder next to the run's video
+- **Warcraft Logs fight link**: with Warcraft Logs connected, each run finds its fight in a
+  public or unlisted report that someone in the group uploaded, links to it, and shows
+  everyone's parse
 
 **Coach**
 
@@ -85,7 +87,8 @@ dungeon and key level, and every note it makes jumps the video to the moment it 
   aren't supported.
 - **Advanced Combat Logging** turned on in the game (see [Setup](#setup))
 - **Screen Recording** permission for Depleted
-- Optional: a free Warcraft Logs API client, for the Coach's comparison with top players
+- Optional: a free Warcraft Logs API client, for the Coach's comparison with top players and
+  for linking each run to its fight on Warcraft Logs
 
 Nothing else to install. Capture, encoding, trimming and thumbnails all go through macOS's own
 frameworks via a small bundled Swift helper.
@@ -136,9 +139,10 @@ The game writes combat logs to `_retail_/Logs/`, and Depleted follows the newest
 Install it from the onboarding screen or **Settings → WoW Addon**. Or copy `addon/DepletedCompanion`
 into `_retail_/Interface/AddOns/` and `/reload` in game. Type `/depleted` in game to check it's loaded.
 
-### 3. Connect Warcraft Logs (optional, for the Coach)
+### 3. Connect Warcraft Logs (optional)
 
-The Coach's comparison with top players uses the Warcraft Logs API with your own free client:
+The Coach's comparison with top players and the link from each run to its fight on Warcraft Logs
+use the Warcraft Logs API with your own free client:
 
 1. Sign in at [warcraftlogs.com/api/clients](https://www.warcraftlogs.com/api/clients) and create
    a client. Any name works; use `http://localhost` as the redirect URL and leave
@@ -146,7 +150,7 @@ The Coach's comparison with top players uses the Warcraft Logs API with your own
 2. In Depleted, open **Settings → Warcraft Logs**, paste the client ID and secret, and click **Connect**.
 
 The secret is stored encrypted with your macOS Keychain and is only ever sent to Warcraft Logs.
-Without a client, the Coach still reviews each key on its own.
+Without a client, the Coach still reviews each key on its own, and runs just don't show a fight link.
 
 ### 4. Play
 
@@ -161,8 +165,9 @@ upload that key to Warcraft Logs.
 
 Your recordings, timelines and Coach data stay on your Mac, in a folder only your user account
 can read. Depleted only goes online for two things: checking this repo's releases for updates,
-and, if you connect it, the Warcraft Logs API with your own client. Player links open in your
-browser.
+and, if you connect it, the Warcraft Logs API with your own client. That covers the Coach's
+top-player data and finding a run's fight, which looks up the recent public reports of you and up
+to three others in the group by character name. Player links open in your browser.
 
 The app runs with Electron's sandbox and context isolation on, a strict content security
 policy, and a short allowlist of permissions. Releases are built only from `main` by a
@@ -213,7 +218,7 @@ anywhere else. To sign with another identity, set `DEPLETED_SIGN_IDENTITY`.
 ### Development
 
 ```bash
-npm test             # unit tests (vitest)
+npm test             # unit tests (vitest), including a syntax check of the addon's Lua
 npm run lint
 npm run build        # compile without packaging
 ```
@@ -240,6 +245,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 - **A key finished over time may still say completed.** The combat log's success flag doesn't
   say whether the timer was beaten.
+- **The Warcraft Logs fight link only finds public or unlisted reports.** A report uploaded
+  as private, or not uploaded yet, won't be found. Use **Refresh** once it's up.
 - **The Coach's top-player comparison uses Warcraft Logs API points.** Benchmarks are cached
   on disk for three days, so each dungeon, spec and level is only fetched once in that time.
 
@@ -252,6 +259,9 @@ Depleted started as a fork of [**wowArenaAnalyzer**](https://github.com/krav5591
 by Aleksandr Kravchenko (MIT), which provided the original Electron app, combat log watcher and
 parser, and playback UI. Thank you! Its arena features have since been replaced with Mythic+
 recording, native capture and the Coach. If you play arena, the original project is the one for you.
+
+Thanks to [TommiTMX](https://github.com/TommiTMX) for clips, the Warcraft Logs fight link, and
+fixes to local signing and recording errors.
 
 Top-player data comes from [Warcraft Logs](https://www.warcraftlogs.com/). Player links go to
 [Raider.IO](https://raider.io/) and [Warcraft Logs](https://www.warcraftlogs.com/).
