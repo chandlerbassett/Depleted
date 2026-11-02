@@ -167,6 +167,8 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
   ipcMain.handle('coach:listCharacters', async () => {
     const counts = new Map<string, number>()
     for (const rec of await storageManager.getRecordings()) {
+      // Recap and Trends compare keys with keys, so raid pulls are left out
+      if (rec.metadata.mythicPlus === undefined) continue
       for (const n of await rosterOf(rec)) counts.set(n, (counts.get(n) ?? 0) + 1)
     }
     return [...counts]
@@ -182,9 +184,11 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
       // Benchmarks already looked at in this call, by spec, dungeon and level
       const benches = new Map<string, Benchmark | null>()
       for (const rec of await storageManager.getRecordings()) {
+        const mythicPlus = rec.metadata.mythicPlus
+        if (mythicPlus === undefined) continue
         if (!(await rosterOf(rec)).some((n) => isCharacter(n, params.playerName))) continue
         const dungeon = rec.metadata.zone
-        const keyLevel = rec.metadata.mythicPlus.keystoneLevel
+        const keyLevel = mythicPlus.keystoneLevel
         // Already summarized with no top-player comparison to add: no need to read coach.json
         const plain = await cachedSummary(rec, `${params.playerName}|-`)
         if (plain !== undefined && (svc === null || plain.specId === null || !dungeon || keyLevel < 2)) {
@@ -218,7 +222,7 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
           const review = reviewPlayer(data, player.guid)
           if (review === null) continue
           const comparison = bench !== null ? compareWithTop(data, player.guid, bench) : null
-          const encounters = rec.metadata.mythicPlus.encounters ?? []
+          const encounters = mythicPlus.encounters ?? []
           summary = summarizeKey(
             { recordingId: rec.id, date: rec.metadata.date, dungeon, keyLevel },
             review,
@@ -236,11 +240,11 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
 
 function fightToFind(rec: Recording, defaultRegion: WowRegion): FightToFind {
   const meta = rec.metadata
-  const start = meta.events.find((e) => e.type === 'key-start')
+  const start = meta.events.find((e) => e.type === 'pull-start' || e.type === 'key-start')
   const names = [...new Set([meta.playerName, ...meta.teamComp].filter((n) => n.includes('-')))]
   return {
     startedAt: new Date(new Date(meta.date).getTime() + (start?.timestamp ?? 0) * 1000),
-    encounterId: null,
+    encounterId: meta.raid?.encounterId ?? null,
     characters: names.slice(0, FIGHT_LOOKUP_CHARACTERS).map((n) => {
       const c = parseCharacterFullName(n, defaultRegion)
       return { name: c.name, serverSlug: realmSlug(c.realm), region: c.region }

@@ -49,7 +49,8 @@ import {
   DEFAULT_VIDEO_RESOLUTION,
   DEFAULT_MINIMIZE_TO_TRAY,
   DEFAULT_STATS_SITE,
-  DEFAULT_WOW_REGION
+  DEFAULT_WOW_REGION,
+  DEFAULT_RAID_DIFFICULTIES
 } from '@shared/constants'
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,8 @@ const configStore = new Store<AppConfig>({
     minimizeToTray: DEFAULT_MINIMIZE_TO_TRAY,
     onboardingComplete: false,
     statsSite: DEFAULT_STATS_SITE,
-    wowRegion: DEFAULT_WOW_REGION
+    wowRegion: DEFAULT_WOW_REGION,
+    raidDifficulties: [...DEFAULT_RAID_DIFFICULTIES]
   }
 })
 // configFileMode only applies when the file is next written; fix older installs now
@@ -148,7 +150,8 @@ function createPipeline(): {
   }
   const stateMachine = new MythicPlusStateMachine(watcher, recorder, {
     rawRecordingsDir: rawDir,
-    recorder: recorderOptions
+    recorder: recorderOptions,
+    raidDifficulties: configStore.get('raidDifficulties')
   })
   const storageManager = new StorageManager(storagePath)
 
@@ -361,6 +364,9 @@ function startApp(): void {
       stateMachine.updateRecorderOptions(opts)
     })
   }
+  configStore.onDidChange('raidDifficulties', (difficulties) => {
+    stateMachine.updateRaidDifficulties(difficulties ?? [])
+  })
 
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)

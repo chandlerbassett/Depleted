@@ -4,7 +4,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { StorageManager, buildDirName, buildMetadata, ffmpegMediaTools } from '../../src/main/storage/StorageManager'
 import { writeMetadata } from '../../src/main/storage/MetadataWriter'
-import type { MythicPlusInfo, RecordingMetadata } from '../../src/shared/ipc.types'
+import type { MythicPlusInfo, RaidInfo, RecordingMetadata } from '../../src/shared/ipc.types'
 import type { ProcessingRequiredEvent } from '../../src/main/recorder/types'
 import type { CoachData } from '../../src/shared/coach.types'
 
@@ -43,6 +43,28 @@ const EVENT: ProcessingRequiredEvent = {
   playerDamageTaken: {},
   playerHealingDone: {},
   mythicPlus: MYTHIC_PLUS
+}
+
+const RAID: RaidInfo = {
+  instanceId: 2810,
+  encounterId: 3129,
+  encounterName: 'Plexus Sentinel',
+  difficulty: 'heroic',
+  groupSize: 20,
+  outcome: 'wipe',
+  fightTimeMs: 240000,
+  pullNumber: 3,
+  deathCount: 0,
+  deathsByPlayer: {},
+  interruptsByPlayer: {}
+}
+
+const RAID_EVENT: ProcessingRequiredEvent = {
+  ...EVENT,
+  zoneName: 'Manaforge Omega',
+  result: 'LOSS',
+  mythicPlus: undefined,
+  raid: RAID
 }
 
 const SAMPLE_METADATA: RecordingMetadata = {
@@ -85,6 +107,10 @@ describe('buildDirName', () => {
     const event: ProcessingRequiredEvent = { ...EVENT, mythicPlus: { ...MYTHIC_PLUS, outcome: 'depleted' } }
     expect(buildDirName(event)).toBe('2026-04-15_20-00-15_AraKaraCityofEchoes_M12_depleted')
   })
+
+  it('formats a raid pull directory name with boss, difficulty and outcome', () => {
+    expect(buildDirName(RAID_EVENT)).toBe('2026-04-15_20-00-15_ManaforgeOmega_PlexusSentinel_heroic_wipe')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -100,6 +126,13 @@ describe('buildMetadata', () => {
     expect(meta.zone).toBe('Ara-Kara, City of Echoes')
     expect(meta.mythicPlus.keystoneLevel).toBe(12)
     expect(meta.events).toEqual([])
+  })
+
+  it('builds raid metadata from a pull event', () => {
+    const meta = buildMetadata(RAID_EVENT, [])
+    expect(meta.bracket).toBe('raid')
+    expect(meta.raid).toEqual(RAID)
+    expect(meta.mythicPlus).toBeUndefined()
   })
 
   it('includes provided timeline events', () => {
@@ -131,6 +164,17 @@ describe('StorageManager.getRecordings', () => {
     expect(recordings).toHaveLength(1)
     expect(recordings[0]?.id).toBe(id)
     expect(recordings[0]?.metadata.bracket).toBe('mythic-plus')
+  })
+
+  it('returns raid recordings alongside keys', async () => {
+    const dirPath = join(tmpDir, '2026-04-15_20-00-15_ManaforgeOmega_PlexusSentinel_heroic_wipe')
+    await fs.mkdir(dirPath)
+    await writeMetadata(dirPath, { ...SAMPLE_METADATA, bracket: 'raid', mythicPlus: undefined, raid: RAID })
+
+    const manager = new StorageManager(tmpDir)
+    const recordings = await manager.getRecordings()
+    expect(recordings).toHaveLength(1)
+    expect(recordings[0]?.metadata.raid?.encounterName).toBe('Plexus Sentinel')
   })
 
   it('skips arena recordings from before Depleted was Mythic+ only', async () => {
@@ -399,6 +443,35 @@ describe('StorageManager.recoverRawRecordings', () => {
     await expect(fs.access(rawPath)).rejects.toThrow()
     await expect(fs.access(`${rawPath}.json`)).rejects.toThrow()
     expect((await manager.getRecordings()).map((r) => r.id)).toEqual([recording!.id])
+  })
+
+  it('saves a raw raid pull with its info file as a wipe', async () => {
+    const rawPath = join(tmpDir, 'raw_mplus_manaforge-omega_20261028T200000.mp4')
+    await fs.writeFile(rawPath, 'video')
+    await fs.writeFile(
+      `${rawPath}.json`,
+      JSON.stringify({
+        zoneName: 'Manaforge Omega',
+        instanceId: 2810,
+        challengeModeId: 0,
+        keystoneLevel: 0,
+        affixIds: [],
+        keyStartedAt: '2026-10-28T20:05:00.000Z',
+        recordingStartedAt: '2026-10-28T20:00:00.000Z',
+        preRollSecs: 15,
+        raid: { encounterId: 3129, encounterName: 'Plexus Sentinel', difficulty: 'mythic', groupSize: 20, pullNumber: 4 }
+      })
+    )
+    const stoppedAt = new Date('2026-10-28T20:08:00.000Z')
+    await fs.utimes(rawPath, stoppedAt, stoppedAt)
+
+    const manager = new StorageManager(tmpDir)
+    const [recording] = await manager.recoverRawRecordings([rawPath], ffmpegMediaTools('ffmpeg', writeOutputs))
+
+    expect(recording!.id).toBe('2026-10-28_20-04-45_ManaforgeOmega_PlexusSentinel_mythic_wipe')
+    expect(recording!.metadata.bracket).toBe('raid')
+    expect(recording!.metadata.raid).toMatchObject({ encounterId: 3129, difficulty: 'mythic', pullNumber: 4, outcome: 'wipe' })
+    expect(recording!.metadata.duration).toBe(195)
   })
 
   it('falls back to the file name when there is no info file', async () => {

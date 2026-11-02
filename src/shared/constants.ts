@@ -30,6 +30,30 @@ export const MYTHIC_PLUS_ARM_MAX_LOG_AGE_SECS = 120
 export const MYTHIC_DUNGEON_DIFFICULTY_IDS: readonly number[] = [23, 8]
 
 // ---------------------------------------------------------------------------
+// Raid recording
+// ---------------------------------------------------------------------------
+
+// Raid: keep recording this long after ENCOUNTER_END so the kill (or the wipe) is in it.
+export const RAID_POST_ROLL_SECS = 8
+// Raid: stop re-arming between pulls once the combat log has been silent this long.
+export const RAID_ARMED_QUIET_MAX_SECS = 1800
+// ZONE_CHANGE / ENCOUNTER_START difficulty IDs of the current raid difficulties. Legacy
+// 10/25-player and Timewalking raids are left out on purpose.
+export const RAID_DIFFICULTY_IDS: Readonly<Record<number, import('./ipc.types').RaidDifficulty>> = {
+  17: 'lfr',
+  14: 'normal',
+  15: 'heroic',
+  16: 'mythic'
+}
+export const RAID_DIFFICULTY_LABEL: Readonly<Record<import('./ipc.types').RaidDifficulty, string>> = {
+  lfr: 'LFR',
+  normal: 'Normal',
+  heroic: 'Heroic',
+  mythic: 'Mythic'
+}
+export const DEFAULT_RAID_DIFFICULTIES: readonly import('./ipc.types').RaidDifficulty[] = ['normal', 'heroic', 'mythic']
+
+// ---------------------------------------------------------------------------
 // Death recap
 // ---------------------------------------------------------------------------
 
@@ -45,6 +69,7 @@ export const TIMELINE_COLORS: Readonly<Record<import('./ipc.types').TimelineEven
   interrupt: '#22c55e',     // green-500
   'key-start': '#ffffff',
   'key-end': '#ffffff',
+  'pull-start': '#ffffff',
   'boss-kill': '#22d3ee',   // cyan-400
   'boss-wipe': '#dc2626',   // red-600
 }

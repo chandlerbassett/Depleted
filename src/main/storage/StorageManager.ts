@@ -8,7 +8,7 @@
 //   5. Delete the raw (untrimmed) file and its info file
 //
 // recoverRawRecordings() saves raw files left behind by a crash or force-quit, as
-// abandoned keys, on the next launch.
+// abandoned keys (or wiped raid pulls), on the next launch.
 //
 // The trim offset is the wall-clock difference between when recording started and
 // where the kept footage begins (event.matchStartedAt).
@@ -22,7 +22,7 @@
 import { promises as fs } from 'fs'
 import { join, extname, basename } from 'path'
 import { spawn } from 'child_process'
-import type { Clip, MythicPlusInfo, Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
+import type { Clip, MythicPlusInfo, RaidInfo, Recording, RecordingMetadata, TimelineEvent } from '@shared/ipc.types'
 import { rawInfoPath, type ProcessingRequiredEvent, type RawRecordingInfo } from '../recorder/types'
 import { runHelperCommand } from '../recorder/nativeHelper'
 import { writeMetadata, readMetadata, writeCoachData, readCoachData } from './MetadataWriter'
@@ -181,10 +181,10 @@ export class StorageManager {
   // Library
   // -------------------------------------------------------------------------
 
-  // Returns all Mythic+ recordings sorted by date descending (newest first).
+  // Returns all Mythic+ and raid recordings sorted by date descending (newest first).
   // Directories without a parseable metadata.json are skipped silently
   // (they are surfaced separately via findOrphanedRecordings), and so are arena
-  // recordings left over from before Depleted was Mythic+ only.
+  // recordings left over from before Depleted recorded PvE.
   async getRecordings(): Promise<Recording[]> {
     const entries = await safeReaddir(this.storagePath)
     const recordings: Recording[] = []
@@ -195,7 +195,7 @@ export class StorageManager {
       const dirPath = join(this.storagePath, entry.name)
       const metadata = await readMetadata(dirPath)
 
-      if (metadata === null || metadata.bracket !== 'mythic-plus' || metadata.mythicPlus === undefined) continue
+      if (metadata === null || !isPveRecording(metadata)) continue
       recordings.push({
         id: entry.name,
         path: dirPath,
@@ -372,7 +372,11 @@ function generateThumbnail(
 export function buildDirName(event: ProcessingRequiredEvent): string {
   const zone = event.zoneName.replace(/[^a-zA-Z0-9]/g, '')
   const date = formatDateTime(event.matchStartedAt)
-  return `${date}_${zone}_M${event.mythicPlus.keystoneLevel}_${event.mythicPlus.outcome}`
+  if (event.raid !== undefined) {
+    const boss = event.raid.encounterName.replace(/[^a-zA-Z0-9]/g, '')
+    return `${date}_${zone}_${boss}_${event.raid.difficulty}_${event.raid.outcome}`
+  }
+  return `${date}_${zone}_M${event.mythicPlus?.keystoneLevel ?? 0}_${event.mythicPlus?.outcome ?? 'abandoned'}`
 }
 
 // Builds RecordingMetadata from a processing event.
@@ -384,7 +388,7 @@ export function buildMetadata(
   return {
     date: event.matchStartedAt.toISOString(),
     zone: event.zoneName,
-    bracket: 'mythic-plus',
+    bracket: event.raid !== undefined ? 'raid' : 'mythic-plus',
     result: event.result,
     duration: event.durationSecs,
     videoExt,
@@ -397,8 +401,15 @@ export function buildMetadata(
     playerDamageDone: Object.keys(event.playerDamageDone).length > 0 ? event.playerDamageDone : undefined,
     playerDamageTaken: Object.keys(event.playerDamageTaken).length > 0 ? event.playerDamageTaken : undefined,
     playerHealingDone: Object.keys(event.playerHealingDone).length > 0 ? event.playerHealingDone : undefined,
-    mythicPlus: event.mythicPlus
+    mythicPlus: event.mythicPlus,
+    raid: event.raid
   }
+}
+
+function isPveRecording(metadata: RecordingMetadata): boolean {
+  if (metadata.bracket === 'mythic-plus') return metadata.mythicPlus !== undefined
+  if (metadata.bracket === 'raid') return metadata.raid !== undefined
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -418,14 +429,27 @@ export async function buildRecoveryEvent(rawPath: string): Promise<ProcessingReq
   let zoneName: string
   let matchStartedAt: Date
   let recordingStartedAt: Date
-  let mythicPlus: MythicPlusInfo
+  let mythicPlus: MythicPlusInfo | undefined
+  let raid: RaidInfo | undefined
   if (info !== null) {
     zoneName = info.zoneName
     recordingStartedAt = new Date(info.recordingStartedAt)
     const keyStartedAt = new Date(info.keyStartedAt)
     // Same lead-in as a normal save: at most preRollSecs before the key start
     matchStartedAt = new Date(Math.max(recordingStartedAt.getTime(), keyStartedAt.getTime() - info.preRollSecs * 1000))
-    mythicPlus = emptyMythicPlus(info.instanceId, info.challengeModeId, info.keystoneLevel, info.affixIds)
+    if (info.raid !== undefined) {
+      raid = {
+        instanceId: info.instanceId,
+        ...info.raid,
+        outcome: 'wipe',
+        fightTimeMs: 0,
+        deathCount: 0,
+        deathsByPlayer: {},
+        interruptsByPlayer: {}
+      }
+    } else {
+      mythicPlus = emptyMythicPlus(info.instanceId, info.challengeModeId, info.keystoneLevel, info.affixIds)
+    }
   } else {
     // "murder-row" → "Murder Row"; the time is when the recording started (UTC)
     zoneName = match[1]!.split('-').filter((w) => w.length > 0).map((w) => w[0]!.toUpperCase() + w.slice(1)).join(' ')
@@ -452,7 +476,8 @@ export async function buildRecoveryEvent(rawPath: string): Promise<ProcessingReq
     playerDamageDone: {},
     playerDamageTaken: {},
     playerHealingDone: {},
-    mythicPlus
+    mythicPlus,
+    raid
   }
 }
 

@@ -11,10 +11,10 @@ import type { WclFightResult } from './wclFight.types'
 // Bracket and result types
 // ---------------------------------------------------------------------------
 
-// Depleted records Mythic+ keys only. Recordings from the arena era (other brackets)
-// may still be on disk; StorageManager skips them.
-export type RecordingBracket = 'mythic-plus'
-// WIN = key completed, LOSS = depleted or abandoned (MythicPlusInfo.outcome has the detail)
+// Recordings from the arena era (other brackets) may still be on disk; StorageManager
+// skips them.
+export type RecordingBracket = 'mythic-plus' | 'raid'
+// WIN = key completed or boss killed, LOSS = depleted, abandoned or wiped
 export type RecordingResult = 'WIN' | 'LOSS'
 
 export type RecorderStatus = 'idle' | 'waiting' | 'recording' | 'processing' | 'error'
@@ -28,6 +28,7 @@ export type TimelineEventType =
   | 'interrupt'
   | 'key-start'
   | 'key-end'
+  | 'pull-start'
   | 'boss-kill'
   | 'boss-wipe'
 
@@ -98,7 +99,9 @@ export interface RecordingMetadata {
   playerDamageDone?: Record<string, number>
   playerDamageTaken?: Record<string, number>
   playerHealingDone?: Record<string, number>
-  mythicPlus: MythicPlusInfo
+  // Exactly one is set, matching bracket
+  mythicPlus?: MythicPlusInfo
+  raid?: RaidInfo
   events: TimelineEvent[]
 }
 
@@ -130,6 +133,27 @@ export interface MythicPlusInfo {
   // name → number of deaths during the key
   deathsByPlayer: Record<string, number>
   // name → successful interrupts during the key
+  interruptsByPlayer: Record<string, number>
+}
+
+export type RaidDifficulty = 'lfr' | 'normal' | 'heroic' | 'mythic'
+
+export type RaidOutcome = 'kill' | 'wipe'
+
+// One boss pull in a raid
+export interface RaidInfo {
+  instanceId: number
+  encounterId: number
+  encounterName: string
+  difficulty: RaidDifficulty
+  groupSize: number
+  outcome: RaidOutcome
+  // From ENCOUNTER_END, 0 when the pull never ended cleanly
+  fightTimeMs: number
+  // 1 for the first pull of this boss since entering the raid; 0 when unknown (recovered)
+  pullNumber: number
+  deathCount: number
+  deathsByPlayer: Record<string, number>
   interruptsByPlayer: Record<string, number>
 }
 
@@ -298,6 +322,8 @@ export interface AppConfig {
   onboardingComplete: boolean
   statsSite: StatsSite
   wowRegion: WowRegion
+  // Raid difficulties whose boss pulls are recorded; empty turns raid recording off
+  raidDifficulties: RaidDifficulty[]
 }
 
 export interface CaptureSource {

@@ -11,12 +11,13 @@ import MeterWidget from './MeterWidget.vue'
 import DeathLog from './DeathLog.vue'
 import CoachPanel from './CoachPanel.vue'
 import ClipControls from './ClipControls.vue'
-import SidebarClipRow from './SidebarClipRow.vue'
 import WclFightPanel from './WclFightPanel.vue'
+import SidebarClipRow from './SidebarClipRow.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, WOW_SPEC_ID_MAP } from '@shared/constants'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
 import { computeMeter } from '@/composables/useMeters'
+import { levelBadge, outcomeLabel, recordingTitle } from '@/utils/recordingLabels'
 
 const props = defineProps<{ recording: Recording }>()
 const emit = defineEmits<{ deleteClip: [clip: Clip] }>()
@@ -73,14 +74,17 @@ watch(
 
 const result = computed(() => props.recording.metadata.result)
 const mythicPlus = computed(() => props.recording.metadata.mythicPlus)
-// The key's level and how it ended
+const isRaid = computed(() => props.recording.metadata.raid !== undefined)
 const resultLabel = computed(() => {
-  const mp = mythicPlus.value
-  const outcome = mp.outcome === 'completed' ? 'Completed' : mp.outcome === 'depleted' ? 'Depleted' : 'Abandoned'
-  // Level 0: recovered after a crash with no key info
-  return mp.keystoneLevel > 0 ? `+${mp.keystoneLevel} ${outcome}` : outcome
+  const meta = props.recording.metadata
+  const badge = levelBadge(meta)
+  return badge !== null ? `${badge} ${outcomeLabel(meta)}` : outcomeLabel(meta)
 })
 const zone = computed(() => props.recording.metadata.zone)
+const title = computed(() => recordingTitle(props.recording.metadata))
+const subtitle = computed(() =>
+  [isRaid.value ? zone.value : null, formattedDate.value, formattedDuration.value].filter((p) => p !== null).join(' · ')
+)
 const formattedDuration = computed(() => fmtSecs(props.recording.metadata.duration))
 const formattedDate = computed(() => formatDate(props.recording.metadata.date))
 const currentTimeLabel = computed(() => fmtSecs(currentTime.value))
@@ -118,6 +122,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   'boss-wipe': 'Wipe',
   'key-start': 'Key start',
   'key-end': 'Key end',
+  'pull-start': 'Pull',
 }
 
 const legendItems = [
@@ -255,10 +260,11 @@ const showWcl = ref(true)
 // -------------------------------------------------------------------------
 const showMeters = ref(false)
 
-// Per-second rates use the key timer (the video also has the post-roll)
+// Per-second rates use the key timer or fight time (the video also has the pre- and post-roll)
 const meterSecs = computed(() => {
-  const keyMs = props.recording.metadata.mythicPlus.totalTimeMs
-  return keyMs > 0 ? keyMs / 1000 : props.recording.metadata.duration
+  const { mythicPlus: mp, raid, duration } = props.recording.metadata
+  const ms = raid?.fightTimeMs ?? mp?.totalTimeMs ?? 0
+  return ms > 0 ? ms / 1000 : duration
 })
 const dmgDoneMeter = computed(() => computeMeter(props.recording.metadata.playerDamageDone, meterSecs.value))
 const healDoneMeter = computed(() => computeMeter(props.recording.metadata.playerHealingDone, meterSecs.value))
@@ -405,10 +411,10 @@ function fmtK(n: number): string {
       <div class="flex items-center gap-3 pt-1">
         <div class="flex-1 min-w-0">
           <h3 class="text-sm font-semibold text-white truncate">
-            {{ zone }}
+            {{ title }}
           </h3>
           <p class="text-xs text-zinc-500 mt-0.5">
-            {{ formattedDate }} · {{ formattedDuration }}
+            {{ subtitle }}
           </p>
         </div>
         <span
@@ -425,7 +431,7 @@ function fmtK(n: number): string {
           class="text-xs font-semibold uppercase tracking-wider mb-2"
           style="color: #f0b429;"
         >
-          Party
+          {{ isRaid ? 'Raid' : 'Party' }}
         </p>
         <div class="grid grid-cols-2 gap-x-3">
           <button
@@ -463,6 +469,7 @@ function fmtK(n: number): string {
           :recording-id="recording.id"
           :dungeon="zone"
           :key-level="mythicPlus?.keystoneLevel ?? 0"
+          :raid="isRaid"
           :date="recording.metadata.date"
           :player-color="playerColor"
           @seek="handleSeek"
@@ -624,7 +631,7 @@ function fmtK(n: number): string {
             v-if="eventsListItems.length === 0"
             class="text-xs text-zinc-600 py-2 text-center"
           >
-            No tracked events in this key
+            No tracked events in this {{ isRaid ? 'pull' : 'key' }}
           </p>
         </div>
       </div>

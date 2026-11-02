@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useSettings, MAX_CUSTOM_BITRATE_MBPS } from '@/composables/useSettings'
 import { STATS_SITES, STATS_SITE_LABELS } from '@/utils/characterLinks'
+import { RAID_DIFFICULTY_LABEL } from '@shared/constants'
 import TestModeModal from '@/components/TestModeModal.vue'
 
 const emit = defineEmits<{ close: [] }>()
@@ -25,6 +26,8 @@ const {
   minimizeToTray,
   statsSite,
   wowRegion,
+  raidDifficulties,
+  toggleRaidDifficulty,
   pickWowPath,
   pickStoragePath,
   setFps,
@@ -690,6 +693,36 @@ const CODECS = [
               Clicking a player name in a recording opens their profile here.
             </p>
           </div>
+        </section>
+
+        <!-- ---------------------------------------------------------------- -->
+        <!-- Raids                                                             -->
+        <!-- ---------------------------------------------------------------- -->
+        <section class="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-4 col-span-2">
+          <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+            Raids
+          </h3>
+          <p class="text-xs text-zinc-400 mb-2">
+            Record boss pulls on
+          </p>
+          <div class="flex gap-2 flex-wrap">
+            <button
+              v-for="difficulty in ['lfr', 'normal', 'heroic', 'mythic'] as const"
+              :key="difficulty"
+              class="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+              :class="
+                raidDifficulties.includes(difficulty)
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+              "
+              @click="toggleRaidDifficulty(difficulty)"
+            >
+              {{ RAID_DIFFICULTY_LABEL[difficulty] }}
+            </button>
+          </div>
+          <p class="text-xs text-zinc-600 mt-1.5">
+            Each boss pull is saved as its own recording, kill or wipe. Turn every difficulty off to stop recording raids.
+          </p>
         </section>
 
         <!-- ---------------------------------------------------------------- -->

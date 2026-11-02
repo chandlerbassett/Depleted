@@ -48,6 +48,8 @@ dungeon and key level, and every note it makes jumps the video to the moment it 
 - A 15 second **pre-roll**: recording arms when you enter the dungeon, so the countdown is in
   the video, and the clip ends about 18 seconds after the key so the completion screen is too
 - Keys you leave and don't come back to within 3 minutes are saved as *abandoned* instead of lost
+- **Raids** too: every boss pull on the difficulties you pick (Normal, Heroic and Mythic by
+  default, LFR optional) is saved as its own recording, kill or wipe, with the same pre-roll
 
 **Review**
 
@@ -58,6 +60,7 @@ dungeon and key level, and every note it makes jumps the video to the moment it 
 - **DPS and HPS meters** for the party, with pet damage credited to its owner
 - Click any party member to open them on **Raider.IO**, **Warcraft Logs** or the Armory
 - Deleting a run asks first and moves it to the Trash, so a stray click can be undone
+- Raid pulls are listed by raid night, then boss, then attempt
 - **Clips**: mark a start and end (or take the last 30 seconds) to cut a clip without
   re-encoding. Each run lists its clips, and all clips have their own section in the sidebar
 - With Warcraft Logs connected, each run links to its fight in a public or unlisted report
@@ -178,6 +181,7 @@ an update installs. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 | Video Quality | 30 / 50 / 80 Mbps presets or Custom up to 100 Mbps; HEVC or H.264; 4K, Native, 1440p, 1080p or 720p; 30 or 60 fps; and which window to capture (found automatically) |
 | WoW Addon | Install or update DepletedCompanion |
 | Auto-Cleanup | Delete old recordings after N days or once they pass N GB |
+| Raids | Which raid difficulties to record boss pulls on (Normal, Heroic and Mythic by default) |
 | Character Stats | Where player names link to (Raider.IO, Warcraft Logs or the Armory) and your region |
 | Warcraft Logs | Your API client for the Coach |
 | Test Mode | Record a short test clip to check capture and audio |
