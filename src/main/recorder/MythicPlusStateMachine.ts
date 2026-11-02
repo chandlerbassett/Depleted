@@ -5,7 +5,9 @@
 //
 // State transitions:
 //   idle (armed)            : zoneChanged into a Mythic dungeon — recorder.start() is called
-//                             here, so the key going in and the countdown are on video
+//                             here, so the key going in and the countdown are on video. With
+//                             a rolling buffer (the native helper) only the last
+//                             ROLLING_BUFFER_SECS are held, and the key start keeps them
 //   idle       → recording  : challengeModeStart — takes over the armed recording, or calls
 //                             recorder.start() if nothing was armed
 //   recording  → processing : challengeModeEnd (after MYTHIC_PLUS_POST_ROLL_SECS), or
@@ -37,7 +39,8 @@ import {
   MYTHIC_PLUS_ARMED_RESTART_SECS,
   MYTHIC_PLUS_IDLE_TIMEOUT_SECS,
   MYTHIC_PLUS_POST_ROLL_SECS,
-  MYTHIC_PLUS_PRE_ROLL_SECS
+  MYTHIC_PLUS_PRE_ROLL_SECS,
+  ROLLING_BUFFER_SECS
 } from '@shared/constants'
 import type { CombatLogWatcher } from '../combatlog/CombatLogWatcher'
 import type {
@@ -111,6 +114,8 @@ interface ArmedRecording {
   restartTimer: ReturnType<typeof setTimeout> | null
   // Set when it's thrown away (left the dungeon, restart, test mode)
   cancelled: boolean
+  // Holds only the last ROLLING_BUFFER_SECS until recorder.keep()
+  buffered: boolean
 }
 
 interface KeySession {
@@ -319,9 +324,13 @@ export class MythicPlusStateMachine extends EventEmitter {
     session.started =
       armed !== null
         ? armed.started.then((ok) => {
+            if (!ok) {
+              this.failSession(session, 'the armed recording did not start')
+              return false
+            }
+            if (armed.buffered) return this.keepBuffer(session)
             session.recordingStartedAt = armed.recordingStartedAt
-            if (!ok) this.failSession(session, 'the armed recording did not start')
-            return ok
+            return true
           })
         : previousStop.then(() => this.startRecorder(session))
     void session.started.then((ok) => {
@@ -330,6 +339,23 @@ export class MythicPlusStateMachine extends EventEmitter {
     session.idleTimer = setInterval(() => this.checkIdle(session), 30_000)
     this.session = session
     this.transitionTo('recording', `${e.zoneName} +${e.keystoneLevel}`)
+  }
+
+  private async keepBuffer(session: KeySession): Promise<boolean> {
+    const askedAt = Date.now()
+    try {
+      const keptSecs = await this.recorder.keep!()
+      session.recordingStartedAt = new Date(askedAt - keptSecs * 1000)
+      return true
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[MythicPlus] Keeping the buffer failed:', message)
+      if (this.recorder.isRecording()) {
+        void this.recorder.stop().then(discardFile, () => undefined)
+      }
+      this.failSession(session, message)
+      return false
+    }
   }
 
   private async writeRawInfo(session: KeySession): Promise<void> {
@@ -388,7 +414,8 @@ export class MythicPlusStateMachine extends EventEmitter {
       started: Promise.resolve(false),
       recordingStartedAt: null,
       restartTimer: null,
-      cancelled: false
+      cancelled: false,
+      buffered: this.recorder.keep !== undefined
     }
     const previousStop = Promise.all([this.finalizing, this.disarming])
     armed.started = previousStop.then(async () => {
@@ -399,7 +426,8 @@ export class MythicPlusStateMachine extends EventEmitter {
         return false
       }
       try {
-        await this.recorder.start(armed.rawOutputPath, this.options.recorder)
+        const bufferSecs = armed.buffered ? ROLLING_BUFFER_SECS : undefined
+        await this.recorder.start(armed.rawOutputPath, { ...this.options.recorder, bufferSecs })
         armed.recordingStartedAt = new Date()
         console.warn(`[MythicPlus] Armed for a key in ${zoneName}: ${armed.rawOutputPath}`)
         return true
@@ -409,13 +437,16 @@ export class MythicPlusStateMachine extends EventEmitter {
         return false
       }
     })
-    // Waiting around with no key: start over now and then so the file stays small, and
-    // give up after a while (a Mythic 0, or a log that stopped before we saw the exit).
-    const restartMs = (this.options.armedRestartSecs ?? MYTHIC_PLUS_ARMED_RESTART_SECS) * 1000
+    // Waiting around with no key: give up after a while (a Mythic 0, or a log that
+    // stopped before we saw the exit). Without a rolling buffer the file keeps growing,
+    // so also start over now and then to keep it small.
+    const restartMs = armed.buffered
+      ? MYTHIC_PLUS_ARMED_MAX_SECS * 1000
+      : (this.options.armedRestartSecs ?? MYTHIC_PLUS_ARMED_RESTART_SECS) * 1000
     armed.restartTimer = setTimeout(() => {
       if (this.armed !== armed) return
       this.disarm()
-      if (Date.now() - armedSinceMs + restartMs <= MYTHIC_PLUS_ARMED_MAX_SECS * 1000) {
+      if (!armed.buffered && Date.now() - armedSinceMs + restartMs <= MYTHIC_PLUS_ARMED_MAX_SECS * 1000) {
         this.arm(instanceId, zoneName, new Date(), armedSinceMs)
       }
     }, restartMs)

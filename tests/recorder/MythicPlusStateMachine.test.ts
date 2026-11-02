@@ -7,7 +7,7 @@ import type { ParserEventMap } from '../../src/main/combatlog/CombatLogParser'
 import { MythicPlusStateMachine } from '../../src/main/recorder/MythicPlusStateMachine'
 import type { ProcessingRequiredEvent } from '../../src/main/recorder/types'
 import type { CombatLogWatcher } from '../../src/main/combatlog/CombatLogWatcher'
-import type { CaptureRecorder } from '../../src/main/recorder/CaptureRecorder'
+import type { CaptureRecorder, RecorderOptions } from '../../src/main/recorder/CaptureRecorder'
 
 // ---------------------------------------------------------------------------
 // Fakes — a real CombatLogParser behind a minimal watcher, so the fixture log
@@ -29,7 +29,7 @@ class FakeWatcher {
 
 class FakeRecorder extends EventEmitter {
   private recording = false
-  startMock = vi.fn(async (): Promise<void> => {
+  startMock = vi.fn<(path: string, options?: RecorderOptions) => Promise<void>>(async () => {
     this.recording = true
   })
   stopMock = vi.fn(async (): Promise<string> => {
@@ -39,11 +39,19 @@ class FakeRecorder extends EventEmitter {
   isRecording(): boolean {
     return this.recording
   }
-  start(path: string): Promise<void> {
-    return this.startMock(path) as Promise<void>
+  start(path: string, options?: RecorderOptions): Promise<void> {
+    return this.startMock(path, options) as Promise<void>
   }
   stop(): Promise<string> {
     return this.stopMock()
+  }
+}
+
+// The native helper's recorder: holds a rolling buffer until keep()
+class BufferedFakeRecorder extends FakeRecorder {
+  keepMock = vi.fn(async (): Promise<number> => 60)
+  keep(): Promise<number> {
+    return this.keepMock()
   }
 }
 
@@ -61,14 +69,16 @@ function linesUpTo(eventType: string): string[] {
 // unless a test says otherwise.
 const KEY_START = new Date(2026, 9, 27, 20, 0, 5)
 
-function setup(options: { recorderLagMs?: number; idleTimeoutSecs?: number; armedRestartSecs?: number } = {}): {
+function setup(
+  options: { recorderLagMs?: number; idleTimeoutSecs?: number; armedRestartSecs?: number; buffered?: boolean } = {}
+): {
   watcher: FakeWatcher
   recorder: FakeRecorder
   machine: MythicPlusStateMachine
   processed: ProcessingRequiredEvent[]
 } {
   const watcher = new FakeWatcher()
-  const recorder = new FakeRecorder()
+  const recorder = options.buffered === true ? new BufferedFakeRecorder() : new FakeRecorder()
   vi.setSystemTime(new Date(KEY_START.getTime() + (options.recorderLagMs ?? 0)))
   const machine = new MythicPlusStateMachine(
     watcher as unknown as CombatLogWatcher,
@@ -520,6 +530,56 @@ describe('MythicPlusStateMachine', () => {
 
     expect(recorder.stopMock).toHaveBeenCalledOnce()
     expect(recorder.isRecording()).toBe(true)
+  })
+
+  it('arms with a rolling buffer and keeps it when the key starts', async () => {
+    const { watcher, recorder, processed } = setup({ buffered: true })
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.startMock.mock.calls[0]![1]).toMatchObject({ bufferSecs: 60 })
+
+    vi.setSystemTime(KEY_START)
+    watcher.feed(LINES.filter((l) => !l.includes('ZONE_CHANGE')))
+    await vi.runAllTimersAsync()
+
+    expect((recorder as BufferedFakeRecorder).keepMock).toHaveBeenCalledOnce()
+    const ev = processed[0]!
+    // The buffer held the last 60 s before the key start was read
+    expect(ev.recordingStartedAt.getTime()).toBe(KEY_START.getTime() - 60_000)
+    expect(ev.matchStartedAt.getTime()).toBe(KEY_START.getTime() - 15_000)
+    expect(ev.timeline[0]).toMatchObject({ type: 'key-start', timestamp: 15 })
+  })
+
+  it('does not restart a rolling buffer, but gives up after an hour', async () => {
+    const { watcher, recorder } = setup({ buffered: true, armedRestartSecs: 60 })
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(30 * 60_000)
+    expect(recorder.stopMock).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(30 * 60_000)
+    expect(recorder.stopMock).toHaveBeenCalledOnce()
+    expect(recorder.startMock).toHaveBeenCalledOnce()
+    expect((recorder as BufferedFakeRecorder).keepMock).not.toHaveBeenCalled()
+  })
+
+  it('stops the buffer and reports why when keeping it fails', async () => {
+    const { watcher, recorder, machine } = setup({ buffered: true })
+    ;(recorder as BufferedFakeRecorder).keepMock.mockRejectedValueOnce(new Error('Could not keep the buffer: disk full'))
+    const errors: string[] = []
+    machine.on('error', (e) => errors.push(e.message))
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    vi.setSystemTime(KEY_START)
+    watcher.feed(linesUpTo('CHALLENGE_MODE_START').filter((l) => !l.includes('ZONE_CHANGE')))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(errors).toEqual(['Failed to start recording: Could not keep the buffer: disk full'])
+    expect(recorder.stopMock).toHaveBeenCalledOnce()
+    expect(machine.getStatus()).toBe('error')
   })
 
   it('frees an armed recorder for a test recording', async () => {

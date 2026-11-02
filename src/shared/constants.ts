@@ -17,9 +17,13 @@ export const MYTHIC_PLUS_IDLE_TIMEOUT_SECS = 300
 // Mythic+: the recorder is armed on entering a Mythic dungeon, so the video can begin
 // this long before CHALLENGE_MODE_START and catch the key going in and the countdown.
 export const MYTHIC_PLUS_PRE_ROLL_SECS = 15
-// Mythic+: an armed recording with no key started is thrown away and restarted after
-// this long, so waiting at the entrance doesn't fill the disk (100 Mbps ≈ 0.75 GB/min).
-// Keys usually go in 1–4 minutes after zoning in.
+// Armed recordings with the native helper hold only this much, so whatever starts the
+// recording (read late, as WoW writes the combat log in batches) still has its lead-in.
+export const ROLLING_BUFFER_SECS = 60
+// Mythic+: without a rolling buffer (the Chromium recorder), an armed recording with no
+// key started is thrown away and restarted after this long, so waiting at the entrance
+// doesn't fill the disk (100 Mbps ≈ 0.75 GB/min). Keys usually go in 1 to 4 minutes after
+// zoning in.
 export const MYTHIC_PLUS_ARMED_RESTART_SECS = 600
 // Mythic+: stop arming after this long in the dungeon with no key started.
 export const MYTHIC_PLUS_ARMED_MAX_SECS = 3600

@@ -14,6 +14,9 @@ export interface RecorderOptions {
   codec?: VideoCodec
   resolution?: string
   startupTimeoutMs?: number
+  // Rolling buffer (recorders with keep() only): hold just the last this-many seconds
+  // until keep() is called; stopping before that saves nothing
+  bufferSecs?: number
 }
 
 export interface RecorderEventMap {
@@ -26,6 +29,9 @@ export interface CaptureRecorder {
   start(outputPath: string, options?: RecorderOptions): Promise<void>
   // Resolves with the final file path once it's fully written.
   stop(): Promise<string>
+  // Only recorders with a rolling buffer. Makes the buffer the start of the file and
+  // records on; resolves with how many seconds before the call the file starts.
+  keep?(): Promise<number>
   isRecording(): boolean
   on<K extends keyof RecorderEventMap>(event: K, listener: (payload: RecorderEventMap[K]) => void): this
 }

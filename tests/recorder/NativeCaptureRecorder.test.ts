@@ -156,6 +156,41 @@ describe('NativeCaptureRecorder', () => {
     expect(recorder.isRecording()).toBe(false)
   })
 
+  it('buffers with --buffer-secs and keep() resolves with the seconds kept', async () => {
+    const started = recorder.start(join(dir, 'a.mp4'), { bufferSecs: 60 })
+    await spawned(() => spawnArgs)
+    helper.send({ event: 'started' })
+    await started
+    expect(spawnArgs.slice(-2)).toEqual(['--buffer-secs', '60'])
+
+    const kept = recorder.keep()
+    await flush()
+    expect(helper.stdinText).toBe('keep\n')
+    helper.send({ event: 'kept', path: join(dir, 'a.mp4'), keptSecs: 47.5 })
+    await expect(kept).resolves.toBe(47.5)
+    await expect(recorder.keep()).rejects.toThrow('not buffering')
+  })
+
+  it('keep() rejects when not buffering', async () => {
+    const started = recorder.start(join(dir, 'a.mp4'))
+    await spawned(() => spawnArgs)
+    helper.send({ event: 'started' })
+    await started
+    expect(spawnArgs).not.toContain('--buffer-secs')
+    await expect(recorder.keep()).rejects.toThrow('not buffering')
+  })
+
+  it('keep() rejects when the helper reports an error', async () => {
+    const started = recorder.start(join(dir, 'a.mp4'), { bufferSecs: 60 })
+    await spawned(() => spawnArgs)
+    helper.send({ event: 'started' })
+    await started
+
+    const kept = recorder.keep()
+    helper.send({ event: 'error', message: "Can't create a.mp4" })
+    await expect(kept).rejects.toThrow("Can't create a.mp4")
+  })
+
   it('refuses to start when the helper binary is missing', async () => {
     rmSync(helperPath)
     await expect(recorder.start(join(dir, 'a.mp4'))).rejects.toThrow('npm run build:native')

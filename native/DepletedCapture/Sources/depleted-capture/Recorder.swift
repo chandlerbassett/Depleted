@@ -3,16 +3,19 @@ import CoreGraphics
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 // `record` subcommand. Captures one window plus system audio with ScreenCaptureKit and
 // encodes it straight to an .mp4 with AVAssetWriter, which uses the VideoToolbox
 // hardware encoder. Nothing goes through Chromium or FFmpeg.
 //
 // Lifecycle (all reported on stdout, see Output.swift):
-//   started  — first frame is in the file; the recording is live
-//   stopped  — "stop" on stdin, stdin closed, or SIGTERM/SIGINT; file is finalized
-//   error    — capture failed; if frames were written, the file is still finalized
-//              first and the event carries its path
+//   started: first frame is in the file (or the buffer); the recording is live
+//   kept:    with --buffer-secs, "keep" on stdin: the buffer is now the start of the file
+//   stopped: "stop" on stdin, stdin closed, or SIGTERM/SIGINT; file is finalized. With
+//            --buffer-secs and no "keep", nothing is saved ("discarded": true)
+//   error:   capture failed; if frames were written, the file is still finalized
+//            first and the event carries its path
 
 struct RecordOptions {
     let outputURL: URL
@@ -22,6 +25,8 @@ struct RecordOptions {
     // Bounding box to scale into; nil means "native" (see Recorder.init)
     let maxSize: CGSize?
     let windowHint: String?
+    // Rolling buffer length; nil records straight to the file
+    let bufferSecs: Double?
 
     init(_ args: Args) {
         outputURL = URL(fileURLWithPath: args.required("output"))
@@ -42,10 +47,12 @@ struct RecordOptions {
             maxSize = nil
         }
         windowHint = args.string("window")
+        let buffer = args.double("buffer-secs", default: 0)
+        bufferSecs = buffer > 0 ? buffer : nil
     }
 }
 
-final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetWriterDelegate, @unchecked Sendable {
     private let options: RecordOptions
     private let queue = DispatchQueue(label: "depleted.capture")
     private let size: CGSize
@@ -56,12 +63,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     private let writer: AVAssetWriter
     private let videoInput: AVAssetWriterInput
     private let audioInput: AVAssetWriterInput
+    private let buffer: SegmentBuffer?
 
     // Only touched on `queue`
     private var sessionStart: CMTime?
     private var lastVideoTime = CMTime.zero
     private var droppedFrames = 0
     private var stopping = false
+    private var keepRequested = false
 
     init(options: RecordOptions, window: SCWindow, scale: CGFloat) {
         self.options = options
@@ -95,10 +104,18 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         filter = SCContentFilter(desktopIndependentWindow: window)
 
         try? FileManager.default.removeItem(at: options.outputURL)
-        do {
-            writer = try AVAssetWriter(outputURL: options.outputURL, fileType: .mp4)
-        } catch {
-            fail("Can't create \(options.outputURL.path): \(error.localizedDescription)")
+        if let bufferSecs = options.bufferSecs {
+            buffer = SegmentBuffer(seconds: bufferSecs, outputURL: options.outputURL)
+            writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
+            writer.outputFileTypeProfile = .mpeg4AppleHLS
+            writer.preferredOutputSegmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
+        } else {
+            buffer = nil
+            do {
+                writer = try AVAssetWriter(outputURL: options.outputURL, fileType: .mp4)
+            } catch {
+                fail("Can't create \(options.outputURL.path): \(error.localizedDescription)")
+            }
         }
 
         var compression: [String: Any] = [
@@ -142,6 +159,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         writer.add(videoInput)
         writer.add(audioInput)
         super.init()
+        if buffer != nil { writer.delegate = self }
         stream = SCStream(filter: filter, configuration: config, delegate: self)
     }
 
@@ -191,6 +209,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
 
         let time = sampleBuffer.presentationTimeStamp
         if sessionStart == nil {
+            // Segment boundaries count from here
+            if buffer != nil { writer.initialSegmentStartTime = time }
             guard writer.startWriting() else {
                 stopWithError("Encoder failed to start: \(writer.error?.localizedDescription ?? "unknown error")")
                 return
@@ -199,6 +219,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             sessionStart = time
             emit("started", [
                 "path": options.outputURL.path,
+                "bufferSecs": options.bufferSecs ?? 0,
                 "width": Int(size.width),
                 "height": Int(size.height),
                 "codec": options.codec.rawValue,
@@ -223,11 +244,39 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         }
     }
 
+    // MARK: AVAssetWriterDelegate
+
+    func assetWriter(
+        _ writer: AVAssetWriter,
+        didOutputSegmentData segmentData: Data,
+        segmentType: AVAssetSegmentType,
+        segmentReport: AVAssetSegmentReport?
+    ) {
+        buffer?.add(segmentData, type: segmentType, report: segmentReport)
+    }
+
     // MARK: SCStreamDelegate
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         // Usually the window was closed or the game quit
         queue.async { self.stopWithError("Capture stopped: \(error.localizedDescription)") }
+    }
+
+    // MARK: Keeping the buffer
+
+    func requestKeep() {
+        queue.async {
+            guard let buffer = self.buffer, !self.keepRequested, !self.stopping, let start = self.sessionStart else {
+                emit("error", ["message": "Nothing to keep: not buffering"])
+                return
+            }
+            self.keepRequested = true
+            let now = CMTimeGetSeconds(self.lastVideoTime)
+            buffer.keep { keptStart in
+                // How far before the "keep" the file starts
+                emit("kept", ["path": self.options.outputURL.path, "keptSecs": max(0, now - (keptStart ?? CMTimeGetSeconds(start)))])
+            }
+        }
     }
 
     // MARK: Stopping
@@ -255,6 +304,10 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         guard let start = sessionStart, writer.status == .writing else {
             fail(error ?? "Stopped before any frames were captured")
         }
+        if let buffer {
+            finishBuffered(buffer, sessionStart: start, error: error)
+            return
+        }
         writer.endSession(atSourceTime: lastVideoTime)
         videoInput.markAsFinished()
         audioInput.markAsFinished()
@@ -274,6 +327,41 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
             exit(0)
         }
     }
+
+    // Must be called on `queue`
+    private func finishBuffered(_ buffer: SegmentBuffer, sessionStart: CMTime, error: String?) {
+        let path = options.outputURL.path
+        guard keepRequested else {
+            writer.cancelWriting()
+            buffer.finish { _, _ in
+                if let error { fail(error) }
+                emit("stopped", ["path": path, "durationSecs": 0, "droppedFrames": self.droppedFrames, "discarded": true])
+                exit(0)
+            }
+            return
+        }
+        writer.endSession(atSourceTime: lastVideoTime)
+        videoInput.markAsFinished()
+        audioInput.markAsFinished()
+        let end = CMTimeGetSeconds(lastVideoTime)
+        // The last segments reach the delegate before this completion handler runs
+        writer.finishWriting {
+            if self.writer.status != .completed {
+                let reason = self.writer.error?.localizedDescription ?? "unknown error"
+                log("Couldn't finish the last segment of \(path): \(reason)")
+            }
+            buffer.finish { writeError, keptStart in
+                let durationSecs = end - (keptStart ?? CMTimeGetSeconds(sessionStart))
+                if let message = error ?? writeError {
+                    emit("error", ["message": message, "path": path, "durationSecs": durationSecs])
+                    log(message)
+                    exit(1)
+                }
+                emit("stopped", ["path": path, "durationSecs": durationSecs, "droppedFrames": self.droppedFrames])
+                exit(0)
+            }
+        }
+    }
 }
 
 func runRecord(_ args: Args) async {
@@ -282,10 +370,12 @@ func runRecord(_ args: Args) async {
     let window = resolveWindow(in: content, hint: options.windowHint)
     let recorder = Recorder(options: options, window: window, scale: pixelScale(for: window, in: content))
 
-    // Stop on "stop", on stdin closing (the app went away), or on SIGTERM/SIGINT
+    // "keep" keeps the buffer. Stop on "stop", on stdin closing (the app went away), or on SIGTERM/SIGINT
     Thread.detachNewThread {
         while let line = readLine() {
-            if line.trimmingCharacters(in: .whitespaces) == "stop" { break }
+            let command = line.trimmingCharacters(in: .whitespaces)
+            if command == "stop" { break }
+            if command == "keep" { recorder.requestKeep() }
         }
         recorder.requestStop()
     }

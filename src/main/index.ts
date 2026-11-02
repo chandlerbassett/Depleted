@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, session } from 'electron'
 import { join } from 'path'
-import { chmodSync, mkdirSync, readdirSync } from 'fs'
+import { chmodSync, mkdirSync, readdirSync, rmSync } from 'fs'
 import Store from 'electron-store'
 
 // On macOS, Electron's getDisplayMedia({ audio: 'loopback' }) has historically returned
@@ -117,6 +117,18 @@ function listRawRecordings(rawDir: string): string[] {
   }
 }
 
+// The capture helper's rolling buffer (raw_*.mp4.buffer/) is deleted when it stops; one
+// is only left behind by a crash, and holds nothing worth saving.
+function removeLeftoverBuffers(rawDir: string): void {
+  try {
+    for (const name of readdirSync(rawDir)) {
+      if (name.startsWith('raw_') && name.endsWith('.buffer')) rmSync(join(rawDir, name), { recursive: true, force: true })
+    }
+  } catch {
+    // No raw folder yet
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline singletons — created once, shared across IPC registrations
 // ---------------------------------------------------------------------------
@@ -184,6 +196,7 @@ function createPipeline(): {
   // Raw files already there were left by a crash or force-quit: nothing records into
   // raw/ until the watcher starts, so list them first, then save them as abandoned keys.
   const leftoverRaw = listRawRecordings(rawDir)
+  removeLeftoverBuffers(rawDir)
   if (leftoverRaw.length > 0) {
     const media = mediaTools()
     if (media !== null) {

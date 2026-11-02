@@ -5,6 +5,8 @@
 //                       event (first frame is in the file)
 //   stop()            → write "stop" to its stdin → resolves with the path from its
 //                       `stopped` event once the .mp4 is finalized
+//   keep()            → with bufferSecs, write "keep" → resolves with `keptSecs` from
+//                       its `kept` event
 //
 // If the helper dies or reports an error while recording (window closed, game quit),
 // `unexpectedStop` fires with whatever file it managed to finalize.
@@ -22,6 +24,8 @@ const DEFAULT_FPS = 30
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000
 // Finalizing an .mp4 is quick, but give a long key's last segment room to flush
 const STOP_TIMEOUT_MS = 15_000
+// keep() copies up to the whole buffer (about 600 MB at 80 Mbps for 60 s) into the file
+const KEEP_TIMEOUT_MS = 15_000
 const STDERR_TAIL_LINES = 20
 
 type Spawner = (command: string, args: string[]) => ChildProcessWithoutNullStreams
@@ -32,6 +36,9 @@ interface ActiveRecording {
   stderrTail: string[]
   // Set while stop() is waiting for the helper to finalize
   onStopped: ((e: HelperEvent | null) => void) | null
+  buffering: boolean
+  // Set while keep() is waiting; null event: the helper went away
+  onKept: ((e: HelperEvent | null) => void) | null
 }
 
 export class NativeCaptureRecorder extends EventEmitter implements CaptureRecorder {
@@ -83,9 +90,18 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
     if (options.sourceHint !== undefined && options.sourceHint !== 'auto' && options.sourceHint.length > 0) {
       args.push('--window', options.sourceHint)
     }
+    const buffering = options.bufferSecs !== undefined && options.bufferSecs > 0
+    if (buffering) args.push('--buffer-secs', String(options.bufferSecs))
 
     const proc = this.spawner(helper, args)
-    const recording: ActiveRecording = { proc, outputPath: mp4Path, stderrTail: [], onStopped: null }
+    const recording: ActiveRecording = {
+      proc,
+      outputPath: mp4Path,
+      stderrTail: [],
+      onStopped: null,
+      buffering,
+      onKept: null
+    }
     this.active = recording
 
     proc.stderr.on('data', (chunk: Buffer) => {
@@ -121,8 +137,11 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
             resolve()
           } else if (e.event === 'stopped') {
             recording.onStopped?.(e)
+          } else if (e.event === 'kept') {
+            recording.onKept?.(e)
           } else if (e.event === 'error') {
             lastError = e.message ?? 'unknown error'
+            recording.onKept?.(e)
           }
         })
       )
@@ -133,6 +152,7 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
 
       proc.on('close', (code) => {
         clearTimeout(timer)
+        recording.onKept?.(null)
         if (this.active === recording) this.active = null
         const wasCapturing = this.capturing && recording.onStopped === null
 
@@ -151,6 +171,27 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
           this.emit('unexpectedStop', { code, outputPath: recording.outputPath, stderrTail: tail })
         }
       })
+    })
+  }
+
+  keep(): Promise<number> {
+    const recording = this.active
+    if (recording === null || !this.capturing || !recording.buffering) {
+      return Promise.reject(new Error('NativeCaptureRecorder is not buffering'))
+    }
+    // Once asked, the helper keeps the buffer even if this times out
+    recording.buffering = false
+
+    return new Promise<number>((resolve, reject) => {
+      const timer = setTimeout(() => settle(null), KEEP_TIMEOUT_MS)
+      const settle = (e: HelperEvent | null): void => {
+        clearTimeout(timer)
+        recording.onKept = null
+        if (e?.event === 'kept' && typeof e.keptSecs === 'number') resolve(e.keptSecs)
+        else reject(new Error(`Could not keep the buffer: ${e?.message ?? recording.stderrTail.slice(-3).join(' ')}`))
+      }
+      recording.onKept = settle
+      recording.proc.stdin.write('keep\n')
     })
   }
 
