@@ -17,6 +17,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'path'
 import type { MediaTools, StorageManager } from '../storage/StorageManager'
 import type { Recording } from '@shared/ipc.types'
+import { RAID_DIFFICULTY_LABEL } from '@shared/constants'
 
 // Register ipcMain.handle commands — call ONCE at app startup.
 export function registerStorageIpc(storageManager: StorageManager, mediaTools: () => MediaTools | null): void {
@@ -91,11 +92,15 @@ export function registerStorageIpc(storageManager: StorageManager, mediaTools: (
   })
 }
 
-// "Ruby Life Pools +15 from Oct 27, 2026"
+// "Ruby Life Pools +15 from Oct 27, 2026", "Heroic Dimensius pull 3 from Oct 27, 2026"
 export function describeRun(recording: Recording): string {
-  const { zone, date, mythicPlus } = recording.metadata
-  const level = mythicPlus.keystoneLevel > 0 ? ` +${mythicPlus.keystoneLevel}` : ''
+  const { zone, date, mythicPlus, raid } = recording.metadata
   const day = new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  if (raid !== undefined) {
+    const pull = raid.pullNumber > 0 ? ` pull ${raid.pullNumber}` : ''
+    return `${RAID_DIFFICULTY_LABEL[raid.difficulty]} ${raid.encounterName}${pull} from ${day}`
+  }
+  const level = mythicPlus !== undefined && mythicPlus.keystoneLevel > 0 ? ` +${mythicPlus.keystoneLevel}` : ''
   return `${zone || 'This run'}${level} from ${day}`
 }
 

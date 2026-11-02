@@ -8,6 +8,7 @@ import { MythicPlusStateMachine } from '../../src/main/recorder/MythicPlusStateM
 import type { ProcessingRequiredEvent } from '../../src/main/recorder/types'
 import type { CombatLogWatcher } from '../../src/main/combatlog/CombatLogWatcher'
 import type { CaptureRecorder } from '../../src/main/recorder/CaptureRecorder'
+import type { RaidDifficulty } from '../../src/shared/ipc.types'
 
 // ---------------------------------------------------------------------------
 // Fakes — a real CombatLogParser behind a minimal watcher, so the fixture log
@@ -90,7 +91,13 @@ function linesUpTo(eventType: string): string[] {
 const KEY_START = new Date(2026, 9, 27, 20, 0, 5)
 
 function setup(
-  options: { recorderLagMs?: number; idleTimeoutSecs?: number; armedRestartSecs?: number; buffering?: boolean } = {}
+  options: {
+    recorderLagMs?: number
+    idleTimeoutSecs?: number
+    armedRestartSecs?: number
+    raidDifficulties?: RaidDifficulty[]
+    buffering?: boolean
+  } = {}
 ): {
   watcher: FakeWatcher
   recorder: FakeRecorder
@@ -108,7 +115,9 @@ function setup(
       postRollSecs: 8,
       abandonTimeoutSecs: 180,
       idleTimeoutSecs: options.idleTimeoutSecs ?? 3600,
-      armedRestartSecs: options.armedRestartSecs
+      armedRestartSecs: options.armedRestartSecs,
+      raidPostRollSecs: 5,
+      raidDifficulties: options.raidDifficulties
     }
   )
   const processed: ProcessingRequiredEvent[] = []
@@ -666,5 +675,197 @@ describe('MythicPlusStateMachine', () => {
 
     expect(recorder.startMock).toHaveBeenCalledOnce()
     expect(processed[0]!.recordingStartedAt.getTime()).toBe(KEY_START.getTime())
+  })
+
+  // -------------------------------------------------------------------------
+  // Raids: one recording per boss pull
+  // -------------------------------------------------------------------------
+
+  const RAID_ENTERED_AT = new Date(2026, 9, 27, 21, 0, 0)
+  const ENTER_RAID = '10/27/2026 21:00:00.0000  ZONE_CHANGE,2810,"Manaforge Omega",15'
+  // 0x514: a player in my raid, not my party
+  const RAID_WIPE = [
+    '10/27/2026 21:05:00.0000  ENCOUNTER_START,3129,"Plexus Sentinel",15,20,2810',
+    '10/27/2026 21:05:30.0000  SPELL_DAMAGE,Creature-0-3767-2810-1-233814-0001,"Plexus Sentinel",0xa48,0x0,Player-1329-0B000001,"Raider-Illidan-US",0x514,0x0,1219450,"Obliteration Arcanocannon",0x40,Player-1329-0B000001,0000000000000000,0,100000,0,0,0,0,0,0,0,0,0,0,0,0,80,500000,500000,-1,64,0,0,0,nil,nil,nil,ST',
+    '10/27/2026 21:05:31.0000  UNIT_DIED,0000000000000000,nil,0x80000000,0x80000000,Player-1329-0B000001,"Raider-Illidan-US",0x514,0x0,0',
+    '10/27/2026 21:09:00.0000  ENCOUNTER_END,3129,"Plexus Sentinel",15,20,0,240000'
+  ]
+  const RAID_KILL = [
+    '10/27/2026 21:15:00.0000  ENCOUNTER_START,3129,"Plexus Sentinel",15,20,2810',
+    '10/27/2026 21:20:00.0000  ENCOUNTER_END,3129,"Plexus Sentinel",15,20,1,300000'
+  ]
+
+  async function enterRaid(watcher: FakeWatcher): Promise<void> {
+    vi.setSystemTime(RAID_ENTERED_AT)
+    watcher.feed([ENTER_RAID])
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  it('records a raid pull from the pull to just after the wipe, with pre-roll', async () => {
+    const { watcher, recorder, machine, processed } = setup({ raidDifficulties: ['heroic'] })
+    await enterRaid(watcher)
+    expect(recorder.startMock).toHaveBeenCalledOnce()
+
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 5, 0))
+    watcher.feed(RAID_WIPE)
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(processed).toHaveLength(1)
+    const ev = processed[0]!
+    expect(ev.result).toBe('LOSS')
+    expect(ev.zoneName).toBe('Manaforge Omega')
+    expect(ev.mythicPlus).toBeUndefined()
+    expect(ev.raid).toMatchObject({
+      encounterId: 3129,
+      encounterName: 'Plexus Sentinel',
+      difficulty: 'heroic',
+      groupSize: 20,
+      outcome: 'wipe',
+      fightTimeMs: 240000,
+      pullNumber: 1,
+      deathsByPlayer: { 'Raider-Illidan-US': 1 }
+    })
+    expect(ev.teamComp).toContain('Raider-Illidan-US')
+    expect(ev.matchStartedAt.getTime()).toBe(new Date(2026, 9, 27, 21, 4, 0).getTime())
+    // 60 s pre-roll + 240 s pull + 5 s post-roll
+    expect(ev.durationSecs).toBe(305)
+    expect(ev.timeline.map((t) => [t.type, t.timestamp])).toEqual([
+      ['pull-start', 60],
+      ['death-player', 91],
+      ['boss-wipe', 300]
+    ])
+    // Armed again for the next pull
+    expect(recorder.startMock).toHaveBeenCalledTimes(2)
+    expect(recorder.isRecording()).toBe(true)
+    expect(machine.getStatus()).toBe('idle')
+  })
+
+  it('numbers pulls of the same boss and marks a kill as a win', async () => {
+    const { watcher, processed } = setup({ raidDifficulties: ['heroic'] })
+    await enterRaid(watcher)
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 5, 0))
+    watcher.feed(RAID_WIPE)
+    await vi.advanceTimersByTimeAsync(5_000)
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 15, 0))
+    watcher.feed(RAID_KILL)
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(processed.map((e) => [e.result, e.raid?.outcome, e.raid?.pullNumber])).toEqual([
+      ['LOSS', 'wipe', 1],
+      ['WIN', 'kill', 2]
+    ])
+  })
+
+  it('arms for the next pull when logging started after zoning in', async () => {
+    const { watcher, recorder, processed } = setup({ raidDifficulties: ['heroic'] })
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 5, 0))
+    watcher.feed(RAID_WIPE)
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(processed).toHaveLength(1)
+    expect(recorder.startMock).toHaveBeenCalledTimes(2)
+    expect(recorder.isRecording()).toBe(true)
+  })
+
+  it('does not record raids on difficulties that are turned off', async () => {
+    const { watcher, recorder, processed } = setup({ raidDifficulties: ['mythic'] })
+    await enterRaid(watcher)
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 5, 0))
+    watcher.feed(RAID_WIPE)
+    await vi.runAllTimersAsync()
+
+    expect(recorder.startMock).not.toHaveBeenCalled()
+    expect(processed).toHaveLength(0)
+  })
+
+  it('starts recording when raids are turned on while in the raid', async () => {
+    const { watcher, recorder, machine } = setup()
+    await enterRaid(watcher)
+    expect(recorder.startMock).not.toHaveBeenCalled()
+
+    machine.updateRaidDifficulties(['heroic'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.startMock).toHaveBeenCalledOnce()
+
+    machine.updateRaidDifficulties([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.isRecording()).toBe(false)
+  })
+
+  it('ignores a raid pull replayed from an old log', async () => {
+    const { watcher, recorder } = setup({ raidDifficulties: ['heroic'] })
+    vi.setSystemTime(new Date(2026, 9, 27, 23, 0, 0))
+    watcher.feed(RAID_WIPE)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.startMock).not.toHaveBeenCalled()
+  })
+
+  it('saves a pull as a wipe when the app quits mid-pull', async () => {
+    const { watcher, machine, processed } = setup({ raidDifficulties: ['heroic'] })
+    await enterRaid(watcher)
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 5, 0))
+    watcher.feed([RAID_WIPE[0]!])
+    await vi.advanceTimersByTimeAsync(0)
+    await machine.finishForQuit()
+
+    expect(processed).toHaveLength(1)
+    expect(processed[0]!.raid?.outcome).toBe('wipe')
+  })
+
+  it('records each raid pull from the buffer with 60 s of pre-roll, and keeps buffering between pulls', async () => {
+    const { watcher, recorder, processed } = setup({ raidDifficulties: ['heroic'], buffering: true }) as ReturnType<
+      typeof setup
+    > & { recorder: FakeBufferingRecorder }
+    await enterRaid(watcher)
+    expect(recorder.startBufferMock).toHaveBeenCalledOnce()
+    expect(recorder.startMock).not.toHaveBeenCalled()
+
+    // The pull is read 3 s late, as when the log is flushed in a batch
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 5, 3))
+    watcher.feed(RAID_WIPE)
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(processed).toHaveLength(1)
+    const wipe = processed[0]!
+    // The file opens 90 s before it was started (the whole buffer); the trim keeps 60 s
+    expect(wipe.recordingStartedAt.getTime()).toBe(new Date(2026, 9, 27, 21, 3, 33).getTime())
+    expect(wipe.matchStartedAt.getTime()).toBe(new Date(2026, 9, 27, 21, 4, 0).getTime())
+    expect(wipe.timeline[0]).toMatchObject({ type: 'pull-start', timestamp: 60 })
+    // Between pulls: nothing recording, the same buffer still running
+    expect(recorder.isRecording()).toBe(false)
+    expect(recorder.isBuffering()).toBe(true)
+    expect(recorder.stopBufferMock).not.toHaveBeenCalled()
+
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 15, 2))
+    watcher.feed(RAID_KILL)
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(processed).toHaveLength(2)
+    expect(processed[1]!.raid).toMatchObject({ outcome: 'kill', pullNumber: 2 })
+    expect(processed[1]!.matchStartedAt.getTime()).toBe(new Date(2026, 9, 27, 21, 14, 0).getTime())
+    expect(recorder.startBufferMock).toHaveBeenCalledOnce()
+    expect(recorder.startMock).toHaveBeenCalledTimes(2)
+    expect(recorder.isBuffering()).toBe(true)
+  })
+
+  it('stops the raid buffer on leaving the raid and when the log goes quiet', async () => {
+    const { watcher, recorder } = setup({ raidDifficulties: ['heroic'], buffering: true }) as ReturnType<
+      typeof setup
+    > & { recorder: FakeBufferingRecorder }
+    await enterRaid(watcher)
+    watcher.feed(['10/27/2026 21:00:30.0000  ZONE_CHANGE,2552,"Dornogal",0'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.isBuffering()).toBe(false)
+
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 1, 0))
+    watcher.feed(['10/27/2026 21:01:00.0000  ZONE_CHANGE,2810,"Manaforge Omega",15'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.isBuffering()).toBe(true)
+    // A raid break doesn't stop it...
+    await vi.advanceTimersByTimeAsync(20 * 60_000)
+    expect(recorder.isBuffering()).toBe(true)
+    // ...but a log that's been silent for half an hour does
+    await vi.advanceTimersByTimeAsync(15 * 60_000)
+    expect(recorder.isBuffering()).toBe(false)
   })
 })

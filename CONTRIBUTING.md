@@ -32,8 +32,8 @@ See [Building from source](README.md#building-from-source) for more.
 
 ## Scope
 
-Depleted is a PvE recorder and coach for macOS on Apple silicon: Mythic+ today, with raid boss
-pulls on the way (#67, #72). Arena and other PvP modes, Intel Macs, Windows and Linux are out of
+Depleted is a PvE recorder and coach for macOS on Apple silicon: Mythic+ keys and raid boss
+pulls. Arena and other PvP modes, Intel Macs, Windows and Linux are out of
 scope.
 
 The Coach learns what good play looks like from top Warcraft Logs runs, so it works for every
