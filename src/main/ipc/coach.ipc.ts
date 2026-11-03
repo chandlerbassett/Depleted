@@ -57,9 +57,13 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
     return { configured: creds !== null, clientId: creds?.clientId ?? null }
   })
 
-  ipcMain.handle('coach:setWclCredentials', async (_event, params: WclCredentials) => {
+  ipcMain.handle('coach:setWclCredentials', async (_event, params: Partial<WclCredentials> | undefined) => {
+    if (typeof params?.clientId !== 'string' || typeof params.clientSecret !== 'string') {
+      return { ok: false, error: 'Enter both the client ID and the secret' }
+    }
     const creds = { clientId: params.clientId.trim(), clientSecret: params.clientSecret.trim() }
     if (!creds.clientId || !creds.clientSecret) return { ok: false, error: 'Enter both the client ID and the secret' }
+    if (creds.clientId.length > 200 || creds.clientSecret.length > 200) return { ok: false, error: 'That is not a Warcraft Logs client ID and secret' }
     try {
       await new WclClient(creds).query('{ rateLimitData { limitPerHour } }')
       await saveWclCredentials(creds)
@@ -73,7 +77,8 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
   ipcMain.handle(
     'coach:findWclFight',
     async (_event, params: { id: string; refresh: boolean }): Promise<WclFightResult> => {
-      if (!params.refresh) {
+      if (typeof params?.id !== 'string') return { status: 'error', message: 'Recording not found' }
+      if (params.refresh !== true) {
         const cached = await storageManager.readWclFight(params.id)
         if (cached !== null) return { status: 'ok', link: cached }
       }
@@ -108,10 +113,10 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
   ipcMain.handle(
     'coach:getBenchmark',
     async (_event, params: { specId: number; dungeon: string; keyLevel: number }): Promise<BenchmarkResult> => {
-      if (WOW_SPEC_ID_MAP[params.specId] === undefined) {
+      if (!Number.isInteger(params?.specId) || WOW_SPEC_ID_MAP[params.specId] === undefined) {
         return { status: 'unsupported', message: 'This player’s spec wasn’t in the combat log' }
       }
-      if (!params.dungeon || !(params.keyLevel >= 2)) {
+      if (typeof params.dungeon !== 'string' || !params.dungeon || !Number.isInteger(params.keyLevel) || params.keyLevel < 2) {
         return { status: 'unsupported', message: 'This recording has no dungeon or key level' }
       }
       const svc = await benchmarkService()
@@ -179,6 +184,7 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
   ipcMain.handle(
     'coach:getKeySummaries',
     async (_event, params: { playerName: string; fetchMissing: boolean }) => {
+      if (typeof params?.playerName !== 'string') return { summaries: [], wclConfigured: false }
       const svc = await benchmarkService()
       const out: KeySummary[] = []
       // Benchmarks already looked at in this call, by spec, dungeon and level

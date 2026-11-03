@@ -187,9 +187,7 @@ export interface Clip {
 // ---------------------------------------------------------------------------
 
 export interface IpcCommands {
-  // Recorder control
-  'recorder:start': { params: void; result: void }
-  'recorder:stop': { params: void; result: void }
+  // Recorder status (recording starts and stops from the combat log, never from the page)
   'recorder:getStatus': { params: void; result: RecorderStatus }
 
   // Storage

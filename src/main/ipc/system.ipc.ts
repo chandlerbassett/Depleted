@@ -6,7 +6,7 @@ import { ipcMain, shell, dialog, app, desktopCapturer, type BrowserWindow } from
 import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import { cp, mkdir } from 'fs/promises'
-import { join, dirname } from 'path'
+import { join, dirname, isAbsolute } from 'path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type Store from 'electron-store'
 import { openExternalUrl } from '../system/openExternal'
@@ -20,6 +20,13 @@ import type { AppConfig, CaptureSource } from '@shared/ipc.types'
 // resourcesPath; in dev it's just the repo's addon/ folder (electron-builder hasn't run).
 export function resolveBundledAddonDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'addon') : join(app.getAppPath(), 'addon')
+}
+
+// A WoW folder the page sends (onboarding, before it's saved): an absolute path, or
+// nothing gets done with it
+function wowPathParam(params: { wowPath?: unknown; path?: unknown } | undefined): string | null {
+  const value = params?.wowPath ?? params?.path
+  return typeof value === 'string' && value.length > 0 && value.length <= 1024 && isAbsolute(value) ? value : null
 }
 
 export function registerSystemIpc(configStore: Store<AppConfig>): void {
@@ -107,7 +114,9 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Check whether SimpleCombatLogger is installed in the given WoW path.
   ipcMain.handle(
     'system:checkAddon',
-    (_event, { wowPath }: { wowPath: string }): { found: boolean } => {
+    (_event, params: { wowPath: string }): { found: boolean } => {
+      const wowPath = wowPathParam(params)
+      if (wowPath === null) return { found: false }
       const addonPath = join(wowPath, ADDON_RELATIVE_PATH)
       return { found: existsSync(addonPath) }
     }
@@ -116,7 +125,9 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Validate a candidate WoW installation path by checking for the Logs directory.
   ipcMain.handle(
     'system:checkWowPath',
-    (_event, { path }: { path: string }): { valid: boolean } => {
+    (_event, params: { path: string }): { valid: boolean } => {
+      const path = wowPathParam(params)
+      if (path === null) return { valid: false }
       const logsDir = join(path, '_retail_', 'Logs')
       return { valid: existsSync(logsDir) }
     }
@@ -149,7 +160,9 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Copy the bundled DepletedCompanion addon to the WoW AddOns directory.
   ipcMain.handle(
     'system:installAddon',
-    async (_event, { wowPath }: { wowPath: string }): Promise<{ success: boolean; error?: string }> => {
+    async (_event, params: { wowPath: string }): Promise<{ success: boolean; error?: string }> => {
+      const wowPath = wowPathParam(params)
+      if (wowPath === null) return { success: false, error: 'Choose the World of Warcraft folder first' }
       try {
         const src = join(resolveBundledAddonDir(), ADDON_NAME)
         const dest = join(wowPath, ADDON_RELATIVE_PATH)
@@ -168,7 +181,9 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   })
 
   // Open the WoW AddOns directory in Finder/Explorer for manual copying.
-  ipcMain.handle('system:openAddonsDir', async (_event, { wowPath }: { wowPath: string }): Promise<void> => {
+  ipcMain.handle('system:openAddonsDir', async (_event, params: { wowPath: string }): Promise<void> => {
+    const wowPath = wowPathParam(params)
+    if (wowPath === null) return
     const addonsDir = join(wowPath, '_retail_', 'Interface', 'AddOns')
     await mkdir(addonsDir, { recursive: true }).catch(() => {})
     void shell.openPath(addonsDir)
@@ -195,9 +210,10 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // nothing", which reads identically to the user.
   ipcMain.handle(
     'system:openUrl',
-    async (_event, { url }: { url: string }): Promise<{ success: boolean; error?: string }> => {
+    async (_event, params: { url: string }): Promise<{ success: boolean; error?: string }> => {
       try {
-        await openExternalUrl(url)
+        if (typeof params?.url !== 'string') throw new Error('Not a valid link')
+        await openExternalUrl(params.url)
         return { success: true }
       } catch (e) {
         return { success: false, error: e instanceof Error ? e.message : String(e) }

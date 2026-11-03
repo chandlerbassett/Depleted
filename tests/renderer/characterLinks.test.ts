@@ -25,6 +25,12 @@ describe('buildCharacterStatsUrl', () => {
     )
   })
 
+  it('keeps a name to one path segment, whatever the combat log put in it', () => {
+    expect(buildCharacterStatsUrl('warcraftlogs', 'Ab/../..?x=1#f-MoonGuard-US', 'eu')).toBe(
+      'https://www.warcraftlogs.com/character/us/moon-guard/ab%2F..%2F..%3Fx%3D1%23f'
+    )
+  })
+
   it('builds Armory URLs', () => {
     expect(buildCharacterStatsUrl('armory', 'Gobitron-Area52-US', 'eu')).toBe(
       'https://worldofwarcraft.blizzard.com/en-us/character/us/area-52/gobitron'

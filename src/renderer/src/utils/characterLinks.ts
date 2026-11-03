@@ -22,13 +22,14 @@ export function normalizeStatsSite(site: string | undefined): StatsSite {
 
 export function buildCharacterStatsUrl(site: StatsSite, fullName: string, defaultRegion: WowRegion): string {
   const { name, realm, region } = parseCharacterFullName(fullName, defaultRegion)
-  const r = region.toLowerCase()
-  const slug = realmSlug(realm)
+  // Names come from the combat log: each one is one path segment, whatever is in it
+  const r = encodeURIComponent(region.toLowerCase())
+  const slug = encodeURIComponent(realmSlug(realm))
   switch (normalizeStatsSite(site)) {
     case 'warcraftlogs':
-      return `https://www.warcraftlogs.com/character/${r}/${slug}/${name.toLowerCase()}`
+      return `https://www.warcraftlogs.com/character/${r}/${slug}/${encodeURIComponent(name.toLowerCase())}`
     case 'armory':
-      return `https://worldofwarcraft.blizzard.com/en-us/character/${r}/${slug}/${name.toLowerCase()}`
+      return `https://worldofwarcraft.blizzard.com/en-us/character/${r}/${slug}/${encodeURIComponent(name.toLowerCase())}`
     case 'raiderio':
     default:
       return `https://raider.io/characters/${r}/${slug}/${encodeURIComponent(name)}`
