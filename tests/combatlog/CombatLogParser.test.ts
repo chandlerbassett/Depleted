@@ -421,6 +421,24 @@ describe('CombatLogParser: raid boss casts and emotes', () => {
     ])
   })
 
+  it('keeps a quote inside emote text as text, so later fields still split (issue #83)', () => {
+    const parser = new CombatLogParser()
+    const emotes: ParserEventMap['emote'][] = []
+    parser.on('emote', (e) => emotes.push(e))
+
+    parser.processLine(
+      '11/2/2026 19:54:00.416  EMOTE,Creature-0-4239-3004-90005-257758-000068E8BA,"Ula\'tek",0000000000000000,nil,' +
+        'Ula\'tek shrieks "Enough!", and the ground shakes, again'
+    )
+
+    expect(emotes).toEqual([
+      expect.objectContaining({
+        sourceName: "Ula'tek",
+        text: 'Ula\'tek shrieks "Enough!", and the ground shakes, again'
+      })
+    ])
+  })
+
   it('emits emote for boss emotes, keeping commas in the text', () => {
     const parser = new CombatLogParser()
     const emotes: ParserEventMap['emote'][] = []

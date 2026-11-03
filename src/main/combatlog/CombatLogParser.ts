@@ -1050,21 +1050,31 @@ function parseCombatantInfoGear(line: string): number[] {
 
 // Minimal CSV parser — handles double-quoted fields.
 // WoW does not embed escaped quotes inside quoted fields.
+// WoW quotes names and other strings it knows can hold a comma, and writes free text
+// (an EMOTE's words) unquoted. A quote only opens a field when it starts one, and only
+// closes it right before a comma or the end of the line, so a quote inside unquoted
+// text, or inside a quoted name, is just a character (issue #83).
 function parseCsvFields(line: string): string[] {
   const result: string[] = []
   let current = ''
   let inQuotes = false
+  let atFieldStart = true
 
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]!
-    if (ch === '"') {
-      inQuotes = !inQuotes
+    if (ch === '"' && atFieldStart) {
+      inQuotes = true
+    } else if (ch === '"' && inQuotes && (i + 1 === line.length || line[i + 1] === ',')) {
+      inQuotes = false
     } else if (ch === ',' && !inQuotes) {
       result.push(current)
       current = ''
+      atFieldStart = true
+      continue
     } else {
       current += ch
     }
+    atFieldStart = false
   }
 
   result.push(current)
