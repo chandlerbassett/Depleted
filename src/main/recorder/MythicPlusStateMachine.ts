@@ -98,7 +98,21 @@ export interface MythicPlusStateMachineOptions {
   raidPreRollSecs?: number
   // Raid difficulties to record boss pulls in; none (the default) turns raids off
   raidDifficulties?: RaidDifficulty[]
+  // Whether the game is running. When given (and the recorder has a rolling buffer), the
+  // buffer runs whenever the game is open, not only after zoning in: WoW writes the
+  // zone-in lines to disk together with the key start, so arming on zone-in alone
+  // leaves keys with no pre-roll.
+  isGameRunning?: () => Promise<boolean>
+  // The Settings switch for the above (default on). Off, keys and first pulls can start
+  // late, since the buffer only starts once the log shows the dungeon or raid.
+  bufferWhileGameOpen?: boolean
+  gameCheckMs?: number
 }
+
+// How often to check whether the game is running
+const GAME_CHECK_MS = 15_000
+// After the standby buffer fails or dies, wait this long before starting it again
+const STANDBY_RETRY_MS = 60_000
 
 // How often to check whether the log went quiet while armed in a raid
 const RAID_QUIET_CHECK_MS = 60_000
@@ -217,6 +231,14 @@ export class MythicPlusStateMachine extends EventEmitter {
   private quitting = false
   // Wall clock of the last log line seen, in or out of a recording
   private lastLogWallMs = Date.now()
+  // The game is open, so the rolling buffer stays up between keys and pulls (standby)
+  private gameOpen = false
+  private gameCheckTimer: ReturnType<typeof setInterval> | null = null
+  private gameCheckInFlight = false
+  // Resolves once an in-flight standby buffer start has finished
+  private standbyStarting: Promise<void> = Promise.resolve()
+  private standbyStartInFlight = false
+  private standbyRetryAfterMs = 0
   private readonly watcher: CombatLogWatcher
   private readonly recorder: CaptureRecorder
   private options: MythicPlusStateMachineOptions
@@ -232,6 +254,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.options = options
     this.bindParserEvents()
     this.bindRecorderEvents()
+    if (options.bufferWhileGameOpen !== false) this.startGameChecks()
   }
 
   // ---------------------------------------------------------------------------
@@ -246,6 +269,19 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.options = { ...this.options, recorder: opts }
   }
 
+  // The Settings switch: keep the rolling buffer up whenever WoW is open
+  updateBufferWhileGameOpen(enabled: boolean): void {
+    this.options = { ...this.options, bufferWhileGameOpen: enabled }
+    if (enabled) {
+      this.startGameChecks()
+      return
+    }
+    if (this.gameCheckTimer !== null) clearInterval(this.gameCheckTimer)
+    this.gameCheckTimer = null
+    this.gameOpen = false
+    void this.standbyStarting.then(() => this.stopBufferIfUnused())
+  }
+
   updateRaidDifficulties(difficulties: RaidDifficulty[]): void {
     this.options = { ...this.options, raidDifficulties: difficulties }
     if (this.armed?.forRaid === true && this.raidDifficultyOf(this.zone?.difficultyId ?? 0) === null) this.disarm()
@@ -254,8 +290,10 @@ export class MythicPlusStateMachine extends EventEmitter {
 
   // Frees the recorder if it's only armed (no key running), e.g. for a test recording.
   async releaseArmedRecorder(): Promise<void> {
+    // Keep the standby buffer from coming back before the test recording starts
+    this.standbyRetryAfterMs = Date.now() + STANDBY_RETRY_MS
     this.disarm()
-    await this.disarming
+    await Promise.all([this.disarming, this.standbyStarting])
     if (this.session === null) await this.stopBuffer()
   }
 
@@ -265,6 +303,8 @@ export class MythicPlusStateMachine extends EventEmitter {
   // recorder has stopped and processingRequired has been emitted.
   async finishForQuit(): Promise<void> {
     this.quitting = true
+    if (this.gameCheckTimer !== null) clearInterval(this.gameCheckTimer)
+    this.gameCheckTimer = null
     const session = this.session
     if (session !== null && !session.ending) {
       const endTimestamp = new Date(session.lastLogTimestamp.getTime() + (Date.now() - session.lastLogWallMs))
@@ -272,7 +312,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     }
     this.cutPostRoll?.()
     this.disarm()
-    await Promise.all([this.finalizing, this.disarming])
+    await Promise.all([this.finalizing, this.disarming, this.standbyStarting])
     await this.stopBuffer()
   }
 
@@ -314,9 +354,11 @@ export class MythicPlusStateMachine extends EventEmitter {
 
   private bindRecorderEvents(): void {
     this.recorder.on('bufferStopped', ({ message }) => {
-      if (this.armed?.buffered !== true) return
+      // Closing WoW ends it too; the next game check sees that. Otherwise don't respawn
+      // it in a loop if the helper keeps dying.
+      this.standbyRetryAfterMs = Date.now() + STANDBY_RETRY_MS
       console.error('[MythicPlus] The pre-roll buffer stopped:', message)
-      this.clearArmed()
+      if (this.armed?.buffered === true) this.clearArmed()
     })
     this.recorder.on('unexpectedStop', ({ outputPath }) => {
       if (this.armed !== null && !this.armed.buffered) {
@@ -412,7 +454,8 @@ export class MythicPlusStateMachine extends EventEmitter {
     const armed = sameInstance !== null && !sameInstance.buffered ? sameInstance : null
     const buffering = sameInstance?.buffered === true ? sameInstance.started : Promise.resolve(false)
     const rawPath = armed?.rawOutputPath ?? buildRawPath(this.options.rawRecordingsDir, start.zoneName, start.startedAt)
-    const previousStop = Promise.all([this.finalizing, this.disarming]).then(() => undefined)
+    // A standby buffer still starting is used once it's up
+    const previousStop = Promise.all([this.finalizing, this.disarming, this.standbyStarting]).then(() => undefined)
     const session: KeySession = {
       zoneName: start.zoneName,
       instanceId: start.instanceId,
@@ -576,10 +619,6 @@ export class MythicPlusStateMachine extends EventEmitter {
     return this.recorder.startBuffer !== undefined && this.recorder.stopBuffer !== undefined
   }
 
-  private bufferDir(): string {
-    return join(this.options.rawRecordingsDir, '.buffer')
-  }
-
   // Starts the recorder's rolling buffer. Nothing is written beyond the buffer until a
   // key or pull starts, so there's nothing to restart. For a key it gives up after the
   // same hour; in a raid it runs until we leave or the log goes quiet.
@@ -595,7 +634,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       cancelled: false,
       failure: null
     }
-    const previousStop = Promise.all([this.finalizing, this.disarming])
+    const previousStop = Promise.all([this.finalizing, this.disarming, this.standbyStarting])
     armed.started = previousStop.then(async () => {
       if (armed.cancelled) return false
       // Anything we were recording has stopped by now, so this is test mode — leave it be.
@@ -607,7 +646,7 @@ export class MythicPlusStateMachine extends EventEmitter {
         const bufferSecs = this.options.bufferSecs ?? PRE_ROLL_BUFFER_SECS
         // Still running after the last pull: keep it, it holds the run-in to the next one
         if (this.recorder.isBuffering?.() === true) return true
-        await this.recorder.startBuffer?.(this.bufferDir(), bufferSecs, this.options.recorder)
+        await this.recorder.startBuffer?.(bufferSecs, this.options.recorder)
         console.warn(`[MythicPlus] Armed for a ${forRaid ? 'pull' : 'key'} in ${zoneName}: buffering the last ${bufferSecs}s`)
         return true
       } catch (err) {
@@ -626,6 +665,71 @@ export class MythicPlusStateMachine extends EventEmitter {
           if (this.armed === armed) this.disarm()
         }, MYTHIC_PLUS_ARMED_MAX_SECS * 1000)
     this.armed = armed
+  }
+
+  // Ends the rolling buffer unless a key, a pull, an armed zone or the open game needs it
+  private async stopBufferIfUnused(): Promise<void> {
+    if (this.session !== null || this.armed !== null) return
+    if (this.gameOpen && !this.quitting) return
+    await this.stopBuffer()
+  }
+
+  private startGameChecks(): void {
+    if (this.options.isGameRunning === undefined || !this.canBuffer() || this.gameCheckTimer !== null) return
+    if (this.quitting) return
+    this.gameCheckTimer = setInterval(() => void this.checkGame(), this.options.gameCheckMs ?? GAME_CHECK_MS)
+    void this.checkGame()
+  }
+
+  // Polled: keeps the standby buffer up while the game is open, and ends it once it closes
+  private async checkGame(): Promise<void> {
+    const check = this.options.isGameRunning
+    if (check === undefined || this.gameCheckInFlight || this.quitting) return
+    this.gameCheckInFlight = true
+    try {
+      let running: boolean
+      try {
+        running = await check()
+      } catch (err) {
+        console.error('[MythicPlus] Checking whether WoW is running failed:', err instanceof Error ? err.message : String(err))
+        return
+      }
+      // Switched off meanwhile
+      if (this.quitting || this.gameCheckTimer === null) return
+      if (running !== this.gameOpen) console.warn(`[MythicPlus] WoW ${running ? 'is open' : 'closed'}`)
+      this.gameOpen = running
+      if (running) this.startStandbyBuffer()
+      else await this.stopBufferIfUnused()
+    } finally {
+      this.gameCheckInFlight = false
+    }
+  }
+
+  private startStandbyBuffer(): void {
+    if (this.standbyStartInFlight || this.quitting) return
+    // Armed or recording: those start (or already use) the buffer themselves
+    if (this.session !== null || this.armed !== null) return
+    if (this.recorder.isBuffering?.() === true || this.recorder.isRecording()) return
+    if (Date.now() < this.standbyRetryAfterMs) return
+    this.standbyStartInFlight = true
+    const previousStop = Promise.all([this.finalizing, this.disarming])
+    this.standbyStarting = previousStop
+      .then(async () => {
+        // Something else took the recorder meanwhile (a key, a zone-in, test mode)
+        if (this.session !== null || this.armed !== null || this.quitting || !this.gameOpen) return
+        if (this.recorder.isBuffering?.() === true || this.recorder.isRecording()) return
+        const bufferSecs = this.options.bufferSecs ?? PRE_ROLL_BUFFER_SECS
+        try {
+          await this.recorder.startBuffer?.(bufferSecs, this.options.recorder)
+          console.warn(`[MythicPlus] WoW is open: buffering the last ${bufferSecs}s`)
+        } catch (err) {
+          this.standbyRetryAfterMs = Date.now() + STANDBY_RETRY_MS
+          console.error('[MythicPlus] Starting the pre-roll buffer failed:', err instanceof Error ? err.message : String(err))
+        }
+      })
+      .finally(() => {
+        this.standbyStartInFlight = false
+      })
   }
 
   // Ends the rolling buffer, if the recorder has one running.
@@ -657,7 +761,7 @@ export class MythicPlusStateMachine extends EventEmitter {
         if (!(await armed.started)) return
         if (armed.buffered) {
           // A key that started meanwhile records from the buffer; leave it running then
-          if (this.session === null) await this.stopBuffer()
+          await this.stopBufferIfUnused()
           return
         }
         const path = await this.recorder.stop()
@@ -872,8 +976,8 @@ export class MythicPlusStateMachine extends EventEmitter {
     // that's still running)
     if (session.pull !== null && this.session === null && !this.quitting) this.armForZone()
     // A recording from the buffer leaves it running. After a key nothing needs it until
-    // the next zone-in, unless a new key or pull took it over meanwhile.
-    if (this.session === null && this.armed === null) await this.stopBuffer()
+    // the next zone-in, unless a new key or pull took it over meanwhile, or the game is open.
+    await this.stopBufferIfUnused()
   }
 
   // ---------------------------------------------------------------------------

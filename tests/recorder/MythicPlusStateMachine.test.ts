@@ -53,15 +53,15 @@ class FakeRecorder extends EventEmitter {
 class FakeBufferingRecorder extends FakeRecorder {
   bufferStartedAtMs: number | null = null
   bufferSecs = 0
-  startBufferMock = vi.fn(async (_dir: string, secs: number): Promise<void> => {
+  startBufferMock = vi.fn(async (secs: number): Promise<void> => {
     this.bufferStartedAtMs = Date.now()
     this.bufferSecs = secs
   })
   stopBufferMock = vi.fn(async (): Promise<void> => {
     this.bufferStartedAtMs = null
   })
-  startBuffer(dir: string, secs: number): Promise<void> {
-    return this.startBufferMock(dir, secs)
+  startBuffer(secs: number): Promise<void> {
+    return this.startBufferMock(secs)
   }
   stopBuffer(): Promise<void> {
     return this.stopBufferMock()
@@ -97,6 +97,9 @@ function setup(
     armedRestartSecs?: number
     raidDifficulties?: RaidDifficulty[]
     buffering?: boolean
+    // Turns on the always-on buffer, with this as whether WoW is running
+    gameRunning?: () => boolean
+    bufferWhileGameOpen?: boolean
   } = {}
 ): {
   watcher: FakeWatcher
@@ -117,7 +120,10 @@ function setup(
       idleTimeoutSecs: options.idleTimeoutSecs ?? 3600,
       armedRestartSecs: options.armedRestartSecs,
       raidPostRollSecs: 5,
-      raidDifficulties: options.raidDifficulties
+      raidDifficulties: options.raidDifficulties,
+      isGameRunning: options.gameRunning === undefined ? undefined : async () => options.gameRunning!(),
+      bufferWhileGameOpen: options.bufferWhileGameOpen,
+      gameCheckMs: 15_000
     }
   )
   const processed: ProcessingRequiredEvent[] = []
@@ -599,7 +605,7 @@ describe('MythicPlusStateMachine', () => {
     vi.setSystemTime(ENTERED_AT)
     watcher.feed([ENTER_MYTHIC])
     await vi.advanceTimersByTimeAsync(0)
-    expect(recorder.startBufferMock).toHaveBeenCalledWith('/tmp/raw/.buffer', 90)
+    expect(recorder.startBufferMock).toHaveBeenCalledWith(90)
     // Nothing is being written beyond the buffer yet
     expect(recorder.startMock).not.toHaveBeenCalled()
 
@@ -675,6 +681,130 @@ describe('MythicPlusStateMachine', () => {
 
     expect(recorder.startMock).toHaveBeenCalledOnce()
     expect(processed[0]!.recordingStartedAt.getTime()).toBe(KEY_START.getTime())
+  })
+
+  // -------------------------------------------------------------------------
+  // Always-on buffer: running whenever WoW is open
+  // -------------------------------------------------------------------------
+
+  function gameOpenSetup(
+    opts: { bufferWhileGameOpen?: boolean } = {}
+  ): ReturnType<typeof setup> & { recorder: FakeBufferingRecorder; game: { running: boolean } } {
+    const game = { running: true }
+    vi.setSystemTime(ENTERED_AT)
+    const ctx = setup({ buffering: true, gameRunning: () => game.running, ...opts }) as ReturnType<typeof setup> & {
+      recorder: FakeBufferingRecorder
+    }
+    return { ...ctx, game }
+  }
+
+  it('buffers while WoW is open, so a key logged with its zone-in still gets its pre-roll', async () => {
+    const { watcher, recorder, processed } = gameOpenSetup()
+    // setup() moves the clock; WoW was opened well before the key
+    vi.setSystemTime(KEY_START.getTime() - 5 * 60_000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.startBufferMock).toHaveBeenCalledWith(90)
+    expect(recorder.isBuffering()).toBe(true)
+
+    // The zone-in and the key start arrive in the same read, 1 s after the key went in
+    vi.setSystemTime(KEY_START.getTime() + 1000)
+    watcher.feed(LINES)
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    const ev = processed[0]!
+    expect(ev.matchStartedAt.getTime()).toBe(KEY_START.getTime() - 15_000)
+    expect(ev.timeline[0]).toMatchObject({ type: 'key-start', timestamp: 15 })
+    // Still open: the buffer keeps running for the next key
+    expect(recorder.startBufferMock).toHaveBeenCalledOnce()
+    expect(recorder.stopBufferMock).not.toHaveBeenCalled()
+    expect(recorder.isBuffering()).toBe(true)
+  })
+
+  it('stops the buffer once WoW closes', async () => {
+    const { recorder, game } = gameOpenSetup()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.isBuffering()).toBe(true)
+
+    game.running = false
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(recorder.stopBufferMock).toHaveBeenCalledOnce()
+    expect(recorder.isBuffering()).toBe(false)
+  })
+
+  it('keeps the buffer when leaving a dungeon while WoW is open', async () => {
+    const { watcher, recorder } = gameOpenSetup()
+    await vi.advanceTimersByTimeAsync(0)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    watcher.feed(['10/27/2026 19:59:30.0000  ZONE_CHANGE,2552,"Dornogal",0'])
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(recorder.stopBufferMock).not.toHaveBeenCalled()
+    expect(recorder.startBufferMock).toHaveBeenCalledOnce()
+  })
+
+  it('only buffers after zoning in when switched off', async () => {
+    const { watcher, recorder } = gameOpenSetup({ bufferWhileGameOpen: false })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(recorder.startBufferMock).not.toHaveBeenCalled()
+
+    vi.setSystemTime(ENTERED_AT)
+    watcher.feed([ENTER_MYTHIC])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.startBufferMock).toHaveBeenCalledOnce()
+  })
+
+  it('stops the buffer when switched off in Settings, and starts it again when switched on', async () => {
+    const { recorder, machine } = gameOpenSetup()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.isBuffering()).toBe(true)
+
+    machine.updateBufferWhileGameOpen(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.isBuffering()).toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(recorder.isBuffering()).toBe(false)
+
+    machine.updateBufferWhileGameOpen(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorder.isBuffering()).toBe(true)
+  })
+
+  it('makes way for a test recording, then comes back', async () => {
+    const { recorder, machine } = gameOpenSetup()
+    await vi.advanceTimersByTimeAsync(0)
+    await machine.releaseArmedRecorder()
+    expect(recorder.isBuffering()).toBe(false)
+
+    // The test recording holds the recorder for 10 s
+    await recorder.start('/tmp/test.mp4')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(recorder.isBuffering()).toBe(false)
+    await recorder.stop()
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(recorder.isBuffering()).toBe(true)
+  })
+
+  it("doesn't restart a buffer that keeps dying more than once a minute", async () => {
+    const { recorder } = gameOpenSetup()
+    await vi.advanceTimersByTimeAsync(0)
+    recorder.bufferStartedAtMs = null
+    recorder.emit('bufferStopped', { message: 'Capture stopped' })
+
+    await vi.advanceTimersByTimeAsync(45_000)
+    expect(recorder.startBufferMock).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(recorder.startBufferMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops the buffer on quit', async () => {
+    const { recorder, machine } = gameOpenSetup()
+    await vi.advanceTimersByTimeAsync(0)
+    await machine.finishForQuit()
+    expect(recorder.isBuffering()).toBe(false)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(recorder.isBuffering()).toBe(false)
   })
 
   // -------------------------------------------------------------------------

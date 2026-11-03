@@ -49,9 +49,10 @@ makes jumps the video to the moment it is about.
 - Colors that match the game: capture is converted and tagged as sRGB / BT.709, so footage
   from a P3 display doesn't play back washed out
 - Records the game's audio with no extra audio tools
-- **Pre-roll**: on entering a dungeon or raid the recorder keeps a rolling buffer of the last
-  90 seconds (about 0.9 GB at 80 Mbps, deleted as it goes, nothing saved until something starts).
-  A key's video starts 15 seconds before the key, so the countdown is in it; a raid pull's starts
+- **Pre-roll**: while WoW is open, the recorder keeps a rolling buffer of the last 90 seconds
+  in memory (about 0.9 GB of RAM at 80 Mbps; older footage is dropped and nothing is written to
+  disk until a key or pull starts). See [Privacy and security](#privacy-and-security) for what
+  that means, and how to turn it off. A key's video starts 15 seconds before the key, so the countdown is in it; a raid pull's starts
   60 seconds before the pull, so the pull timer is. A key's video ends about 18 seconds after the
   key, so the completion screen is in it too
 - Keys you leave and don't come back to within 3 minutes are saved as *abandoned* instead of lost
@@ -180,6 +181,19 @@ and, if you connect it, the Warcraft Logs API with your own client. That covers 
 top-player data and finding a run's fight, which looks up the recent public reports of you and up
 to three others in the group by character name. Player links open in your browser.
 
+**The pre-roll buffer records while WoW is open.** To catch a key's countdown and a raid pull
+timer, Depleted keeps recording the WoW window and WoW's own sound into a 90-second buffer in
+memory the whole time WoW is running, not only during keys and pulls. That includes anything on
+screen in WoW, like chat and whispers. Other apps aren't captured, and neither is their sound,
+so voice chat in Discord isn't recorded. The buffer never leaves Depleted's capture process: it isn't
+written to disk or sent anywhere, other apps can't read it, and older footage is dropped as new
+footage comes in. Only when a key or boss pull starts is the buffered footage saved, as the
+start of that recording. macOS shows the screen recording indicator in the menu bar the whole
+time. You can turn this off in **Settings → Pre-roll buffer**. Then the buffer only starts once
+the combat log shows you're in a dungeon or raid. WoW often writes that at the same moment the
+key or first pull starts, so those recordings can start a second or two late, without the
+countdown or pull timer.
+
 The app runs with Electron's sandbox and context isolation on, a strict content security
 policy, and a short allowlist of permissions. Releases are built only from `main` by a
 protected release workflow, notarized by Apple, and checked by macOS's code signature before
@@ -195,6 +209,7 @@ an update installs. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 | WoW Addon | Install or update DepletedCompanion |
 | Auto-Cleanup | Delete old recordings after N days or once they pass N GB |
 | Raids | Which raid difficulties to record boss pulls on (Normal, Heroic and Mythic by default) |
+| Pre-roll buffer | Keep the 90 s buffer running whenever WoW is open (on by default). Off, keys and first pulls can start a second or two late |
 | Character Stats | Where player names link to (Raider.IO, Warcraft Logs or the Armory) and your region |
 | Warcraft Logs | Your API client for the Coach |
 | Test Mode | Record a short test clip to check capture and audio |

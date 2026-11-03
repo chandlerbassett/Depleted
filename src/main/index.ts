@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, session } from 'electron'
 import { join } from 'path'
-import { chmodSync, mkdirSync, readdirSync } from 'fs'
+import { chmodSync, mkdirSync, readdirSync, rmSync } from 'fs'
 import Store from 'electron-store'
 
 // On macOS, Electron's getDisplayMedia({ audio: 'loopback' }) has historically returned
@@ -36,6 +36,7 @@ import { StorageManager, ffmpegMediaTools, nativeMediaTools, type MediaTools } f
 import { resolveFfmpegPath } from './system/ffmpeg'
 import { openExternalUrl } from './system/openExternal'
 import { startLogFile } from './system/logFile'
+import { isWowRunning } from './system/gameProcess'
 
 import type { AppConfig, Recording } from '@shared/ipc.types'
 import {
@@ -78,7 +79,8 @@ const configStore = new Store<AppConfig>({
     onboardingComplete: false,
     statsSite: DEFAULT_STATS_SITE,
     wowRegion: DEFAULT_WOW_REGION,
-    raidDifficulties: [...DEFAULT_RAID_DIFFICULTIES]
+    raidDifficulties: [...DEFAULT_RAID_DIFFICULTIES],
+    bufferWhileGameOpen: true
   }
 })
 // configFileMode only applies when the file is next written; fix older installs now
@@ -135,6 +137,12 @@ function createPipeline(): {
   const logsDir = join(wowPath, COMBAT_LOG_RELATIVE_DIR)
   const rawDir = join(storagePath, 'raw')
   makeRecordingsFolderPrivate(storagePath)
+  // 1.3.0's helper kept its buffer on disk here; a killed helper could leave it behind
+  try {
+    rmSync(join(rawDir, '.buffer'), { recursive: true, force: true })
+  } catch {
+    // Not there
+  }
 
   const watcher = new CombatLogWatcher({ dir: logsDir, glob: COMBAT_LOG_GLOB })
   // macOS records, trims and thumbnails with the native helper (ScreenCaptureKit +
@@ -151,7 +159,10 @@ function createPipeline(): {
   const stateMachine = new MythicPlusStateMachine(watcher, recorder, {
     rawRecordingsDir: rawDir,
     recorder: recorderOptions,
-    raidDifficulties: configStore.get('raidDifficulties')
+    raidDifficulties: configStore.get('raidDifficulties'),
+    // Only the native recorder has a rolling buffer
+    isGameRunning: useNative ? isWowRunning : undefined,
+    bufferWhileGameOpen: configStore.get('bufferWhileGameOpen')
   })
   const storageManager = new StorageManager(storagePath)
 
@@ -367,6 +378,9 @@ function startApp(): void {
   configStore.onDidChange('raidDifficulties', (difficulties) => {
     stateMachine.updateRaidDifficulties(difficulties ?? [])
   })
+  configStore.onDidChange('bufferWhileGameOpen', (enabled) => {
+    stateMachine.updateBufferWhileGameOpen(enabled !== false)
+  })
 
   // Register ipcMain.handle commands once — re-registration throws in Electron.
   registerRecorderIpc(stateMachine)
@@ -414,7 +428,8 @@ function startApp(): void {
   let quitCleanupDone = false
   app.on('before-quit', (event) => {
     isQuitting = true
-    if (quitCleanupDone || (!recorder.isRecording() && pendingSaves.size === 0)) return
+    const buffering = recorder.isBuffering?.() === true
+    if (quitCleanupDone || (!recorder.isRecording() && !buffering && pendingSaves.size === 0)) return
     event.preventDefault()
     quitCleanupDone = true
     stateMachine

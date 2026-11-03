@@ -32,7 +32,7 @@ export interface CaptureRecorder {
   isRecording(): boolean
   // Optional rolling pre-roll buffer (native capture only). While it runs, start() opens
   // a file with up to bufferSecs of footage from before the call.
-  startBuffer?(bufferDir: string, bufferSecs: number, options?: RecorderOptions): Promise<void>
+  startBuffer?(bufferSecs: number, options?: RecorderOptions): Promise<void>
   stopBuffer?(): Promise<void>
   isBuffering?(): boolean
   on<K extends keyof RecorderEventMap>(event: K, listener: (payload: RecorderEventMap[K]) => void): this

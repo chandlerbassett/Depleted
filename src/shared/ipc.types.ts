@@ -324,6 +324,9 @@ export interface AppConfig {
   wowRegion: WowRegion
   // Raid difficulties whose boss pulls are recorded; empty turns raid recording off
   raidDifficulties: RaidDifficulty[]
+  // Keep the rolling pre-roll buffer (WoW's window and sound, last 90 s, in memory)
+  // running whenever WoW is open. Off, keys and first pulls can start late.
+  bufferWhileGameOpen: boolean
 }
 
 export interface CaptureSource {

@@ -25,7 +25,8 @@ const CONFIG_KEYS: Readonly<Record<keyof AppConfig, true>> = {
   onboardingComplete: true,
   statsSite: true,
   wowRegion: true,
-  raidDifficulties: true
+  raidDifficulties: true,
+  bufferWhileGameOpen: true
 }
 
 export function isConfigKey(key: unknown): key is keyof AppConfig {

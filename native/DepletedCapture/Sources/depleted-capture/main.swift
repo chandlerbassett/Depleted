@@ -4,14 +4,14 @@ import Foundation
 //
 //   record     --output <file.mp4> [--fps 30] [--bitrate-kbps 8000] [--codec h264|hevc]
 //              [--resolution native|WIDTHxHEIGHT] [--window <title>]
-//   buffer     --buffer-dir <dir> [--buffer-secs 90] [record options, no --output]
+//   buffer     [--buffer-secs 90] [record options, no --output]
 //              rolling pre-roll buffer; "start <path>" / "stop" / "quit" on stdin
 //   trim       --input <file> --output <file.mp4> --start <secs> [--duration <secs>]
 //   thumbnail  --input <file> --output <file.jpg> [--at <secs>]
 //   windows    list capturable windows
 //   version
 
-let helperVersion = "1.1.0"
+let helperVersion = "1.2.0"
 
 let argv = CommandLine.arguments
 guard argv.count >= 2 else { fail("usage: depleted-capture record|buffer|trim|thumbnail|windows|version", code: 2) }

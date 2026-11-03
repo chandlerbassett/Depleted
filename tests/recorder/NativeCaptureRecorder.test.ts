@@ -161,7 +161,7 @@ describe('NativeCaptureRecorder', () => {
   // -------------------------------------------------------------------------
 
   async function buffering(): Promise<void> {
-    const ready = recorder.startBuffer(join(dir, 'raw', '.buffer'), 90, { fps: 60, codec: 'hevc' })
+    const ready = recorder.startBuffer(90, { fps: 60, codec: 'hevc' })
     await spawned(() => spawnArgs)
     helper.send({ event: 'buffering', width: 3840, height: 2160 })
     await ready
@@ -169,7 +169,7 @@ describe('NativeCaptureRecorder', () => {
 
   it('startBuffer() runs the helper in buffer mode and resolves once it is encoding', async () => {
     await buffering()
-    expect(spawnArgs.slice(0, 5)).toEqual(['buffer', '--buffer-dir', join(dir, 'raw', '.buffer'), '--buffer-secs', '90'])
+    expect(spawnArgs.slice(0, 3)).toEqual(['buffer', '--buffer-secs', '90'])
     expect(spawnArgs).toContain('hevc')
     expect(recorder.isBuffering()).toBe(true)
     expect(recorder.isRecording()).toBe(false)
