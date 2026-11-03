@@ -390,3 +390,52 @@ describe('CombatLogParser — casts and buffs for the coach', () => {
     ])
   })
 })
+
+describe('CombatLogParser: raid boss casts and emotes', () => {
+  it("emits hostileCast for hostile NPC casts with the caster's level, and skips friendly guardians", () => {
+    const parser = new CombatLogParser()
+    const casts: ParserEventMap['hostileCast'][] = []
+    const playerCasts: ParserEventMap['spellCast'][] = []
+    parser.on('hostileCast', (e) => casts.push(e))
+    parser.on('spellCast', (e) => playerCasts.push(e))
+
+    parser.processLine(
+      '11/2/2026 19:48:10.031  SPELL_CAST_START,Vehicle-0-4239-3004-90005-257758-000068E8BA,"Ula\'tek",0xa48,0x80000000,' +
+        '0000000000000000,nil,0x80000000,0x80000000,1298367,"Mother\'s Wrath",0x8'
+    )
+    parser.processLine(
+      '11/2/2026 19:48:15.031  SPELL_CAST_SUCCESS,Vehicle-0-4239-3004-90005-257758-000068E8BA,"Ula\'tek",0xa48,0x80000000,' +
+        'Player-1305-0CBA244F,"Kohtank-Kazzak-EU",0x514,0x80000000,1298367,"Mother\'s Wrath",0x8,' +
+        'Vehicle-0-4239-3004-90005-257758-000068E8BA,0000000000000000,1566601860,1673145000,0,0,1470,0,0,0,3,20,100,0,' +
+        '1599.81,-1.23,2610,3.1461,93'
+    )
+    parser.processLine(
+      '11/2/2026 19:48:16.000  SPELL_CAST_START,Creature-0-4239-3004-90005-55659-000068E999,"Wild Imp",0x2111,0x80000000,' +
+        'Creature-0-4239-3004-90005-257758-000068E8BA,"Ula\'tek",0xa48,0x80000000,104318,"Fel Firebolt",0x4'
+    )
+
+    expect(playerCasts).toHaveLength(0)
+    expect(casts.map((c) => [c.casterName, c.spellName, c.isStart, c.casterLevel])).toEqual([
+      ["Ula'tek", "Mother's Wrath", true, undefined],
+      ["Ula'tek", "Mother's Wrath", false, 93]
+    ])
+  })
+
+  it('emits emote for boss emotes, keeping commas in the text', () => {
+    const parser = new CombatLogParser()
+    const emotes: ParserEventMap['emote'][] = []
+    parser.on('emote', (e) => emotes.push(e))
+
+    parser.processLine(
+      '11/2/2026 19:54:00.416  EMOTE,Vehicle-0-4239-3004-90005-257758-000068E8BA,"Ula\'tek",0000000000000000,nil,' +
+        "Ula'tek circles her prey, preparing for the final strike!"
+    )
+
+    expect(emotes).toEqual([
+      expect.objectContaining({
+        sourceName: "Ula'tek",
+        text: "Ula'tek circles her prey, preparing for the final strike!"
+      })
+    ])
+  })
+})

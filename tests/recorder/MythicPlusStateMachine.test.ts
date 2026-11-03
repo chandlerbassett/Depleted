@@ -740,6 +740,29 @@ describe('MythicPlusStateMachine', () => {
     expect(machine.getStatus()).toBe('idle')
   })
 
+  it("puts the boss's abilities and phases on a pull's timeline", async () => {
+    const { watcher, processed } = setup({ raidDifficulties: ['heroic'] })
+    await enterRaid(watcher)
+
+    vi.setSystemTime(new Date(2026, 9, 27, 21, 5, 0))
+    watcher.feed([
+      '10/27/2026 21:05:00.0000  ENCOUNTER_START,3129,"Plexus Sentinel",15,20,2810',
+      '10/27/2026 21:05:10.0000  SPELL_CAST_START,Creature-0-3767-2810-1-233814-0001,"Plexus Sentinel",0xa48,0x0,0000000000000000,nil,0x80000000,0x80000000,1219450,"Obliteration Arcanocannon",0x40',
+      '10/27/2026 21:05:13.0000  SPELL_CAST_SUCCESS,Creature-0-3767-2810-1-233814-0001,"Plexus Sentinel",0xa48,0x0,Player-1329-0B000001,"Raider-Illidan-US",0x514,0x0,1219450,"Obliteration Arcanocannon",0x40,Creature-0-3767-2810-1-233814-0001,0000000000000000,100,100,0,0,0,0,0,0,0,0,0,0,0,0,0,93',
+      '10/27/2026 21:05:20.0000  SPELL_CAST_SUCCESS,Creature-0-3767-2810-1-233815-0002,"Arcane Add",0xa48,0x0,Player-1329-0B000001,"Raider-Illidan-US",0x514,0x0,1,"Zap",0x40,Creature-0-3767-2810-1-233815-0002,0000000000000000,100,100,0,0,0,0,0,0,0,0,0,0,0,0,0,92',
+      '10/27/2026 21:06:00.0000  EMOTE,Creature-0-3767-2810-1-233814-0001,"Plexus Sentinel",0000000000000000,nil,Plexus Sentinel overloads!',
+      '10/27/2026 21:09:00.0000  ENCOUNTER_END,3129,"Plexus Sentinel",15,20,0,240000'
+    ])
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(processed[0]!.timeline.map((t) => [t.type, t.timestamp, t.spellName ?? t.text])).toEqual([
+      ['pull-start', 60, undefined],
+      ['boss-ability', 70, 'Obliteration Arcanocannon'],
+      ['phase', 120, 'Plexus Sentinel overloads!'],
+      ['boss-wipe', 300, undefined]
+    ])
+  })
+
   it('numbers pulls of the same boss and marks a kill as a win', async () => {
     const { watcher, processed } = setup({ raidDifficulties: ['heroic'] })
     await enterRaid(watcher)

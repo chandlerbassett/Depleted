@@ -143,6 +143,16 @@ const INTERRUPT_FIELD_INTERRUPTED_SPELL_NAME = 12
 // ("BUFF" | "DEBUFF") — verified against a 12.x log
 const AURA_FIELD_TYPE = 11
 
+// SPELL_CAST_SUCCESS with Advanced Combat Logging: the advanced block after the spell
+// prefix describes the caster, and its last field is the unit's level
+const CAST_ADVANCED_UNIT_GUID = 11
+
+// EMOTE (RAID_BOSS_EMOTE): srcGUID, srcName, destGUID, destName, text. The text isn't
+// quoted, so any commas in it split it into more fields.
+const EMOTE_FIELD_SOURCE_GUID = 0
+const EMOTE_FIELD_SOURCE_NAME = 1
+const EMOTE_FIELD_TEXT = 4
+
 // ---------------------------------------------------------------------------
 // UNIT_DIED field indices
 // srcGUID, srcName, srcFlags, srcRaidFlags, destGUID, destName, destFlags, destRaidFlags, unconscious
@@ -237,6 +247,26 @@ export interface SpellCastEvent {
   casterFlags: number
   spellId: number
   spellName: string
+  timestamp: Date
+}
+
+// Fired for SPELL_CAST_START / SPELL_CAST_SUCCESS by a hostile NPC (raid boss abilities)
+export interface HostileCastEvent {
+  casterGuid: string
+  casterName: string
+  spellId: number
+  spellName: string
+  isStart: boolean
+  // SPELL_CAST_SUCCESS with Advanced Combat Logging only
+  casterLevel?: number
+  timestamp: Date
+}
+
+export interface EmoteEvent {
+  sourceGuid: string
+  sourceName: string
+  // Raw, with the UI's |T|t / |c|r / |H|h markup still in it
+  text: string
   timestamp: Date
 }
 
@@ -336,6 +366,8 @@ export interface ParserEventMap {
   spellCast: SpellCastEvent
   // SPELL_CAST_START: a hard cast began (same payload; it may still fail)
   spellCastStart: SpellCastEvent
+  hostileCast: HostileCastEvent
+  emote: EmoteEvent
   buffChange: BuffChangeEvent
   zoneChanged: ZoneChangedEvent
   challengeModeStart: ChallengeModeStartEvent
@@ -468,6 +500,9 @@ export class CombatLogParser extends EventEmitter {
         break
       case 'UNIT_DIED':
         this.handleUnitDied(fields, timestamp)
+        break
+      case 'EMOTE':
+        this.handleEmote(fields, timestamp)
         break
       default:
         break
@@ -606,15 +641,44 @@ export class CombatLogParser extends EventEmitter {
 
   private handleSpellCast(event: 'spellCast' | 'spellCastStart', fields: string[], timestamp: Date): void {
     const casterGuid = fields[SPELL_FIELD_CASTER_GUID]
-    if (casterGuid === undefined || !casterGuid.startsWith('Player-')) return
+    if (casterGuid === undefined) return
     const spellId = parseInt(fields[SPELL_FIELD_SPELL_ID] ?? '', 10)
     if (isNaN(spellId)) return
+    if (!casterGuid.startsWith('Player-')) {
+      this.handleHostileCast(event === 'spellCastStart', casterGuid, spellId, fields, timestamp)
+      return
+    }
     this.emit(event, {
       casterGuid,
       casterName: sanitizeName(fields[SPELL_FIELD_CASTER_NAME]),
       casterFlags: parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0'),
       spellId,
       spellName: fields[SPELL_FIELD_SPELL_NAME] ?? '',
+      timestamp
+    })
+  }
+
+  private handleHostileCast(isStart: boolean, casterGuid: string, spellId: number, fields: string[], timestamp: Date): void {
+    if ((parseHexFlags(fields[SPELL_FIELD_CASTER_FLAGS] ?? '0') & UNIT_FLAG_REACTION_HOSTILE) === 0) return
+    const level = !isStart && fields[CAST_ADVANCED_UNIT_GUID] === casterGuid ? parseInt(fields[fields.length - 1] ?? '', 10) : NaN
+    this.emit('hostileCast', {
+      casterGuid,
+      casterName: sanitizeName(fields[SPELL_FIELD_CASTER_NAME]),
+      spellId,
+      spellName: fields[SPELL_FIELD_SPELL_NAME] ?? '',
+      isStart,
+      casterLevel: isNaN(level) ? undefined : level,
+      timestamp
+    })
+  }
+
+  private handleEmote(fields: string[], timestamp: Date): void {
+    const sourceGuid = fields[EMOTE_FIELD_SOURCE_GUID]
+    if (sourceGuid === undefined || sourceGuid.startsWith('Player-')) return
+    this.emit('emote', {
+      sourceGuid,
+      sourceName: sanitizeName(fields[EMOTE_FIELD_SOURCE_NAME]),
+      text: fields.slice(EMOTE_FIELD_TEXT).join(','),
       timestamp
     })
   }
