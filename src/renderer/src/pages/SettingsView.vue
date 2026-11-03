@@ -24,6 +24,7 @@ const {
   cleanupGbEnabled,
   cleanupGb,
   minimizeToTray,
+  bufferWhileGameOpen,
   statsSite,
   wowRegion,
   raidDifficulties,
@@ -722,6 +723,39 @@ const CODECS = [
           </div>
           <p class="text-xs text-zinc-600 mt-1.5">
             Each boss pull is saved as its own recording, kill or wipe. Turn every difficulty off to stop recording raids.
+          </p>
+        </section>
+
+        <!-- ---------------------------------------------------------------- -->
+        <!-- Pre-roll buffer                                                   -->
+        <!-- ---------------------------------------------------------------- -->
+        <section
+          v-if="platform === 'darwin'"
+          class="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-4 col-span-2"
+        >
+          <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+            Pre-roll buffer
+          </h3>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input
+              :checked="bufferWhileGameOpen"
+              type="checkbox"
+              class="w-4 h-4 rounded accent-blue-500 cursor-pointer"
+              @change="bufferWhileGameOpen = ($event.target as HTMLInputElement).checked"
+            >
+            <span class="text-xs text-zinc-300">Keep a rolling buffer while WoW is open</span>
+          </label>
+          <p class="text-xs text-zinc-400 mt-2">
+            While WoW is running, Depleted keeps recording the WoW window and its sound into a
+            90-second buffer in memory. Nothing is saved to disk or sent anywhere: older footage is
+            dropped as new footage comes in. The buffer is only kept when a key or boss pull starts,
+            so the video opens before the start. macOS shows the screen recording indicator the
+            whole time.
+          </p>
+          <p class="text-xs text-zinc-600 mt-1.5">
+            Off, the buffer only starts once the combat log shows you're in a dungeon or raid. WoW
+            often writes that at the same moment as the key or first pull starts, so those
+            recordings can start a second or two late, with no pull timer or countdown.
           </p>
         </section>
 

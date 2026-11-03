@@ -10,7 +10,7 @@
 // `unexpectedStop` fires with whatever file it managed to finalize.
 //
 // Rolling buffer (pre-roll): startBuffer() runs `depleted-capture buffer`, which keeps
-// encoding into a short rolling buffer on disk. While it runs, start() and stop() are
+// encoding into a short rolling buffer in its memory. While it runs, start() and stop() are
 // commands to that process instead of a new one: start() opens a file that begins with
 // the buffered footage (and resolves with when that footage begins), stop() finishes
 // the file and leaves the buffer running. stopBuffer() ends the process.
@@ -224,16 +224,15 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
 
   // Starts capturing into a rolling buffer of the last bufferSecs. Resolves once the
   // first frame is encoded. A no-op while one is already running.
-  async startBuffer(bufferDir: string, bufferSecs: number, options: RecorderOptions = {}): Promise<void> {
+  async startBuffer(bufferSecs: number, options: RecorderOptions = {}): Promise<void> {
     if (this.buffer !== null && !this.buffer.quitting) return
     if (this.active !== null || this.capturing) throw new Error('NativeCaptureRecorder is already recording')
     if (this.buffer !== null) await this.buffer.closed
 
     const helper = this.helperPath()
     if (!existsSync(helper)) throw new Error(missingHelperMessage(helper))
-    await mkdir(dirname(bufferDir), { recursive: true })
 
-    const args = ['buffer', '--buffer-dir', bufferDir, '--buffer-secs', String(bufferSecs), ...captureArgs(options)]
+    const args = ['buffer', '--buffer-secs', String(bufferSecs), ...captureArgs(options)]
     const proc = this.spawner(helper, args)
     let markClosed: () => void = () => {}
     const buf: BufferProcess = {

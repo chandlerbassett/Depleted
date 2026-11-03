@@ -4,7 +4,7 @@ The native helper Depleted runs on macOS for everything video:
 
 - **record**: captures the game window and game audio with ScreenCaptureKit, and encodes
   H.264 (or HEVC) on the hardware encoder through AVAssetWriter, straight to `.mp4`
-- **buffer**: the same capture into a rolling buffer on disk (the last 90 s by default, as
+- **buffer**: the same capture into a rolling buffer kept in memory (the last 90 s by default, as
   ~1 s fragmented-MP4 segments, older ones deleted). `start <path>` on stdin opens a
   recording that begins with everything in the buffer, `stop` finishes it (rewritten as a
   plain MP4 from zero, no re-encode) and keeps buffering, `quit` exits. This is the
@@ -29,7 +29,7 @@ npm run build:native          # → native/bin/depleted-capture (arm64)
 ```bash
 native/bin/depleted-capture windows
 native/bin/depleted-capture record --output /tmp/test.mp4   # type "stop" + Enter to finish
-native/bin/depleted-capture buffer --buffer-dir /tmp/buf --buffer-secs 30
+native/bin/depleted-capture buffer --buffer-secs 30
 #   then type "start /tmp/pull.mp4", wait, "stop", and "quit"
 native/bin/depleted-capture thumbnail --input /tmp/test.mp4 --output /tmp/test.jpg
 ```

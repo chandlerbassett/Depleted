@@ -7,12 +7,13 @@ import UniformTypeIdentifiers
 // `buffer` subcommand: a rolling pre-roll buffer, so a recording can start before the
 // moment the app asked for it (a raid pull timer, a key going in).
 //
-//   depleted-capture buffer --buffer-dir <dir> [--buffer-secs 90] [record options]
+//   depleted-capture buffer [--buffer-secs 90] [record options]
 //
 // Capture and encoding run the whole time, but nothing grows: the encoder writes
-// fragmented MP4 in ~1 s segments (AVAssetWriter's HLS output), each segment goes to
-// a file in --buffer-dir, and segments older than --buffer-secs are deleted. Commands,
-// one per line on stdin:
+// fragmented MP4 in ~1 s segments (AVAssetWriter's HLS output), the segments are kept
+// in this process's memory, and those older than --buffer-secs are dropped. Nothing
+// touches the disk until a recording starts, so the buffered footage (screen and audio)
+// can't be read by other apps and doesn't wear the SSD. Commands, one per line on stdin:
 //
 //   start <path>   begin a recording at <path> that opens with everything in the buffer
 //   stop           end the recording; capture and the buffer keep running
@@ -29,7 +30,7 @@ import UniformTypeIdentifiers
 //              it finished first, if one was running)
 
 private struct Segment {
-    let url: URL
+    let data: Data
     let start: CMTime
     let end: CMTime
 }
@@ -58,7 +59,6 @@ private let stopFlushTimeoutSecs = 4.0
 
 final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetWriterDelegate, @unchecked Sendable {
     private let options: RecordOptions
-    private let bufferDir: URL
     private let bufferSecs: Double
     private let size: CGSize
     private let filter: SCContentFilter
@@ -78,28 +78,18 @@ final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetW
     private let io = DispatchQueue(label: "depleted.buffer.io")
     private var initSegment: Data?
     private var ring: [Segment] = []
-    private var segmentCount = 0
     private var lastSegmentEnd: CMTime?
     private var recording: ActiveRecording?
     // Remuxes still running; quitting waits for them
     private let remuxes = DispatchGroup()
 
-    init(options: RecordOptions, bufferDir: URL, bufferSecs: Double, window: SCWindow, scale: CGFloat) {
+    init(options: RecordOptions, bufferSecs: Double, window: SCWindow, scale: CGFloat) {
         self.options = options
-        self.bufferDir = bufferDir
         self.bufferSecs = bufferSecs
         let setup = CaptureSetup(options: options, window: window, scale: scale)
         size = setup.size
         config = setup.config
         filter = setup.filter
-
-        // Old segments from a helper that was killed are no use now
-        try? FileManager.default.removeItem(at: bufferDir)
-        do {
-            try FileManager.default.createDirectory(at: bufferDir, withIntermediateDirectories: true)
-        } catch {
-            fail("Can't create the buffer folder \(bufferDir.path): \(error.localizedDescription)")
-        }
 
         // No output file: segments come to the delegate as they're cut
         writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
@@ -123,7 +113,7 @@ final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetW
         }
         log(
             "buffering \(Int(bufferSecs))s at \(Int(size.width))x\(Int(size.height)) @ \(options.fps)fps "
-                + "\(options.codec.rawValue) \(options.bitrateKbps)kbps in \(bufferDir.path)")
+                + "\(options.codec.rawValue) \(options.bitrateKbps)kbps in memory")
     }
 
     // MARK: Capture
@@ -208,17 +198,10 @@ final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetW
     // On `io`
     private func addSegment(_ data: Data, start: CMTime, end: CMTime) {
         lastSegmentEnd = end
-        segmentCount += 1
-        let url = bufferDir.appendingPathComponent(String(format: "segment-%08d.m4s", segmentCount))
-        do {
-            try data.write(to: url)
-            ring.append(Segment(url: url, start: start, end: end))
-        } catch {
-            log("couldn't write a buffer segment: \(error.localizedDescription)")
-        }
+        ring.append(Segment(data: data, start: start, end: end))
         // Keep just enough that the oldest segment still covers bufferSecs before now
         while ring.count > 1, CMTimeGetSeconds(CMTimeSubtract(end, ring[1].start)) >= bufferSecs {
-            try? FileManager.default.removeItem(at: ring.removeFirst().url)
+            ring.removeFirst()
         }
 
         guard let rec = recording, rec.wroteInit else { return }
@@ -268,10 +251,8 @@ final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetW
                 self.write(initSegment, to: rec)
                 rec.wroteInit = true
                 for segment in self.ring {
-                    if let data = try? Data(contentsOf: segment.url) {
-                        self.write(data, to: rec)
-                        rec.end = segment.end
-                    }
+                    self.write(segment.data, to: rec)
+                    rec.end = segment.end
                 }
             }
             let bufferedSecs = max(0, CMTimeGetSeconds(CMTimeSubtract(now, start)))
@@ -342,7 +323,6 @@ final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetW
     private func exitAfterRecording(error: String?) {
         let finish = {
             self.remuxes.notify(queue: self.io) {
-                try? FileManager.default.removeItem(at: self.bufferDir)
                 if let error {
                     log(error)
                     exit(1)
@@ -417,12 +397,11 @@ private func normalizeTimeline(_ url: URL) async {
 
 func runBuffer(_ args: Args) async {
     let options = RecordOptions(args)
-    let bufferDir = URL(fileURLWithPath: args.required("buffer-dir"))
     let bufferSecs = max(5, min(600, args.double("buffer-secs", default: 90)))
     let content = await shareableContent()
     let window = resolveWindow(in: content, hint: options.windowHint)
     let recorder = BufferRecorder(
-        options: options, bufferDir: bufferDir, bufferSecs: bufferSecs, window: window,
+        options: options, bufferSecs: bufferSecs, window: window,
         scale: pixelScale(for: window, in: content))
 
     Thread.detachNewThread {

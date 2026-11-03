@@ -212,6 +212,18 @@ export function useSettings() {
   })
 
   // -------------------------------------------------------------------------
+  // Pre-roll buffer
+  // -------------------------------------------------------------------------
+
+  const bufferWhileGameOpen = computed<boolean>({
+    get: () => config.value?.bufferWhileGameOpen ?? true,
+    set: (enabled) => {
+      if (config.value === null) return
+      void set('bufferWhileGameOpen', enabled)
+    },
+  })
+
+  // -------------------------------------------------------------------------
   // Raid recording
   // -------------------------------------------------------------------------
 
@@ -284,6 +296,7 @@ export function useSettings() {
     cleanupGbEnabled,
     cleanupGb,
     minimizeToTray,
+    bufferWhileGameOpen,
     statsSite,
     wowRegion,
     raidDifficulties,
