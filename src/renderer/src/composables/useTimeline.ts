@@ -82,7 +82,9 @@ export function useTimeline(
     for (const ev of events.value) {
       const x = Math.round((ev.timestamp / dur) * w)
       ctx.fillStyle = TIMELINE_COLORS[ev.type] ?? '#888888'
-      ctx.fillRect(x - 1, 0, 3, barH)
+      // A pull has dozens of boss casts: keep them short so deaths and phases stand out
+      if (ev.type === 'boss-ability') ctx.fillRect(x, 0, 2, Math.round(barH * 0.4))
+      else ctx.fillRect(x - 1, 0, 3, barH)
     }
 
     // Playhead
@@ -158,6 +160,7 @@ function fmtSecs(seconds: number): string {
 
 function formatTooltip(ev: TimelineEvent): string {
   const time = fmtSecs(ev.timestamp)
+  if (ev.text !== undefined) return `${ev.text} (${time})`
   if (ev.spellName !== undefined) return `${ev.spellName} (${time})`
   if (ev.unit !== undefined) return `${ev.unit} (${time})`
   return `${ev.type} (${time})`

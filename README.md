@@ -70,6 +70,9 @@ makes jumps the video to the moment it is about.
 - Click any party member to open them on **Raider.IO**, **Warcraft Logs** or the Armory
 - Deleting a run asks first and moves it to the Trash, so a stray click can be undone
 - Raid pulls are listed by raid night, then boss, then attempt
+- **Raid timelines** mark the boss's **phases** (from its emotes, and from part of the boss
+  dying mid-pull) and its **abilities**, which you can hide one by one. Interrupts start hidden
+  on raid pulls
 - **Clips**: mark a start and end (or take the last 30 seconds) to cut a clip without
   re-encoding. Each run lists its clips, and all clips have their own section in the sidebar.
   Clips are saved in a `clips` folder next to the run's video

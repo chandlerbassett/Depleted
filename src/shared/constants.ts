@@ -46,6 +46,12 @@ export const RAID_POST_ROLL_SECS = 8
 // Raid: stop the buffer between pulls once the combat log has been silent this long
 // (logged out, or logging turned off). The buffer stays ~0.9 GB, so a long break is fine.
 export const RAID_ARMED_QUIET_MAX_SECS = 1800
+// Raid timeline: a boss SPELL_CAST_SUCCESS this soon after its SPELL_CAST_START is the
+// same cast, not a second one
+export const BOSS_CAST_MAX_SECS = 12
+// Raid timeline: the same ability again within this long of its last cast (from any boss
+// unit) belongs to the same marker
+export const BOSS_ABILITY_MERGE_SECS = 5
 // ZONE_CHANGE / ENCOUNTER_START difficulty IDs of the current raid difficulties. Legacy
 // 10/25-player and Timewalking raids are left out on purpose.
 export const RAID_DIFFICULTY_IDS: Readonly<Record<number, import('./ipc.types').RaidDifficulty>> = {
@@ -81,6 +87,8 @@ export const TIMELINE_COLORS: Readonly<Record<import('./ipc.types').TimelineEven
   'pull-start': '#ffffff',
   'boss-kill': '#22d3ee',   // cyan-400
   'boss-wipe': '#dc2626',   // red-600
+  'boss-ability': '#a78bfa', // violet-400
+  phase: '#facc15',         // yellow-400
 }
 
 // ---------------------------------------------------------------------------

@@ -59,6 +59,7 @@ function openPlayer(name: string): void {
 const videoSrc = computed(() => toFileUrl(props.recording.videoPath))
 
 const hiddenTypes = ref(new Set<TimelineEventType>())
+const hiddenAbilities = ref(new Set<string>())
 
 watch(
   () => props.recording.id,
@@ -66,7 +67,9 @@ watch(
     playerStore.setCurrentTime(0)
     playerStore.setDuration(0)
     playerStore.setPlaying(false)
-    hiddenTypes.value = new Set()
+    // Interrupts matter far less in a raid than in a key
+    hiddenTypes.value = new Set(props.recording.metadata.raid !== undefined ? ['interrupt'] : [])
+    hiddenAbilities.value = new Set()
     playerStore.setEvents(props.recording.metadata.events)
   },
   { immediate: true }
@@ -123,14 +126,36 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   'key-start': 'Key start',
   'key-end': 'Key end',
   'pull-start': 'Pull',
+  'boss-ability': 'Boss',
+  'phase': 'Phase',
 }
 
-const legendItems = [
-  { type: 'death-player', label: 'Death' },
-  { type: 'boss-kill', label: 'Boss kill' },
-  { type: 'boss-wipe', label: 'Wipe' },
-  { type: 'interrupt', label: 'Interrupt' },
-] as const
+const legendItems = computed((): { type: TimelineEventType; label: string }[] =>
+  isRaid.value
+    ? [
+        { type: 'death-player', label: 'Death' },
+        { type: 'phase', label: 'Phase' },
+        { type: 'boss-ability', label: 'Boss abilities' },
+        { type: 'boss-kill', label: 'Boss kill' },
+        { type: 'boss-wipe', label: 'Wipe' },
+        { type: 'interrupt', label: 'Interrupt' },
+      ]
+    : [
+        { type: 'death-player', label: 'Death' },
+        { type: 'boss-kill', label: 'Boss kill' },
+        { type: 'boss-wipe', label: 'Wipe' },
+        { type: 'interrupt', label: 'Interrupt' },
+      ]
+)
+
+// Each boss ability once, in the order the boss first used it, with how often
+const bossAbilities = computed(() => {
+  const counts = new Map<string, number>()
+  for (const ev of [...events.value].sort((a, b) => a.timestamp - b.timestamp)) {
+    if (ev.type === 'boss-ability' && ev.spellName) counts.set(ev.spellName, (counts.get(ev.spellName) ?? 0) + 1)
+  }
+  return [...counts].map(([name, count]) => ({ name, count }))
+})
 
 const CLASS_COLORS: Record<string, string> = {
   'Death Knight': '#C41E3A',
@@ -218,9 +243,17 @@ function toggleType(type: TimelineEventType): void {
   hiddenTypes.value = next
 }
 
+function toggleAbility(name: string): void {
+  const next = new Set(hiddenAbilities.value)
+  if (next.has(name)) next.delete(name)
+  else next.add(name)
+  hiddenAbilities.value = next
+}
+
 const visibleEvents = computed(() =>
   events.value
     .filter((ev) => !hiddenTypes.value.has(ev.type))
+    .filter((ev) => ev.type !== 'boss-ability' || !hiddenAbilities.value.has(ev.spellName ?? ''))
     .sort((a, b) => a.timestamp - b.timestamp)
 )
 
@@ -398,6 +431,23 @@ function fmtK(n: number): string {
             class="text-xs text-zinc-500"
             :class="hiddenTypes.has(item.type) ? 'line-through' : ''"
           >{{ item.label }}</span>
+        </button>
+      </div>
+      <div
+        v-if="bossAbilities.length > 0 && !hiddenTypes.has('boss-ability')"
+        class="flex flex-wrap gap-1 mt-1.5"
+      >
+        <button
+          v-for="ability in bossAbilities"
+          :key="ability.name"
+          class="text-[11px] rounded px-1.5 py-0.5 border transition-opacity"
+          :class="hiddenAbilities.has(ability.name)
+            ? 'border-zinc-800 text-zinc-600 line-through opacity-60'
+            : 'border-violet-900/70 text-violet-300 hover:opacity-80'"
+          :title="(hiddenAbilities.has(ability.name) ? 'Show ' : 'Hide ') + ability.name"
+          @click="toggleAbility(ability.name)"
+        >
+          {{ ability.name }} <span class="text-zinc-500">×{{ ability.count }}</span>
         </button>
       </div>
     </div>
@@ -590,6 +640,12 @@ function fmtK(n: number): string {
                 class="flex-shrink-0 text-red-400 font-bold text-[10px] bg-red-950/60 px-1 rounded"
                 title="Bad interrupt"
               >✗</span>
+
+              <span
+                v-if="ev.type === 'phase' && ev.text"
+                class="text-yellow-200/90 truncate"
+                :title="ev.text"
+              >{{ ev.text }}</span>
 
               <!-- Spell name + CC duration -->
               <span

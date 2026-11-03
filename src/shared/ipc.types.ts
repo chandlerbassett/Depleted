@@ -31,6 +31,8 @@ export type TimelineEventType =
   | 'pull-start'
   | 'boss-kill'
   | 'boss-wipe'
+  | 'boss-ability'
+  | 'phase'
 
 export interface DeathHit {
   spellId?: number
@@ -72,6 +74,8 @@ export interface TimelineEvent {
   // Caster's HP% at the moment of cast (defensive-type events only; requires Advanced
   // Combat Logging — undefined when no recent UNIT_HEALTH sample is available).
   casterHpPct?: number
+  // Phase markers: the boss emote's words, or "<unit> dies"
+  text?: string
 }
 
 // ---------------------------------------------------------------------------

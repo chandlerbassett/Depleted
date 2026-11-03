@@ -61,8 +61,10 @@ import type {
   ChallengeModeStartEvent,
   DamageDoneEvent,
   CombatantInfoEvent,
+  EmoteEvent,
   EncounterEndEvent,
   EncounterStartEvent,
+  HostileCastEvent,
   LogActivityEvent,
   BuffChangeEvent,
   SpellCastEvent,
@@ -72,6 +74,8 @@ import type {
   UnitDiedEvent,
   ZoneChangedEvent
 } from '../combatlog/CombatLogParser'
+import { UNIT_FLAG_REACTION_HOSTILE } from '../combatlog/CombatLogParser'
+import { BossMechanicsCollector } from './BossMechanicsCollector'
 import type { CaptureRecorder, RecorderOptions } from './CaptureRecorder'
 import { CoachCollector } from '../coach/CoachCollector'
 import { rawInfoPath, type ProcessingRequiredEvent, type RawRecordingInfo, type StateMachineEventMap } from './types'
@@ -197,6 +201,8 @@ interface KeySession {
   healDoneByName: Map<string, number>
   // Casts, buffs and per-second damage/healing for the coach (coach.json)
   coach: CoachCollector
+  // Raid pulls only
+  bossMechanics: BossMechanicsCollector | null
   abandonTimer: ReturnType<typeof setTimeout> | null
   // Last log line seen (log time) and when we saw it (wall clock), for the idle check
   lastLogTimestamp: Date
@@ -350,6 +356,8 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.watcher.onParser('spellCast', (e) => this.onSpellCast(e, false))
     this.watcher.onParser('spellCastStart', (e) => this.onSpellCast(e, true))
     this.watcher.onParser('buffChange', (e) => this.onBuffChange(e))
+    this.watcher.onParser('hostileCast', (e) => this.onHostileCast(e))
+    this.watcher.onParser('emote', (e) => this.onEmote(e))
   }
 
   private bindRecorderEvents(): void {
@@ -477,6 +485,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       dmgDoneByName: new Map(),
       healDoneByName: new Map(),
       coach: new CoachCollector(),
+      bossMechanics: start.pull !== null ? new BossMechanicsCollector(start.pull.encounter.encounterName) : null,
       abandonTimer: null,
       lastLogTimestamp: start.startedAt,
       lastLogWallMs: Date.now(),
@@ -879,7 +888,11 @@ export class MythicPlusStateMachine extends EventEmitter {
     const videoStartedAt = new Date(keyStartedAt.getTime() + leadSecs * 1000)
     const shift = (t: number): number => Math.max(0, round2(t - leadSecs))
 
-    const timeline = session.timeline.map((ev) => ({ ...ev, timestamp: shift(ev.timestamp) }))
+    const pullEndRelSecs = (endTimestamp.getTime() - keyStartedAt.getTime()) / 1000
+    const bossEvents = session.bossMechanics?.build(pullEndRelSecs) ?? []
+    const timeline = [...session.timeline, ...bossEvents]
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map((ev) => ({ ...ev, timestamp: shift(ev.timestamp) }))
     const encounters = session.encounters.map((enc) => ({ ...enc, start: shift(enc.start), end: shift(enc.end) }))
     const durationSecs = Math.max(
       1,
@@ -1150,6 +1163,10 @@ export class MythicPlusStateMachine extends EventEmitter {
     const session = this.activeSession()
     if (session === null) return
     if (e.unconscious) return // feign death, Ankh, etc.
+    if ((e.destFlags & UNIT_FLAG_REACTION_HOSTILE) !== 0) {
+      session.bossMechanics?.addDeath({ relSecs: this.relSecs(e.timestamp), guid: e.unitGuid, name: e.unitName })
+      return
+    }
     if (!e.unitGuid.startsWith('Player-') || !isPartyPlayer(e.destFlags)) return
 
     this.learnPartyMember(e.unitGuid, e.unitName)
@@ -1248,6 +1265,28 @@ export class MythicPlusStateMachine extends EventEmitter {
     const relSecs = this.relSecs(e.timestamp)
     if (isStart) session.coach.addCastStart(e.casterGuid, e.casterName, relSecs)
     else session.coach.addCast(e.casterGuid, e.casterName, e.spellId, e.spellName, relSecs)
+  }
+
+  private onHostileCast(e: HostileCastEvent): void {
+    const mechanics = this.activeSession()?.bossMechanics
+    if (mechanics === undefined || mechanics === null) return
+    mechanics.addCast(
+      {
+        relSecs: this.relSecs(e.timestamp),
+        guid: e.casterGuid,
+        name: e.casterName,
+        spellId: e.spellId,
+        spellName: e.spellName,
+        isStart: e.isStart
+      },
+      e.casterLevel
+    )
+  }
+
+  private onEmote(e: EmoteEvent): void {
+    const mechanics = this.activeSession()?.bossMechanics
+    if (mechanics === undefined || mechanics === null) return
+    mechanics.addEmote({ relSecs: this.relSecs(e.timestamp), guid: e.sourceGuid, name: e.sourceName, text: e.text })
   }
 
   private onBuffChange(e: BuffChangeEvent): void {
