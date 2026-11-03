@@ -179,7 +179,8 @@ upload that key to Warcraft Logs.
 ## Privacy and security
 
 Your recordings, timelines and Coach data stay on your Mac, in a folder only your user account
-can read. Depleted only goes online for two things: checking this repo's releases for updates,
+can read. That holds for a folder you pick in Settings too: each run's folder and files are
+made private to your account as they're saved. Depleted only goes online for two things: checking this repo's releases for updates,
 and, if you connect it, the Warcraft Logs API with your own client. That covers the Coach's
 top-player data and finding a run's fight, which looks up the recent public reports of you and up
 to three others in the group by character name. Player links open in your browser.
@@ -198,7 +199,11 @@ key or first pull starts, so those recordings can start a second or two late, wi
 countdown or pull timer.
 
 The app runs with Electron's sandbox and context isolation on, a strict content security
-policy, and a short allowlist of permissions. Releases are built only from `main` by a
+policy, and a short allowlist of permissions. The page can only reach the app's own commands,
+and every value it sends (settings, paths, clip times) is checked before it's used; so is
+every value that comes back from Warcraft Logs or the combat log. The project is reviewed for
+security before releases, and [CONTRIBUTING.md](CONTRIBUTING.md) says what contributors keep
+in mind. Releases are built only from `main` by a
 protected release workflow, notarized by Apple, and checked by macOS's code signature before
 an update installs. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
