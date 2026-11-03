@@ -103,7 +103,7 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
 
     const helper = this.helperPath()
     if (!existsSync(helper)) throw new Error(missingHelperMessage(helper))
-    await mkdir(dirname(mp4Path), { recursive: true })
+    await mkdir(dirname(mp4Path), { recursive: true, mode: 0o700 })
 
     const args = ['record', '--output', mp4Path, ...captureArgs(options)]
     const proc = this.spawner(helper, args)
@@ -346,7 +346,7 @@ export class NativeCaptureRecorder extends EventEmitter implements CaptureRecord
   private async startFromBuffer(mp4Path: string): Promise<Date> {
     const buf = this.buffer
     if (buf === null) throw new Error('The capture buffer is not running')
-    await mkdir(dirname(mp4Path), { recursive: true })
+    await mkdir(dirname(mp4Path), { recursive: true, mode: 0o700 })
     const e = await this.bufferCommand(buf, 'start', `start ${mp4Path}`, BUFFER_START_TIMEOUT_MS)
     if (e === null) throw new Error(`Recording did not start: ${buf.stderrTail.slice(-3).join(' ')}`)
     buf.recordingPath = typeof e.path === 'string' ? e.path : mp4Path

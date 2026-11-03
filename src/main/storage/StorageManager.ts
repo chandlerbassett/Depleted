@@ -34,6 +34,10 @@ const CLIPS_DIRNAME = 'clips'
 // clip_12m34s-13m21s.mp4; the range in the name is the clip's place in the recording
 const CLIP_NAME_RE = /^clip_(\d+)m(\d{2})s-(\d+)m(\d{2})s(?:_(\d+))?\.(mp4|webm)$/
 const WCL_FIGHT_FILENAME = 'wcl-fight.json'
+// Recordings show other people's names and the user's play: folders and files are the
+// user's only, whatever the folder they chose allows (issue #84)
+const PRIVATE_DIR = 0o700
+const PRIVATE_FILE = 0o600
 
 // ---------------------------------------------------------------------------
 // Media tools — trim + thumbnail. The depleted-capture helper (AVFoundation) on macOS,
@@ -131,7 +135,7 @@ export class StorageManager {
     const videoPath = join(dirPath, `recording.${videoExt}`)
     const thumbnailPath = join(dirPath, 'thumbnail.jpg')
 
-    await fs.mkdir(dirPath, { recursive: true })
+    await fs.mkdir(dirPath, { recursive: true, mode: PRIVATE_DIR })
 
     const offsetSecs = Math.max(
       0,
@@ -140,6 +144,7 @@ export class StorageManager {
 
     await media.trim(event.rawPath, videoPath, offsetSecs, event.durationSecs)
     await media.thumbnail(videoPath, thumbnailPath)
+    await makePrivate(videoPath, thumbnailPath)
 
     const metadata = buildMetadata(event, timeline, videoExt)
     await writeMetadata(dirPath, metadata)
@@ -241,7 +246,7 @@ export class StorageManager {
 
   async writeSummaryCache(id: string, cache: unknown): Promise<void> {
     if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return
-    await fs.writeFile(join(this.storagePath, id, SUMMARY_CACHE_FILENAME), JSON.stringify(cache), 'utf8')
+    await fs.writeFile(join(this.storagePath, id, SUMMARY_CACHE_FILENAME), JSON.stringify(cache), { encoding: 'utf8', mode: PRIVATE_FILE })
   }
 
   // Cuts startSecs..endSecs of a recording into its clips/ folder, without re-encoding
@@ -256,7 +261,7 @@ export class StorageManager {
     if (!(end - start >= 1)) throw new Error('A clip needs to be at least a second long')
     const ext = metadata.videoExt ?? 'mp4'
     const clipsDir = join(dirPath, CLIPS_DIRNAME)
-    await fs.mkdir(clipsDir, { recursive: true })
+    await fs.mkdir(clipsDir, { recursive: true, mode: PRIVATE_DIR })
     const base = `clip_${clockLabel(start)}-${clockLabel(end)}`
     let fileName = `${base}.${ext}`
     for (let n = 2; await fileExists(join(clipsDir, fileName)); n++) fileName = `${base}_${n}.${ext}`
@@ -267,6 +272,7 @@ export class StorageManager {
     } catch (err) {
       console.warn('[Storage] No thumbnail for the clip:', err instanceof Error ? err.message : String(err))
     }
+    await makePrivate(clipPath, clipThumbnailPath(clipPath))
     const clip = await readClip(clipsDir, id, fileName)
     if (clip === null) throw new Error('The clip was not written')
     return clip
@@ -301,7 +307,7 @@ export class StorageManager {
 
   async writeWclFight(id: string, link: WclFightLink): Promise<void> {
     if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return
-    await fs.writeFile(join(this.storagePath, id, WCL_FIGHT_FILENAME), JSON.stringify(link), 'utf8')
+    await fs.writeFile(join(this.storagePath, id, WCL_FIGHT_FILENAME), JSON.stringify(link), { encoding: 'utf8', mode: PRIVATE_FILE })
   }
 
   // Returns paths of directories that contain a recording video but no metadata.json.
@@ -563,6 +569,20 @@ async function safeReaddir(dirPath: string): Promise<import('fs').Dirent[]> {
     return await fs.readdir(dirPath, { withFileTypes: true })
   } catch {
     return []
+  }
+}
+
+// Files the helper or FFmpeg wrote with the default umask become the user's only. A
+// missing one (no thumbnail) is skipped.
+async function makePrivate(...paths: string[]): Promise<void> {
+  for (const path of paths) {
+    try {
+      await fs.chmod(path, PRIVATE_FILE)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn(`[Storage] Could not make ${basename(path)} private:`, err instanceof Error ? err.message : String(err))
+      }
+    }
   }
 }
 

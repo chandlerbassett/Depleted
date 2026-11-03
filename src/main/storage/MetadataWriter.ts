@@ -14,7 +14,7 @@ export const COACH_FILENAME = 'coach.json'
 // Writes metadata.json into the given directory, overwriting any existing file.
 export async function writeMetadata(dirPath: string, metadata: RecordingMetadata): Promise<void> {
   const filePath = join(dirPath, METADATA_FILENAME)
-  await fs.writeFile(filePath, JSON.stringify(metadata, null, 2), 'utf8')
+  await fs.writeFile(filePath, JSON.stringify(metadata, null, 2), { encoding: 'utf8', mode: 0o600 })
 }
 
 // Reads and parses metadata.json from the given directory.
@@ -30,7 +30,7 @@ export async function readMetadata(dirPath: string): Promise<RecordingMetadata |
 }
 
 export async function writeCoachData(dirPath: string, coach: CoachData): Promise<void> {
-  await fs.writeFile(join(dirPath, COACH_FILENAME), JSON.stringify(coach), 'utf8')
+  await fs.writeFile(join(dirPath, COACH_FILENAME), JSON.stringify(coach), { encoding: 'utf8', mode: 0o600 })
 }
 
 // Returns null for recordings made before the coach existed

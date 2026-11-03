@@ -362,6 +362,13 @@ describe('StorageManager.processRecording', () => {
 
     // Recording id matches expected dir name
     expect(recording.id).toBe(KEY_ID)
+
+    // The folder and everything in it are the user's only, whatever the parent allows (issue #84)
+    const mode = async (path: string): Promise<number> => (await fs.stat(path)).mode & 0o777
+    expect(await mode(recording.path)).toBe(0o700)
+    expect(await mode(recording.videoPath)).toBe(0o600)
+    expect(await mode(recording.thumbnailPath)).toBe(0o600)
+    expect(await mode(join(recording.path, 'metadata.json'))).toBe(0o600)
   })
 
   it('writes coach.json beside the metadata and reads it back by id', async () => {
@@ -527,6 +534,8 @@ describe('StorageManager.saveClip', () => {
     const args = runner.mock.calls[0]![1]
     expect(args.slice(0, 4)).toEqual(['-ss', '754.400', '-i', join(dirPath, 'recording.mp4')])
     expect(args[args.indexOf('-t') + 1]).toBe('46.6')
+    expect((await fs.stat(clip.videoPath)).mode & 0o777).toBe(0o600)
+    expect((await fs.stat(join(dirPath, 'clips'))).mode & 0o777).toBe(0o700)
   })
 
   it('lists clips with their recording, keeps same-range clips apart, and deletes one', async () => {
