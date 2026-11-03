@@ -30,6 +30,30 @@ See [Building from source](README.md#building-from-source) for more.
    and a packaging check.
 4. Open a pull request and describe what changed and how you tested it.
 
+## Keeping it safe
+
+Depleted runs with Screen Recording permission and reads the combat log, which other
+players write to. A few rules keep that from turning into a problem:
+
+- **Treat the combat log, SavedVariables and Warcraft Logs responses as untrusted.** Check
+  types and ranges before using a value, never build a shell command, a path or a query
+  from one, and keep what's kept per key or pull bounded. Spell, unit and emote names reach
+  the page: render them with `{{ }}` or a bound attribute, never `v-html`.
+- **The page talks to the main process only over the typed IPC in `src/shared/ipc.types.ts`.**
+  A new channel also goes in `src/shared/ipcChannels.ts` (the preload refuses the rest), and
+  its handler checks its parameters itself. Recording ids and file names from the page must
+  stay inside the recordings folder (`isRecordingId`, `CLIP_NAME_RE` in StorageManager).
+- **Run programs with `spawn`/`execFile` and an argument array**, never a shell string. Links
+  leave the app through `openExternalUrl`, which only opens https.
+- **Don't loosen the window or build settings** (`sandbox`, `contextIsolation`, the CSP in
+  `index.html`, the Electron fuses in `build/afterPack.js`, the hardened-runtime
+  entitlements) or add permissions to `ALLOWED_PERMISSIONS` without saying why in the PR.
+- **Dependencies:** add one only when it earns its place, keep `package-lock.json` in the
+  PR, and pin GitHub Actions to a commit. Never commit a certificate, key or client secret.
+
+Found a security problem? Please report it privately, as [SECURITY.md](SECURITY.md) says,
+rather than in an issue or PR.
+
 ## Scope
 
 Depleted is a PvE recorder and coach for macOS on Apple silicon: Mythic+ keys and raid boss

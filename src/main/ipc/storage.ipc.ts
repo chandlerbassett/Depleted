@@ -22,13 +22,16 @@ import { RAID_DIFFICULTY_LABEL } from '@shared/constants'
 // Register ipcMain.handle commands — call ONCE at app startup.
 export function registerStorageIpc(storageManager: StorageManager, mediaTools: () => MediaTools | null): void {
   ipcMain.handle('storage:saveClip', async (_event, params: { id: string; start: number; end: number }) => {
+    if (typeof params?.id !== 'string' || !Number.isFinite(params.start) || !Number.isFinite(params.end)) {
+      throw new Error('A clip needs a recording and a start and end time')
+    }
     const media = mediaTools()
     if (media === null) throw new Error('The video tools are missing, so clips cannot be cut')
     return storageManager.saveClip(params.id, params.start, params.end, media)
   })
 
   ipcMain.handle('storage:deleteClip', async (event, params: { id: string }) => {
-    const clip = await storageManager.getClip(params.id)
+    const clip = await storageManager.getClip(idParam(params))
     if (clip === null) return { deleted: false }
     const window = BrowserWindow.fromWebContents(event.sender)
     const options = {
@@ -48,7 +51,7 @@ export function registerStorageIpc(storageManager: StorageManager, mediaTools: (
   })
 
   ipcMain.handle('storage:showClip', async (_event, params: { id: string }) => {
-    const clip = await storageManager.getClip(params.id)
+    const clip = await storageManager.getClip(idParam(params))
     if (clip !== null) shell.showItemInFolder(clip.videoPath)
   })
 
@@ -60,7 +63,7 @@ export function registerStorageIpc(storageManager: StorageManager, mediaTools: (
   // button, so Return doesn't delete), then move it to the Trash so it can be put back.
   ipcMain.handle('storage:deleteRecording', async (event, params: { id: string }) => {
     const recordings = await storageManager.getRecordings()
-    const recording = recordings.find((r) => r.id === params.id)
+    const recording = recordings.find((r) => r.id === idParam(params))
     // Only ever a run in the library, never some other folder in the storage path
     if (recording === undefined) return { deleted: false }
     const window = BrowserWindow.fromWebContents(event.sender)
@@ -81,15 +84,20 @@ export function registerStorageIpc(storageManager: StorageManager, mediaTools: (
   })
 
   ipcMain.handle('storage:getCoachData', async (_event, params: { id: string }) => {
-    return storageManager.getCoachData(params.id)
+    return storageManager.getCoachData(idParam(params))
   })
 
   ipcMain.handle('storage:openFolder', async (_event, params: { id: string }) => {
     const recordings = await storageManager.getRecordings()
-    const recording = recordings.find((r) => r.id === params.id)
+    const recording = recordings.find((r) => r.id === idParam(params))
     if (recording === undefined) return
     shell.showItemInFolder(join(recording.path, 'recording.mp4'))
   })
+}
+
+// The id in a request, or '' (which matches nothing) when it isn't a string
+function idParam(params: { id?: unknown } | undefined): string {
+  return typeof params?.id === 'string' ? params.id : ''
 }
 
 // "Ruby Life Pools +15 from Oct 27, 2026", "Heroic Dimensius pull 3 from Oct 27, 2026"

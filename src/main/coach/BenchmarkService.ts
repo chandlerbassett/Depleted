@@ -158,7 +158,7 @@ export class BenchmarkService {
         { id: encounterId, cls: className, spec: specName, bracket: level - 1 }
       )
       for (const r of data.worldData.encounter?.characterRankings.rankings ?? []) {
-        if (near(r) && isReportCode(r.report?.code)) pool.set(`${r.report.code}:${r.report.fightID}`, r)
+        if (near(r) && isReportCode(r.report?.code) && isId(r.report.fightID)) pool.set(`${r.report.code}:${r.report.fightID}`, r)
       }
       const exact = [...pool.values()].filter((r) => r.hardModeLevel === keyLevel).length
       if (exact >= TARGET_RUNS || (offset !== 0 && pool.size >= TARGET_RUNS)) break
@@ -204,7 +204,7 @@ export class BenchmarkService {
       const actor =
         report.masterData.actors.find((a) => a.name === r.name && inFight.has(a.id) && a.subType === className) ??
         report.masterData.actors.find((a) => a.name === r.name && inFight.has(a.id))
-      if (actor !== undefined) located.push({ ranking: r, sourceId: actor.id, fightStart: fight.startTime })
+      if (actor !== undefined && isId(actor.id)) located.push({ ranking: r, sourceId: actor.id, fightStart: fight.startTime })
     })
 
     // Pass 2: the player's casts, first damage, and gear and talents in each run
@@ -230,7 +230,7 @@ export class BenchmarkService {
       if (report === undefined || report === null) continue
       const castEvents = [...report.casts.data]
       let next = report.casts.nextPageTimestamp
-      while (next !== null) {
+      while (next !== null && isId(next)) {
         const page = await this.moreCasts(ranking, sourceId, next)
         castEvents.push(...page.data)
         next = page.nextPageTimestamp
@@ -282,7 +282,7 @@ export class BenchmarkService {
   private async spellNames(runs: BenchmarkRun[]): Promise<Record<number, string>> {
     const counts = new Map<number, number>()
     for (const run of runs) for (const id of new Set(run.casts.map(([, id]) => id))) counts.set(id, (counts.get(id) ?? 0) + 1)
-    const ids = [...counts].filter(([, n]) => n >= runs.length / 2).map(([id]) => id)
+    const ids = [...counts].filter(([, n]) => n >= runs.length / 2).map(([id]) => id).filter(isId)
     if (ids.length === 0) return {}
     const data = await this.wcl.query<Record<string, { ability: { id: number; name: string } | null }>>(
       `{ ${ids.map((id) => `s${id}: gameData { ability(id: ${id}) { id name } }`).join('\n')} }`
@@ -297,7 +297,7 @@ export class BenchmarkService {
   private async itemNames(runs: BenchmarkRun[]): Promise<Record<number, string>> {
     const counts = new Map<number, number>()
     for (const run of runs) for (const id of new Set(run.gear)) if (id > 0) counts.set(id, (counts.get(id) ?? 0) + 1)
-    const ids = [...counts].filter(([, n]) => n >= runs.length / 3).map(([id]) => id)
+    const ids = [...counts].filter(([, n]) => n >= runs.length / 3).map(([id]) => id).filter(isId)
     const names: Record<number, string> = {}
     const missing: number[] = []
     for (const id of ids) {
@@ -348,7 +348,13 @@ function normalize(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-// Report codes go into the query text, so only accept what WCL issues
+// Report codes, fight, actor and ability IDs and page timestamps go into the query text,
+// so only accept what WCL issues: alphanumeric codes and non-negative integers. Anything
+// else in a response is dropped rather than sent back in a query.
 function isReportCode(code: string | undefined): code is string {
   return code !== undefined && /^[A-Za-z0-9]+$/.test(code)
+}
+
+function isId(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0
 }
