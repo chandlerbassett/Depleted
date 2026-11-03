@@ -889,7 +889,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     const shift = (t: number): number => Math.max(0, round2(t - leadSecs))
 
     const pullEndRelSecs = (endTimestamp.getTime() - keyStartedAt.getTime()) / 1000
-    const bossEvents = session.bossMechanics?.build(pullEndRelSecs) ?? []
+    const bossEvents = session.bossMechanics?.build(pullEndRelSecs, outcome === 'kill') ?? []
     const timeline = [...session.timeline, ...bossEvents]
       .sort((a, b) => a.timestamp - b.timestamp)
       .map((ev) => ({ ...ev, timestamp: shift(ev.timestamp) }))

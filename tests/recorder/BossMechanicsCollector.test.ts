@@ -60,7 +60,54 @@ describe('BossMechanicsCollector', () => {
   })
 })
 
+describe('BossMechanicsCollector follow-ups', () => {
+  it("leaves out emotes from adds and from no unit, and repeats of the same warning", () => {
+    const c = new BossMechanicsCollector("Ula'tek")
+    c.addCast(cast(5, BOSS, "Ula'tek", 1, 'Smash', false), 93)
+    c.addCast(cast(6, ADD, 'Blightscale Viper', 2, 'Bite', false), 92)
+    c.addEmote({ relSecs: 20, guid: ADD, name: 'Blightscale Viper', text: 'The viper hisses!' })
+    c.addEmote({ relSecs: 30, guid: '0000000000000000', name: '', text: 'The ground shakes.' })
+    c.addEmote({ relSecs: 40, guid: BOSS, name: "Ula'tek", text: "Ula'tek begins to cast Smash!" })
+    c.addEmote({ relSecs: 44, guid: BOSS, name: "Ula'tek", text: "Ula'tek begins to cast Smash!" })
+    c.addEmote({ relSecs: 90, guid: BOSS, name: "Ula'tek", text: "Ula'tek begins to cast Smash!" })
+
+    expect(c.build(400).filter((e) => e.type === 'phase').map((e) => e.timestamp)).toEqual([40, 90])
+  })
+
+  it("doesn't mark the boss's death as a phase on a kill, even long before the encounter ends", () => {
+    const c = new BossMechanicsCollector("Ula'tek")
+    c.addCast(cast(5, BOSS, "Ula'tek", 1, 'Smash', false), 93)
+    c.addDeath({ relSecs: 380, guid: BOSS, name: "Ula'tek" })
+
+    expect(c.build(400, true).filter((e) => e.type === 'phase')).toEqual([])
+    // On a wipe a boss unit dying mid-pull is still a phase
+    expect(c.build(400, false).filter((e) => e.type === 'phase').map((e) => e.text)).toEqual(["Ula'tek dies"])
+  })
+
+  it('marks an ability cast every few seconds every time it is cast past the merge window', () => {
+    const c = new BossMechanicsCollector("Ula'tek")
+    for (let t = 0; t <= 24; t += 4) c.addCast(cast(t, BOSS, "Ula'tek", 1, 'Pulse', false), 93)
+
+    // 0, 4 (merged), 8, 12 (merged), 16, 20 (merged), 24
+    expect(c.build(400).map((e) => e.timestamp)).toEqual([0, 8, 16, 24])
+  })
+
+  it('handles thousands of boss casts quickly', () => {
+    const c = new BossMechanicsCollector("Ula'tek")
+    for (let i = 0; i < 20_000; i++) {
+      c.addCast(cast(i * 0.03, `${BOSS}-${i % 50}`, 'Copy', 7, 'Wave', i % 2 === 0), 93)
+    }
+    const started = Date.now()
+    c.build(1000)
+    expect(Date.now() - started).toBeLessThan(500)
+  })
+})
+
 describe('cleanEmote', () => {
+  it('strips atlas icons and line breaks too', () => {
+    expect(cleanEmote('|A:raidicon-skull:20:20|a Run!|nNow!')).toBe('Run! Now!')
+  })
+
   it('strips icons, colours and spell links from boss emote text', () => {
     expect(
       cleanEmote(
