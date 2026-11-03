@@ -156,6 +156,97 @@ describe('NativeCaptureRecorder', () => {
     expect(recorder.isRecording()).toBe(false)
   })
 
+  // -------------------------------------------------------------------------
+  // Rolling buffer
+  // -------------------------------------------------------------------------
+
+  async function buffering(): Promise<void> {
+    const ready = recorder.startBuffer(join(dir, 'raw', '.buffer'), 90, { fps: 60, codec: 'hevc' })
+    await spawned(() => spawnArgs)
+    helper.send({ event: 'buffering', width: 3840, height: 2160 })
+    await ready
+  }
+
+  it('startBuffer() runs the helper in buffer mode and resolves once it is encoding', async () => {
+    await buffering()
+    expect(spawnArgs.slice(0, 5)).toEqual(['buffer', '--buffer-dir', join(dir, 'raw', '.buffer'), '--buffer-secs', '90'])
+    expect(spawnArgs).toContain('hevc')
+    expect(recorder.isBuffering()).toBe(true)
+    expect(recorder.isRecording()).toBe(false)
+  })
+
+  it('records from the buffer: start() opens a file with the buffered footage, stop() leaves the buffer running', async () => {
+    await buffering()
+    const before = Date.now()
+    const started = recorder.start(join(dir, 'raw', 'key.webm'))
+    await vi.waitFor(() => expect(helper.stdinText).toBe(`start ${join(dir, 'raw', 'key.mp4')}\n`))
+    helper.send({ event: 'started', path: join(dir, 'raw', 'key.mp4'), bufferedSecs: 62.5 })
+    const firstFrameAt = await started
+
+    expect(firstFrameAt).toBeInstanceOf(Date)
+    expect(before - (firstFrameAt as Date).getTime()).toBeGreaterThanOrEqual(62_000)
+    expect(recorder.isRecording()).toBe(true)
+
+    const stopped = recorder.stop()
+    expect(recorder.isRecording()).toBe(false)
+    await flush()
+    expect(helper.stdinText.endsWith('stop\n')).toBe(true)
+    helper.send({ event: 'stopped', path: join(dir, 'raw', 'key.mp4'), durationSecs: 120 })
+    await expect(stopped).resolves.toBe(join(dir, 'raw', 'key.mp4'))
+    // Same process, still buffering for the next one
+    expect(recorder.isBuffering()).toBe(true)
+  })
+
+  it('rejects start() when the buffer refuses the command', async () => {
+    await buffering()
+    const started = recorder.start(join(dir, 'a.mp4'))
+    await vi.waitFor(() => expect(helper.stdinText).toContain('start '))
+    helper.send({ event: 'error', message: 'Can\'t create a.mp4: disk full', fatal: false })
+    await expect(started).rejects.toThrow('disk full')
+    expect(recorder.isRecording()).toBe(false)
+    expect(recorder.isBuffering()).toBe(true)
+  })
+
+  it('stopBuffer() sends quit and waits for the helper to exit', async () => {
+    await buffering()
+    const stopping = recorder.stopBuffer()
+    await flush()
+    expect(helper.stdinText).toBe('quit\n')
+    expect(recorder.isBuffering()).toBe(false)
+    helper.exit(0)
+    await stopping
+  })
+
+  it('emits bufferStopped when the helper dies while only buffering', async () => {
+    await buffering()
+    const stops: string[] = []
+    recorder.on('bufferStopped', (e) => stops.push(e.message))
+    helper.send({ event: 'error', message: 'Capture stopped: window closed' })
+    helper.exit(1)
+    await flush()
+    await flush()
+    expect(stops).toEqual(['Capture stopped: window closed'])
+    expect(recorder.isBuffering()).toBe(false)
+  })
+
+  it('emits unexpectedStop with the saved file when the helper dies mid-recording from the buffer', async () => {
+    await buffering()
+    const started = recorder.start(join(dir, 'a.mp4'))
+    await vi.waitFor(() => expect(helper.stdinText).toContain('start '))
+    helper.send({ event: 'started', path: join(dir, 'a.mp4'), bufferedSecs: 30 })
+    await started
+
+    const stops: string[] = []
+    recorder.on('unexpectedStop', (e) => stops.push(e.outputPath))
+    helper.send({ event: 'error', message: 'Capture stopped: window closed', path: join(dir, 'a.mp4') })
+    helper.send({ event: 'stopped', path: join(dir, 'a.mp4'), durationSecs: 45 })
+    helper.exit(1)
+    await flush()
+    await flush()
+    expect(stops).toEqual([join(dir, 'a.mp4')])
+    expect(recorder.isRecording()).toBe(false)
+  })
+
   it('refuses to start when the helper binary is missing', async () => {
     rmSync(helperPath)
     await expect(recorder.start(join(dir, 'a.mp4'))).rejects.toThrow('npm run build:native')

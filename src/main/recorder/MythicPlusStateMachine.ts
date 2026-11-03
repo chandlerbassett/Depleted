@@ -1,18 +1,26 @@
-// Mythic+ recording state machine: idle → recording → processing → idle.
+// Mythic+ and raid recording state machine: idle → recording → processing → idle.
+// A Mythic+ recording is one key; a raid recording is one boss pull.
 //
 // Shares the recorder with test mode, so it checks recorder.isRecording() before
 // starting rather than clobbering a test clip.
 //
 // State transitions:
-//   idle (armed)            : zoneChanged into a Mythic dungeon — recorder.start() is called
-//                             here, so the key going in and the countdown are on video
-//   idle       → recording  : challengeModeStart — takes over the armed recording, or calls
-//                             recorder.start() if nothing was armed
+//   idle (armed)            : zoneChanged into a Mythic dungeon — the recorder's rolling
+//                             buffer starts (native capture), or recorder.start() is called
+//                             (other recorders), so the key going in and the countdown are
+//                             on video
+//   idle       → recording  : challengeModeStart — recorder.start() opens a file with the
+//                             buffered footage, takes over the armed recording, or starts
+//                             fresh if nothing was armed
 //   recording  → processing : challengeModeEnd (after MYTHIC_PLUS_POST_ROLL_SECS), or
 //                             MYTHIC_PLUS_ABANDON_TIMEOUT_SECS after leaving the dungeon,
 //                             or a new challengeModeStart while a key is still open
 //   processing → idle       : recorder stopped, processingRequired emitted
 //   any        → error      : recorder crashes or start/stop fails
+//
+// Raids follow the same path with ENCOUNTER_START / ENCOUNTER_END in place of the key
+// start and end (RAID_POST_ROLL_SECS after the end). The recorder is armed on entering
+// the raid and again after every pull, so each pull gets the same pre-roll.
 //
 // Nothing is aborted on zone exit: a key is 30+ minutes of footage, so an abandoned key is still saved (outcome 'abandoned') rather than thrown away.
 
@@ -24,6 +32,9 @@ import type {
   MythicPlusEncounter,
   MythicPlusInfo,
   MythicPlusOutcome,
+  RaidDifficulty,
+  RaidInfo,
+  RaidOutcome,
   RecorderStatus,
   TimelineEvent
 } from '@shared/ipc.types'
@@ -37,7 +48,12 @@ import {
   MYTHIC_PLUS_ARMED_RESTART_SECS,
   MYTHIC_PLUS_IDLE_TIMEOUT_SECS,
   MYTHIC_PLUS_POST_ROLL_SECS,
-  MYTHIC_PLUS_PRE_ROLL_SECS
+  MYTHIC_PLUS_PRE_ROLL_SECS,
+  PRE_ROLL_BUFFER_SECS,
+  RAID_ARMED_QUIET_MAX_SECS,
+  RAID_DIFFICULTY_IDS,
+  RAID_POST_ROLL_SECS,
+  RAID_PRE_ROLL_SECS
 } from '@shared/constants'
 import type { CombatLogWatcher } from '../combatlog/CombatLogWatcher'
 import type {
@@ -74,13 +90,23 @@ export interface MythicPlusStateMachineOptions {
   // 0 turns off arming on dungeon entry (the video then starts at the key start)
   preRollSecs?: number
   armedRestartSecs?: number
+  // Rolling buffer length when the recorder has one (see PRE_ROLL_BUFFER_SECS)
+  bufferSecs?: number
   abandonTimeoutSecs?: number
   idleTimeoutSecs?: number
+  raidPostRollSecs?: number
+  raidPreRollSecs?: number
+  // Raid difficulties to record boss pulls in; none (the default) turns raids off
+  raidDifficulties?: RaidDifficulty[]
 }
+
+// How often to check whether the log went quiet while armed in a raid
+const RAID_QUIET_CHECK_MS = 60_000
 
 // Unit flag bits (COMBATLOG_OBJECT_*) used to pick out the local party.
 const UNIT_FLAG_AFFILIATION_MINE = 0x1
 const UNIT_FLAG_AFFILIATION_PARTY = 0x2
+const UNIT_FLAG_AFFILIATION_RAID = 0x4
 const UNIT_FLAG_TYPE_PLAYER = 0x400
 
 // The player whose combat log this is (the one recording)
@@ -91,7 +117,7 @@ function isLocalPlayer(guid: string, flags: number): boolean {
 function isPartyPlayer(flags: number): boolean {
   return (
     (flags & UNIT_FLAG_TYPE_PLAYER) !== 0 &&
-    (flags & (UNIT_FLAG_AFFILIATION_MINE | UNIT_FLAG_AFFILIATION_PARTY)) !== 0
+    (flags & (UNIT_FLAG_AFFILIATION_MINE | UNIT_FLAG_AFFILIATION_PARTY | UNIT_FLAG_AFFILIATION_RAID)) !== 0
   )
 }
 
@@ -101,9 +127,13 @@ interface OpenEncounter {
   startRelSecs: number
 }
 
-// A recording started on entering a Mythic dungeon, before any key — the next
-// CHALLENGE_MODE_START takes it over, and the trim keeps only the pre-roll before the key.
+// Armed on entering a Mythic dungeon, before any key. With a rolling buffer (native
+// capture) that's all it is: the next CHALLENGE_MODE_START opens a file that starts with
+// the buffered footage. Otherwise it's a real recording the key takes over. Either way
+// the trim keeps only the pre-roll before the key.
 interface ArmedRecording {
+  // Rolling buffer rather than a recording; rawOutputPath is unused
+  buffered: boolean
   instanceId: number
   rawOutputPath: string
   started: Promise<boolean>
@@ -112,10 +142,27 @@ interface ArmedRecording {
   // Set when it's thrown away (left the dungeon, restart, test mode)
   cancelled: boolean
   failure: string | null
+  // Raids wait hours between pulls, so these keep re-arming with no time limit
+  forRaid: boolean
 }
 
+interface RaidPull {
+  encounter: EncounterStartEvent
+  difficulty: RaidDifficulty
+  pullNumber: number
+}
+
+type SessionOutcome = MythicPlusOutcome | RaidOutcome
+
+// A key or a raid pull being recorded
 interface KeySession {
-  start: ChallengeModeStartEvent
+  zoneName: string
+  instanceId: number
+  // Key start or pull start (log time); timeline seconds count from here
+  startedAt: Date
+  // Exactly one is set
+  key: ChallengeModeStartEvent | null
+  pull: RaidPull | null
   rawOutputPath: string
   // Resolves true once the recorder is capturing, false if it failed to start
   started: Promise<boolean>
@@ -162,6 +209,14 @@ export class MythicPlusStateMachine extends EventEmitter {
   // Resolves once a discarded armed recording has stopped
   private disarming: Promise<void> = Promise.resolve()
   private disarmsInFlight = 0
+  // The last zone the log moved into, to re-arm in a raid after each pull
+  private zone: ZoneChangedEvent | null = null
+  // Pulls of each boss (encounterId → count) since entering the raid instance
+  private pullCounts = new Map<number, number>()
+  private pullCountsInstanceId: number | null = null
+  private quitting = false
+  // Wall clock of the last log line seen, in or out of a recording
+  private lastLogWallMs = Date.now()
   private readonly watcher: CombatLogWatcher
   private readonly recorder: CaptureRecorder
   private options: MythicPlusStateMachineOptions
@@ -191,10 +246,17 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.options = { ...this.options, recorder: opts }
   }
 
+  updateRaidDifficulties(difficulties: RaidDifficulty[]): void {
+    this.options = { ...this.options, raidDifficulties: difficulties }
+    if (this.armed?.forRaid === true && this.raidDifficultyOf(this.zone?.difficultyId ?? 0) === null) this.disarm()
+    else if (this.session === null) this.armForZone()
+  }
+
   // Frees the recorder if it's only armed (no key running), e.g. for a test recording.
   async releaseArmedRecorder(): Promise<void> {
     this.disarm()
     await this.disarming
+    if (this.session === null) await this.stopBuffer()
   }
 
   // Quitting: a key still running is saved as abandoned, up to now rather than the last
@@ -202,6 +264,7 @@ export class MythicPlusStateMachine extends EventEmitter {
   // raw file behind. An armed recording with no key is thrown away. Resolves once the
   // recorder has stopped and processingRequired has been emitted.
   async finishForQuit(): Promise<void> {
+    this.quitting = true
     const session = this.session
     if (session !== null && !session.ending) {
       const endTimestamp = new Date(session.lastLogTimestamp.getTime() + (Date.now() - session.lastLogWallMs))
@@ -210,6 +273,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.cutPostRoll?.()
     this.disarm()
     await Promise.all([this.finalizing, this.disarming])
+    await this.stopBuffer()
   }
 
   override emit<K extends keyof StateMachineEventMap>(
@@ -249,8 +313,13 @@ export class MythicPlusStateMachine extends EventEmitter {
   }
 
   private bindRecorderEvents(): void {
+    this.recorder.on('bufferStopped', ({ message }) => {
+      if (this.armed?.buffered !== true) return
+      console.error('[MythicPlus] The pre-roll buffer stopped:', message)
+      this.clearArmed()
+    })
     this.recorder.on('unexpectedStop', ({ outputPath }) => {
-      if (this.armed !== null) {
+      if (this.armed !== null && !this.armed.buffered) {
         console.error('[MythicPlus] Armed recording stopped unexpectedly')
         this.clearArmed()
         void discardFile(outputPath)
@@ -269,37 +338,91 @@ export class MythicPlusStateMachine extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private onKeyStart(e: ChallengeModeStartEvent): void {
+    this.beginSession({
+      zoneName: e.zoneName,
+      instanceId: e.instanceId,
+      startedAt: e.timestamp,
+      key: e,
+      pull: null,
+      label: `${e.zoneName} +${e.keystoneLevel}`,
+      startEvent: { timestamp: 0, type: 'key-start', unit: `${e.zoneName} +${e.keystoneLevel}` }
+    })
+  }
+
+  private onRaidPullStart(e: EncounterStartEvent, difficulty: RaidDifficulty): void {
+    if (this.pullCountsInstanceId !== e.instanceId) {
+      this.pullCounts.clear()
+      this.pullCountsInstanceId = e.instanceId
+    }
+    const pullNumber = (this.pullCounts.get(e.encounterId) ?? 0) + 1
+    this.pullCounts.set(e.encounterId, pullNumber)
+    // Logging switched on after zoning in (the addon does that) leaves no ZONE_CHANGE, so
+    // learn the raid from the pull; otherwise later pulls are never armed for
+    if (this.zone?.instanceId !== e.instanceId) {
+      this.zone = { instanceId: e.instanceId, zoneName: e.encounterName, difficultyId: e.difficultyId, timestamp: e.timestamp }
+    }
+    const zoneName = this.zone.zoneName
+    const session = this.beginSession({
+      zoneName,
+      instanceId: e.instanceId,
+      startedAt: e.timestamp,
+      key: null,
+      pull: { encounter: e, difficulty, pullNumber },
+      label: e.encounterName,
+      startEvent: { timestamp: 0, type: 'pull-start', unit: `${e.encounterName} pull ${pullNumber}` }
+    })
+    if (session !== null) {
+      session.openEncounter = { encounterId: e.encounterId, name: e.encounterName, startRelSecs: 0 }
+    }
+  }
+
+  private beginSession(start: {
+    zoneName: string
+    instanceId: number
+    startedAt: Date
+    key: ChallengeModeStartEvent | null
+    pull: RaidPull | null
+    label: string
+    startEvent: TimelineEvent
+  }): KeySession | null {
     // If we hold the recorder for a previous key it's ours to stop; if something else
     // holds it (test mode), leave it alone.
     const ownsRecorder = this.session !== null || this.armed !== null
     if (!ownsRecorder && this.recorder.isRecording()) {
-      console.warn('[MythicPlus] Recorder already busy (test mode) — not recording this key')
-      return
+      console.warn(`[MythicPlus] Recorder already busy (test mode), not recording ${start.label}`)
+      return null
     }
 
-    // A new key while one is still open (reset and re-run, or a missed END): save the
-    // old one as abandoned first.
+    // A new key or pull while one is still open (reset and re-run, or a missed END):
+    // save the old one as abandoned first.
     if (this.session !== null && !this.session.ending) {
-      console.warn('[MythicPlus] New key started while previous key still open — closing it as abandoned')
-      this.finalize('abandoned', e.timestamp, null)
+      console.warn('[MythicPlus] New recording started while the previous one is still open: closing it as abandoned')
+      this.finalize('abandoned', start.startedAt, null)
     }
     if (this.status === 'error') this.transitionTo('idle')
     this.cutPostRoll?.()
 
     // The session is installed synchronously: the watcher hands over log lines in
     // batches, so the first boss pull (or even the END) can arrive in the same tick.
-    // Take over the recording armed on entering this dungeon, if there is one.
-    const armed = this.armed !== null && this.armed.instanceId === e.instanceId ? this.armed : null
-    if (armed !== null) this.clearArmed()
+    // Take over the recording armed on entering this instance, if there is one.
+    const sameInstance = this.armed !== null && this.armed.instanceId === start.instanceId ? this.armed : null
+    if (sameInstance !== null) this.clearArmed()
     else this.disarm()
-    const rawPath = armed?.rawOutputPath ?? buildRawPath(this.options.rawRecordingsDir, e.zoneName, e.timestamp)
+    // A buffer isn't taken over: recorder.start() below opens a file from it
+    const armed = sameInstance !== null && !sameInstance.buffered ? sameInstance : null
+    const buffering = sameInstance?.buffered === true ? sameInstance.started : Promise.resolve(false)
+    const rawPath = armed?.rawOutputPath ?? buildRawPath(this.options.rawRecordingsDir, start.zoneName, start.startedAt)
     const previousStop = Promise.all([this.finalizing, this.disarming]).then(() => undefined)
     const session: KeySession = {
-      start: e,
+      zoneName: start.zoneName,
+      instanceId: start.instanceId,
+      startedAt: start.startedAt,
+      key: start.key,
+      pull: start.pull,
       rawOutputPath: rawPath,
       started: Promise.resolve(false),
       recordingStartedAt: null,
-      timeline: [{ timestamp: 0, type: 'key-start', unit: `${e.zoneName} +${e.keystoneLevel}` }],
+      timeline: [start.startEvent],
       encounters: [],
       openEncounter: null,
       roster: new Map(),
@@ -312,7 +435,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       healDoneByName: new Map(),
       coach: new CoachCollector(),
       abandonTimer: null,
-      lastLogTimestamp: e.timestamp,
+      lastLogTimestamp: start.startedAt,
       lastLogWallMs: Date.now(),
       idleTimer: null,
       ending: false
@@ -324,25 +447,37 @@ export class MythicPlusStateMachine extends EventEmitter {
             if (!ok) this.failSession(session, armed.failure ?? 'the armed recording did not start')
             return ok
           })
-        : previousStop.then(() => this.startRecorder(session))
+        : Promise.all([previousStop, buffering]).then(() => this.startRecorder(session))
     void session.started.then((ok) => {
       if (ok) void this.writeRawInfo(session)
     })
     session.idleTimer = setInterval(() => this.checkIdle(session), 30_000)
     this.session = session
-    this.transitionTo('recording', `${e.zoneName} +${e.keystoneLevel}`)
+    this.transitionTo('recording', start.label)
+    return session
   }
 
   private async writeRawInfo(session: KeySession): Promise<void> {
+    const pull = session.pull
     const info: RawRecordingInfo = {
-      zoneName: session.start.zoneName,
-      instanceId: session.start.instanceId,
-      challengeModeId: session.start.challengeModeId,
-      keystoneLevel: session.start.keystoneLevel,
-      affixIds: session.start.affixIds,
-      keyStartedAt: session.start.timestamp.toISOString(),
-      recordingStartedAt: (session.recordingStartedAt ?? session.start.timestamp).toISOString(),
-      preRollSecs: this.options.preRollSecs ?? MYTHIC_PLUS_PRE_ROLL_SECS
+      zoneName: session.zoneName,
+      instanceId: session.instanceId,
+      challengeModeId: session.key?.challengeModeId ?? 0,
+      keystoneLevel: session.key?.keystoneLevel ?? 0,
+      affixIds: session.key?.affixIds ?? [],
+      keyStartedAt: session.startedAt.toISOString(),
+      recordingStartedAt: (session.recordingStartedAt ?? session.startedAt).toISOString(),
+      preRollSecs: this.preRollSecsFor(session),
+      raid:
+        pull !== null
+          ? {
+              encounterId: pull.encounter.encounterId,
+              encounterName: pull.encounter.encounterName,
+              difficulty: pull.difficulty,
+              groupSize: pull.encounter.groupSize,
+              pullNumber: pull.pullNumber
+            }
+          : undefined
     }
     try {
       await fs.writeFile(rawInfoPath(session.rawOutputPath), JSON.stringify(info))
@@ -353,9 +488,10 @@ export class MythicPlusStateMachine extends EventEmitter {
 
   private async startRecorder(session: KeySession): Promise<boolean> {
     try {
-      await this.recorder.start(session.rawOutputPath, this.options.recorder)
-      // Set AFTER the recorder confirms capture — used for the trim offset.
-      session.recordingStartedAt = new Date()
+      const firstFrameAt = await this.recorder.start(session.rawOutputPath, this.options.recorder)
+      // When the file's first frame was captured: before now if it opens with buffered
+      // footage, otherwise read AFTER the recorder confirms capture. Used for the trim offset.
+      session.recordingStartedAt = firstFrameAt instanceof Date ? firstFrameAt : new Date()
       console.warn(`[MythicPlus] Recorder started: ${session.rawOutputPath}`)
       return true
     } catch (err) {
@@ -379,13 +515,80 @@ export class MythicPlusStateMachine extends EventEmitter {
   // Arming on dungeon entry (pre-roll)
   // ---------------------------------------------------------------------------
 
-  private arm(instanceId: number, zoneName: string, timestamp: Date, armedSinceMs = Date.now()): void {
+  private arm(instanceId: number, zoneName: string, timestamp: Date, forRaid: boolean, armedSinceMs = Date.now()): void {
     if (this.armed !== null || this.session !== null) return
     // Busy and not because of us: test mode has it.
     if (this.recorder.isRecording() && this.disarmsInFlight === 0) return
+    if (this.canBuffer()) {
+      this.armBuffer(instanceId, zoneName, forRaid)
+      return
+    }
     const armed: ArmedRecording = {
+      buffered: false,
       instanceId,
       rawOutputPath: buildRawPath(this.options.rawRecordingsDir, zoneName, timestamp),
+      started: Promise.resolve(false),
+      recordingStartedAt: null,
+      restartTimer: null,
+      cancelled: false,
+      failure: null,
+      forRaid
+    }
+    const previousStop = Promise.all([this.finalizing, this.disarming])
+    armed.started = previousStop.then(async () => {
+      if (armed.cancelled) return false
+      // Anything we were recording has stopped by now, so this is test mode — leave it be.
+      if (this.recorder.isRecording()) {
+        if (this.armed === armed) this.clearArmed()
+        return false
+      }
+      try {
+        await this.recorder.start(armed.rawOutputPath, this.options.recorder)
+        armed.recordingStartedAt = new Date()
+        console.warn(`[MythicPlus] Armed for a ${forRaid ? 'pull' : 'key'} in ${zoneName}: ${armed.rawOutputPath}`)
+        return true
+      } catch (err) {
+        armed.failure = err instanceof Error ? err.message : String(err)
+        console.error('[MythicPlus] Arming failed:', armed.failure)
+        if (this.armed === armed) this.clearArmed()
+        return false
+      }
+    })
+    // Waiting around with no key: start over now and then so the file stays small, and
+    // give up after a while (a Mythic 0, or a log that stopped before we saw the exit).
+    const restartMs = (this.options.armedRestartSecs ?? MYTHIC_PLUS_ARMED_RESTART_SECS) * 1000
+    armed.restartTimer = setTimeout(() => {
+      if (this.armed !== armed) return
+      this.disarm()
+      // A raid can sit between pulls for hours, but not with the log silent (logged out,
+      // or logging turned off before we saw the exit)
+      const keepGoing = forRaid
+        ? Date.now() - this.lastLogWallMs <= RAID_ARMED_QUIET_MAX_SECS * 1000
+        : Date.now() - armedSinceMs + restartMs <= MYTHIC_PLUS_ARMED_MAX_SECS * 1000
+      if (keepGoing) {
+        this.arm(instanceId, zoneName, new Date(), forRaid, armedSinceMs)
+      }
+    }, restartMs)
+    this.armed = armed
+  }
+
+  private canBuffer(): boolean {
+    return this.recorder.startBuffer !== undefined && this.recorder.stopBuffer !== undefined
+  }
+
+  private bufferDir(): string {
+    return join(this.options.rawRecordingsDir, '.buffer')
+  }
+
+  // Starts the recorder's rolling buffer. Nothing is written beyond the buffer until a
+  // key or pull starts, so there's nothing to restart. For a key it gives up after the
+  // same hour; in a raid it runs until we leave or the log goes quiet.
+  private armBuffer(instanceId: number, zoneName: string, forRaid: boolean): void {
+    const armed: ArmedRecording = {
+      buffered: true,
+      forRaid,
+      instanceId,
+      rawOutputPath: '',
       started: Promise.resolve(false),
       recordingStartedAt: null,
       restartTimer: null,
@@ -401,9 +604,11 @@ export class MythicPlusStateMachine extends EventEmitter {
         return false
       }
       try {
-        await this.recorder.start(armed.rawOutputPath, this.options.recorder)
-        armed.recordingStartedAt = new Date()
-        console.warn(`[MythicPlus] Armed for a key in ${zoneName}: ${armed.rawOutputPath}`)
+        const bufferSecs = this.options.bufferSecs ?? PRE_ROLL_BUFFER_SECS
+        // Still running after the last pull: keep it, it holds the run-in to the next one
+        if (this.recorder.isBuffering?.() === true) return true
+        await this.recorder.startBuffer?.(this.bufferDir(), bufferSecs, this.options.recorder)
+        console.warn(`[MythicPlus] Armed for a ${forRaid ? 'pull' : 'key'} in ${zoneName}: buffering the last ${bufferSecs}s`)
         return true
       } catch (err) {
         armed.failure = err instanceof Error ? err.message : String(err)
@@ -412,20 +617,29 @@ export class MythicPlusStateMachine extends EventEmitter {
         return false
       }
     })
-    // Waiting around with no key: start over now and then so the file stays small, and
-    // give up after a while (a Mythic 0, or a log that stopped before we saw the exit).
-    const restartMs = (this.options.armedRestartSecs ?? MYTHIC_PLUS_ARMED_RESTART_SECS) * 1000
-    armed.restartTimer = setTimeout(() => {
-      if (this.armed !== armed) return
-      this.disarm()
-      if (Date.now() - armedSinceMs + restartMs <= MYTHIC_PLUS_ARMED_MAX_SECS * 1000) {
-        this.arm(instanceId, zoneName, new Date(), armedSinceMs)
-      }
-    }, restartMs)
+    armed.restartTimer = forRaid
+      ? setInterval(() => {
+          // Logged out, or logging turned off before we saw the exit
+          if (this.armed === armed && Date.now() - this.lastLogWallMs > RAID_ARMED_QUIET_MAX_SECS * 1000) this.disarm()
+        }, RAID_QUIET_CHECK_MS)
+      : setTimeout(() => {
+          if (this.armed === armed) this.disarm()
+        }, MYTHIC_PLUS_ARMED_MAX_SECS * 1000)
     this.armed = armed
   }
 
+  // Ends the rolling buffer, if the recorder has one running.
+  private async stopBuffer(): Promise<void> {
+    if (this.recorder.isBuffering?.() !== true) return
+    try {
+      await this.recorder.stopBuffer?.()
+    } catch (err) {
+      console.error('[MythicPlus] Stopping the pre-roll buffer failed:', err instanceof Error ? err.message : String(err))
+    }
+  }
+
   private clearArmed(): void {
+    // Also clears the raid's setInterval
     if (this.armed?.restartTimer != null) clearTimeout(this.armed.restartTimer)
     this.armed = null
   }
@@ -441,6 +655,11 @@ export class MythicPlusStateMachine extends EventEmitter {
     this.disarming = previous.then(async () => {
       try {
         if (!(await armed.started)) return
+        if (armed.buffered) {
+          // A key that started meanwhile records from the buffer; leave it running then
+          if (this.session === null) await this.stopBuffer()
+          return
+        }
         const path = await this.recorder.stop()
         await discardFile(path)
       } catch (err) {
@@ -453,8 +672,8 @@ export class MythicPlusStateMachine extends EventEmitter {
 
   private onKeyEnd(e: ChallengeModeEndEvent): void {
     const session = this.session
-    if (session === null || session.ending) return
-    if (e.instanceId !== session.start.instanceId) return
+    if (session === null || session.ending || session.key === null) return
+    if (e.instanceId !== session.instanceId) return
 
     // An abandoned/reset key logs END with success=0 and no time.
     const outcome: MythicPlusOutcome = e.success
@@ -471,14 +690,31 @@ export class MythicPlusStateMachine extends EventEmitter {
     })
 
     // Keep rolling briefly so the completion screen makes it into the video (a reset
-    // has none, so it stops right away). Mark the session as ending now so nothing else
-    // (zone change, another END) races this.
+    // has none, so it stops right away).
+    const postRollSecs = outcome === 'abandoned' ? 0 : (this.options.postRollSecs ?? MYTHIC_PLUS_POST_ROLL_SECS)
+    this.endWithPostRoll(session, outcome, e.timestamp, e, postRollSecs)
+  }
+
+  private onRaidPullEnd(session: KeySession, e: EncounterEndEvent): void {
+    this.closeOpenEncounter(e.timestamp, e.success)
+    const postRollSecs = this.options.raidPostRollSecs ?? RAID_POST_ROLL_SECS
+    this.endWithPostRoll(session, e.success ? 'kill' : 'wipe', e.timestamp, e, postRollSecs)
+  }
+
+  // Marks the session as ending now so nothing else (zone change, another END) races
+  // the post-roll.
+  private endWithPostRoll(
+    session: KeySession,
+    outcome: SessionOutcome,
+    endTimestamp: Date,
+    endEvent: ChallengeModeEndEvent | EncounterEndEvent,
+    postRollSecs: number
+  ): void {
     session.ending = true
     this.clearTimers()
-    const postRollMs = outcome === 'abandoned' ? 0 : (this.options.postRollSecs ?? MYTHIC_PLUS_POST_ROLL_SECS) * 1000
     const postRollStartedMs = Date.now()
     const postRoll = new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, postRollMs)
+      const timer = setTimeout(resolve, postRollSecs * 1000)
       this.cutPostRoll = () => {
         clearTimeout(timer)
         resolve()
@@ -486,12 +722,12 @@ export class MythicPlusStateMachine extends EventEmitter {
     })
     this.finalizing = postRoll.then(() => {
       this.cutPostRoll = null
-      return this.doFinalize(session, outcome, e.timestamp, e, (Date.now() - postRollStartedMs) / 1000)
+      return this.doFinalize(session, outcome, endTimestamp, endEvent, (Date.now() - postRollStartedMs) / 1000)
     })
   }
 
   // Immediate finalize (no post-roll) — abandon timeout or a new key starting.
-  private finalize(outcome: MythicPlusOutcome, endTimestamp: Date, endEvent: ChallengeModeEndEvent | null): void {
+  private finalize(outcome: SessionOutcome, endTimestamp: Date, endEvent: ChallengeModeEndEvent | null): void {
     const session = this.session
     if (session === null || session.ending) return
     session.ending = true
@@ -502,9 +738,9 @@ export class MythicPlusStateMachine extends EventEmitter {
 
   private async doFinalize(
     session: KeySession,
-    outcome: MythicPlusOutcome,
+    outcome: SessionOutcome,
     endTimestamp: Date,
-    endEvent: ChallengeModeEndEvent | null,
+    endEvent: ChallengeModeEndEvent | EncounterEndEvent | null,
     postRollSecs: number
   ): Promise<void> {
     // END can arrive before the recorder has finished starting (same log batch).
@@ -512,7 +748,7 @@ export class MythicPlusStateMachine extends EventEmitter {
     // Only report status for the key the UI is showing — a newer key may already be
     // recording while this one is being stopped.
     const isCurrent = (): boolean => this.session === session
-    if (isCurrent()) this.transitionTo('processing', session.start.zoneName)
+    if (isCurrent()) this.transitionTo('processing', session.zoneName)
 
     let finalPath: string
     try {
@@ -532,9 +768,9 @@ export class MythicPlusStateMachine extends EventEmitter {
     // the recorder came up, a few seconds after the key started because it's only
     // started once we *read* CHALLENGE_MODE_START. Either way shift everything so
     // timeline seconds line up with video seconds (a negative lead is pre-roll).
-    const keyStartedAt = session.start.timestamp
+    const keyStartedAt = session.startedAt
     const recordingStartedAt = session.recordingStartedAt ?? keyStartedAt
-    const preRollSecs = this.options.preRollSecs ?? MYTHIC_PLUS_PRE_ROLL_SECS
+    const preRollSecs = this.preRollSecsFor(session)
     const leadSecs = Math.max(-preRollSecs, (recordingStartedAt.getTime() - keyStartedAt.getTime()) / 1000)
     const videoStartedAt = new Date(keyStartedAt.getTime() + leadSecs * 1000)
     const shift = (t: number): number => Math.max(0, round2(t - leadSecs))
@@ -547,22 +783,51 @@ export class MythicPlusStateMachine extends EventEmitter {
     )
 
     const deathsByPlayer = Object.fromEntries(session.deathsByPlayer)
-    const mythicPlus: MythicPlusInfo = {
-      instanceId: session.start.instanceId,
-      challengeModeId: session.start.challengeModeId,
-      keystoneLevel: session.start.keystoneLevel,
-      affixIds: session.start.affixIds,
-      outcome,
-      totalTimeMs: endEvent?.totalTimeMs ?? 0,
-      // A reset/abandoned END reports 0/0 — that's "no score", not a score of 0.
-      score:
-        endEvent?.dungeonScore !== undefined && endEvent.overallRating !== undefined && endEvent.overallRating > 0
-          ? { dungeon: endEvent.dungeonScore, overall: endEvent.overallRating }
-          : null,
-      encounters,
-      deathCount: Object.values(deathsByPlayer).reduce((a, b) => a + b, 0),
-      deathsByPlayer,
-      interruptsByPlayer: Object.fromEntries(session.interruptsByPlayer)
+    const deathCount = Object.values(deathsByPlayer).reduce((a, b) => a + b, 0)
+    const interruptsByPlayer = Object.fromEntries(session.interruptsByPlayer)
+    let mythicPlus: MythicPlusInfo | undefined
+    let raid: RaidInfo | undefined
+    let won: boolean
+    if (session.pull !== null) {
+      const pullEnd = endEvent !== null && 'fightTimeMs' in endEvent ? endEvent : null
+      // Anything that isn't an ENCOUNTER_END kill (left mid-pull, log stopped) is a wipe
+      const raidOutcome: RaidOutcome = outcome === 'kill' ? 'kill' : 'wipe'
+      won = raidOutcome === 'kill'
+      raid = {
+        instanceId: session.instanceId,
+        encounterId: session.pull.encounter.encounterId,
+        encounterName: session.pull.encounter.encounterName,
+        difficulty: session.pull.difficulty,
+        groupSize: session.pull.encounter.groupSize,
+        outcome: raidOutcome,
+        fightTimeMs: pullEnd?.fightTimeMs ?? 0,
+        pullNumber: session.pull.pullNumber,
+        deathCount,
+        deathsByPlayer,
+        interruptsByPlayer
+      }
+    } else {
+      const key = session.key!
+      const keyEnd = endEvent !== null && 'totalTimeMs' in endEvent ? endEvent : null
+      const keyOutcome: MythicPlusOutcome = outcome === 'completed' || outcome === 'depleted' ? outcome : 'abandoned'
+      won = keyOutcome === 'completed'
+      mythicPlus = {
+        instanceId: session.instanceId,
+        challengeModeId: key.challengeModeId,
+        keystoneLevel: key.keystoneLevel,
+        affixIds: key.affixIds,
+        outcome: keyOutcome,
+        totalTimeMs: keyEnd?.totalTimeMs ?? 0,
+        // A reset/abandoned END reports 0/0: that's "no score", not a score of 0.
+        score:
+          keyEnd?.dungeonScore !== undefined && keyEnd.overallRating !== undefined && keyEnd.overallRating > 0
+            ? { dungeon: keyEnd.dungeonScore, overall: keyEnd.overallRating }
+            : null,
+        encounters,
+        deathCount,
+        deathsByPlayer,
+        interruptsByPlayer
+      }
     }
 
     const coach = session.coach.build(leadSecs, durationSecs)
@@ -581,8 +846,8 @@ export class MythicPlusStateMachine extends EventEmitter {
 
     const event: ProcessingRequiredEvent = {
       rawPath: finalPath,
-      zoneName: session.start.zoneName,
-      result: outcome === 'completed' ? 'WIN' : 'LOSS',
+      zoneName: session.zoneName,
+      result: won ? 'WIN' : 'LOSS',
       durationSecs,
       matchStartedAt: videoStartedAt,
       recordingStartedAt,
@@ -594,6 +859,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       playerDamageTaken: Object.fromEntries(session.dmgTakenByName),
       playerHealingDone: Object.fromEntries(session.healDoneByName),
       mythicPlus,
+      raid,
       coach
     }
 
@@ -602,6 +868,12 @@ export class MythicPlusStateMachine extends EventEmitter {
       this.transitionTo('idle')
     }
     this.emit('processingRequired', event)
+    // Still in the raid: arm again so the next pull has its pre-roll (from the buffer
+    // that's still running)
+    if (session.pull !== null && this.session === null && !this.quitting) this.armForZone()
+    // A recording from the buffer leaves it running. After a key nothing needs it until
+    // the next zone-in, unless a new key or pull took it over meanwhile.
+    if (this.session === null && this.armed === null) await this.stopBuffer()
   }
 
   // ---------------------------------------------------------------------------
@@ -609,18 +881,17 @@ export class MythicPlusStateMachine extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private onZoneChanged(e: ZoneChangedEvent): void {
-    const preRollSecs = this.options.preRollSecs ?? MYTHIC_PLUS_PRE_ROLL_SECS
     if (this.armed !== null && this.armed.instanceId !== e.instanceId) this.disarm()
     // Only a fresh ZONE_CHANGE — the watcher's startup read can replay an old one.
-    const isRecent = Math.abs(Date.now() - e.timestamp.getTime()) <= MYTHIC_PLUS_ARM_MAX_LOG_AGE_SECS * 1000
-    if (this.session === null && preRollSecs > 0 && isRecent && MYTHIC_DUNGEON_DIFFICULTY_IDS.includes(e.difficultyId)) {
-      this.arm(e.instanceId, e.zoneName, e.timestamp)
+    if (isRecentLogTime(e.timestamp)) {
+      this.zone = e
+      if (this.session === null) this.armForZone()
     }
 
     const session = this.session
     if (session === null || session.ending) return
 
-    if (e.instanceId === session.start.instanceId) {
+    if (e.instanceId === session.instanceId) {
       // Back in the dungeon (e.g. after a disconnect) — keep going.
       this.clearAbandonTimer()
       return
@@ -633,6 +904,32 @@ export class MythicPlusStateMachine extends EventEmitter {
       session.abandonTimer = null
       this.finalize('abandoned', e.timestamp, null)
     }, timeoutSecs * 1000)
+  }
+
+  // Arms the recorder for the zone we're in, if it's one we record in.
+  private armForZone(): void {
+    const zone = this.zone
+    const preRollSecs = this.options.preRollSecs ?? MYTHIC_PLUS_PRE_ROLL_SECS
+    if (zone === null || preRollSecs <= 0) return
+    if (MYTHIC_DUNGEON_DIFFICULTY_IDS.includes(zone.difficultyId)) {
+      this.arm(zone.instanceId, zone.zoneName, zone.timestamp, false)
+    } else if (this.raidDifficultyOf(zone.difficultyId) !== null) {
+      this.arm(zone.instanceId, zone.zoneName, new Date(), true)
+    }
+  }
+
+  // How much of the footage before the key or pull start is kept
+  private preRollSecsFor(session: KeySession): number {
+    const preRollSecs = this.options.preRollSecs ?? MYTHIC_PLUS_PRE_ROLL_SECS
+    // 0 turns pre-roll off everywhere (tests)
+    if (session.pull === null || preRollSecs <= 0) return preRollSecs
+    return this.options.raidPreRollSecs ?? RAID_PRE_ROLL_SECS
+  }
+
+  private raidDifficultyOf(difficultyId: number): RaidDifficulty | null {
+    const difficulty = RAID_DIFFICULTY_IDS[difficultyId]
+    if (difficulty === undefined || !(this.options.raidDifficulties ?? []).includes(difficulty)) return null
+    return difficulty
   }
 
   private clearAbandonTimer(): void {
@@ -655,6 +952,7 @@ export class MythicPlusStateMachine extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private onLogActivity(e: LogActivityEvent): void {
+    this.lastLogWallMs = Date.now()
     const session = this.activeSession()
     if (session === null) return
     session.lastLogTimestamp = e.timestamp
@@ -676,8 +974,14 @@ export class MythicPlusStateMachine extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private onEncounterStart(e: EncounterStartEvent): void {
+    const raidDifficulty = this.raidDifficultyOf(e.difficultyId)
+    if (raidDifficulty !== null && (this.session === null || this.session.pull !== null)) {
+      // A pull replayed by the watcher's startup read is long over
+      if (isRecentLogTime(e.timestamp)) this.onRaidPullStart(e, raidDifficulty)
+      return
+    }
     const session = this.activeSession()
-    if (session === null) return
+    if (session === null || session.pull !== null) return
     // A second START without an END means we missed the END (e.g. a log flush gap) —
     // close the previous pull as a wipe rather than losing it.
     this.closeOpenEncounter(e.timestamp, false)
@@ -691,6 +995,10 @@ export class MythicPlusStateMachine extends EventEmitter {
   private onEncounterEnd(e: EncounterEndEvent): void {
     const session = this.activeSession()
     if (session === null) return
+    if (session.pull !== null) {
+      if (e.encounterId === session.pull.encounter.encounterId) this.onRaidPullEnd(session, e)
+      return
+    }
     if (session.openEncounter === null || session.openEncounter.encounterId !== e.encounterId) {
       // END for a pull we never saw start — record it from the fight time if we have one.
       const end = this.relSecs(e.timestamp)
@@ -876,10 +1184,10 @@ export class MythicPlusStateMachine extends EventEmitter {
     if (session.selfGuid === null && isLocalPlayer(guid, flags)) session.selfGuid = guid
   }
 
-  // Seconds since the key started (log time). Re-based to video time in doFinalize.
+  // Seconds since the key or pull started (log time). Re-based to video time in doFinalize.
   private relSecs(timestamp: Date): number {
     if (this.session === null) return 0
-    return Math.max(0, round2((timestamp.getTime() - this.session.start.timestamp.getTime()) / 1000))
+    return Math.max(0, round2((timestamp.getTime() - this.session.startedAt.getTime()) / 1000))
   }
 
   private transitionTo(status: RecorderStatus, zone?: string): void {
@@ -893,6 +1201,10 @@ export class MythicPlusStateMachine extends EventEmitter {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
+
+function isRecentLogTime(timestamp: Date): boolean {
+  return Math.abs(Date.now() - timestamp.getTime()) <= MYTHIC_PLUS_ARM_MAX_LOG_AGE_SECS * 1000
+}
 
 function buildRawPath(dir: string, zone: string, startedAt: Date): string {
   const safeZone = zone.replace(/[^a-z0-9]/gi, '-').toLowerCase()

@@ -18,14 +18,22 @@ export interface RecorderOptions {
 
 export interface RecorderEventMap {
   unexpectedStop: { code: number | null; outputPath: string; stderrTail: string[] }
+  // The rolling buffer ended without being asked to (the game quit, capture failed)
+  bufferStopped: { message: string }
 }
 
 export interface CaptureRecorder {
-  // Resolves once capture is confirmed running; the state machines read "now" right
-  // after this to compute the trim offset.
-  start(outputPath: string, options?: RecorderOptions): Promise<void>
+  // Resolves once capture is confirmed running, with when the file's first frame was
+  // captured if the recorder knows (it's before now when the file opens with buffered
+  // footage). Without a date the caller reads "now" right after this for the trim offset.
+  start(outputPath: string, options?: RecorderOptions): Promise<Date | void>
   // Resolves with the final file path once it's fully written.
   stop(): Promise<string>
   isRecording(): boolean
+  // Optional rolling pre-roll buffer (native capture only). While it runs, start() opens
+  // a file with up to bufferSecs of footage from before the call.
+  startBuffer?(bufferDir: string, bufferSecs: number, options?: RecorderOptions): Promise<void>
+  stopBuffer?(): Promise<void>
+  isBuffering?(): boolean
   on<K extends keyof RecorderEventMap>(event: K, listener: (payload: RecorderEventMap[K]) => void): this
 }

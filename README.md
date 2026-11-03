@@ -18,10 +18,10 @@
 ---
 
 Depleted watches your combat log while you play and records your PvE content without you
-pressing a thing. Today that's **Mythic+**: when a key starts it is already recording, and when
-the key ends it trims the video, files it with the dungeon, level, timer and score, and drops
-every boss pull, death and interrupt on a timeline you can click through. **Raid boss pulls**
-are next (see [What's coming](#whats-coming)).
+pressing a thing. In **Mythic+**, when a key starts it is already recording, and when the key
+ends it trims the video, files it with the dungeon, level, timer and score, and drops every boss
+pull, death and interrupt on a timeline you can click through. In **raids**, every boss pull is
+its own recording, kill or wipe, pull timer included.
 
 You can cut clips from any recording, jump to the run's fight on Warcraft Logs, and have the
 Coach review any player in the group against the top logged runs of their spec. Every note it
@@ -49,9 +49,15 @@ makes jumps the video to the moment it is about.
 - Colors that match the game: capture is converted and tagged as sRGB / BT.709, so footage
   from a P3 display doesn't play back washed out
 - Records the game's audio with no extra audio tools
-- A 15 second **pre-roll**: recording arms when you enter the dungeon, so the countdown is in
-  the video, and the clip ends about 18 seconds after the key so the completion screen is too
+- **Pre-roll**: on entering a dungeon or raid the recorder keeps a rolling buffer of the last
+  90 seconds (about 0.9 GB at 80 Mbps, deleted as it goes, nothing saved until something starts).
+  A key's video starts 15 seconds before the key, so the countdown is in it; a raid pull's starts
+  60 seconds before the pull, so the pull timer is. A key's video ends about 18 seconds after the
+  key, so the completion screen is in it too
 - Keys you leave and don't come back to within 3 minutes are saved as *abandoned* instead of lost
+- **Raids** too: every boss pull on the difficulties you pick (Normal, Heroic and Mythic by
+  default, LFR optional) is saved as its own recording, kill or wipe. Between pulls nothing is
+  recorded beyond the buffer
 
 **Review**
 
@@ -62,6 +68,7 @@ makes jumps the video to the moment it is about.
 - **DPS and HPS meters** for the party, with pet damage credited to its owner
 - Click any party member to open them on **Raider.IO**, **Warcraft Logs** or the Armory
 - Deleting a run asks first and moves it to the Trash, so a stray click can be undone
+- Raid pulls are listed by raid night, then boss, then attempt
 - **Clips**: mark a start and end (or take the last 30 seconds) to cut a clip without
   re-encoding. Each run lists its clips, and all clips have their own section in the sidebar.
   Clips are saved in a `clips` folder next to the run's video
@@ -84,14 +91,6 @@ makes jumps the video to the moment it is about.
 
 - **DepletedCompanion** tells the app which character you're playing and turns on combat
   logging when you enter a dungeon, so you never lose a key to a forgotten `/combatlog`
-
-## What's coming
-
-- **Raids.** Every boss pull on the difficulties you pick becomes its own recording, kill or
-  wipe, with a 60 second pre-roll so the pull timer is in the video. This waits on a rolling
-  capture buffer ([#67](https://github.com/chandlerbassett/Depleted/issues/67)), so the recorder
-  only keeps the last minute on disk between pulls instead of recording all night. The raid
-  work itself is in [#72](https://github.com/chandlerbassett/Depleted/pull/72).
 
 ## Requirements
 
@@ -195,6 +194,7 @@ an update installs. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 | Video Quality | 30 / 50 / 80 Mbps presets or Custom up to 100 Mbps; HEVC or H.264; 4K, Native, 1440p, 1080p or 720p; 30 or 60 fps; and which window to capture (found automatically) |
 | WoW Addon | Install or update DepletedCompanion |
 | Auto-Cleanup | Delete old recordings after N days or once they pass N GB |
+| Raids | Which raid difficulties to record boss pulls on (Normal, Heroic and Mythic by default) |
 | Character Stats | Where player names link to (Raider.IO, Warcraft Logs or the Armory) and your region |
 | Warcraft Logs | Your API client for the Coach |
 | Test Mode | Record a short test clip to check capture and audio |

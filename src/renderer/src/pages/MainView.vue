@@ -62,9 +62,9 @@ async function copyError(): Promise<void> {
 
 const { recordings } = storeToRefs(recordingsStore)
 
-// Only Mythic+ keys are recorded; older arena recordings on disk are left out
+// Older arena recordings on disk are left out
 const filteredRecordings = computed(() =>
-  recordings.value.filter((r) => r.metadata.bracket === 'mythic-plus')
+  recordings.value.filter((r) => r.metadata.bracket === 'mythic-plus' || r.metadata.bracket === 'raid')
 )
 
 // -------------------------------------------------------------------------
@@ -357,7 +357,7 @@ const statusTextClass = computed(() => {
 
       <div class="flex flex-1 min-h-0 w-full">
         <!-- Sidebar -->
-        <aside class="flex-shrink-0 w-72 border-r border-zinc-800/60 flex flex-col overflow-hidden">
+        <aside class="flex-shrink-0 w-80 border-r border-zinc-800/60 flex flex-col overflow-hidden">
           <RecordingList
             class="flex-1 min-h-0"
             :recordings="filteredRecordings"
