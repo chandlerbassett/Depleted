@@ -182,9 +182,10 @@ top-player data and finding a run's fight, which looks up the recent public repo
 to three others in the group by character name. Player links open in your browser.
 
 **The pre-roll buffer records while WoW is open.** To catch a key's countdown and a raid pull
-timer, Depleted keeps recording the WoW window and its sound into a 90-second buffer in memory
-the whole time WoW is running, not only during keys and pulls. That includes anything on screen
-in WoW, like chat and whispers. The buffer never leaves Depleted's capture process: it isn't
+timer, Depleted keeps recording the WoW window and WoW's own sound into a 90-second buffer in
+memory the whole time WoW is running, not only during keys and pulls. That includes anything on
+screen in WoW, like chat and whispers. Other apps aren't captured, and neither is their sound,
+so voice chat in Discord isn't recorded. The buffer never leaves Depleted's capture process: it isn't
 written to disk or sent anywhere, other apps can't read it, and older footage is dropped as new
 footage comes in. Only when a key or boss pull starts is the buffered footage saved, as the
 start of that recording. macOS shows the screen recording indicator in the menu bar the whole

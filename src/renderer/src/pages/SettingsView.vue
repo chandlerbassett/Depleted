@@ -746,8 +746,8 @@ const CODECS = [
             <span class="text-xs text-zinc-300">Keep a rolling buffer while WoW is open</span>
           </label>
           <p class="text-xs text-zinc-400 mt-2">
-            While WoW is running, Depleted keeps recording the WoW window and its sound into a
-            90-second buffer in memory. Nothing is saved to disk or sent anywhere: older footage is
+            While WoW is running, Depleted keeps recording the WoW window and WoW's own sound (not
+            other apps or voice chat) into a 90-second buffer in memory. Nothing is saved to disk or sent anywhere: older footage is
             dropped as new footage comes in. The buffer is only kept when a key or boss pull starts,
             so the video opens before the start. macOS shows the screen recording indicator the
             whole time.
