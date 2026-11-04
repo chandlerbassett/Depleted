@@ -403,6 +403,7 @@ export function buildMetadata(
     playerSpec: event.player?.spec ?? '',
     teamComp: event.teamComp,
     knownSpecs: event.knownSpecs,
+    knownClasses: event.knownClasses,
     events: timeline,
     playerDamageDone: Object.keys(event.playerDamageDone).length > 0 ? event.playerDamageDone : undefined,
     playerDamageTaken: Object.keys(event.playerDamageTaken).length > 0 ? event.playerDamageTaken : undefined,

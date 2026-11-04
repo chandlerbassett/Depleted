@@ -99,6 +99,9 @@ export interface RecordingMetadata {
   teamComp: string[]
   // name → spec string
   knownSpecs: Record<string, string>
+  // name → class from COMBATANT_INFO spec IDs (spec names like "Holy" fit more than one
+  // class). Missing on recordings made before it was saved.
+  knownClasses?: Record<string, string>
   // Per-player meters (Details!/Skada-style bar charts) — name → total for the key
   playerDamageDone?: Record<string, number>
   playerDamageTaken?: Record<string, number>

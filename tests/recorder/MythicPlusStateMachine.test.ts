@@ -286,6 +286,7 @@ describe('MythicPlusStateMachine', () => {
 
     const e = processed[0]!
     expect(e.knownSpecs).toEqual({ 'Tankguy-Illidan-US': 'Blood' })
+    expect(e.knownClasses).toEqual({ 'Tankguy-Illidan-US': 'Death Knight' })
     const tankData = e.coach!.players.find((p) => p.name === 'Tankguy-Illidan-US')!
     expect(tankData.specId).toBe(250)
     expect(tankData.talents).toEqual([[10, 20, 1], [11, 21, 2]])
