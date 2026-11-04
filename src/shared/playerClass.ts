@@ -22,13 +22,21 @@ export const UNIQUE_SPEC_NAME_TO_CLASS: Readonly<Record<string, string>> = (() =
 
 // name → class from the players' spec IDs (coach.json), for recordings saved before
 // metadata.knownClasses existed
-export function classesFromSpecIds(players: ReadonlyArray<{ name: string; specId: number | null }>): Record<string, string> {
+export function classesFromSpecIds(players: unknown): Record<string, string> {
   const map: Record<string, string> = {}
-  for (const p of players) {
-    const cls = p.specId !== null ? WOW_SPEC_ID_MAP[p.specId]?.class : undefined
-    if (cls !== undefined) map[p.name] = cls
+  if (!Array.isArray(players)) return map
+  for (const p of players as Array<{ name?: unknown; specId?: unknown } | null>) {
+    if (p === null || typeof p !== 'object' || typeof p.name !== 'string' || typeof p.specId !== 'number') continue
+    const spec = own(WOW_SPEC_ID_MAP, p.specId)
+    if (spec !== undefined) map[p.name] = spec.class
   }
   return map
+}
+
+// A table entry only when the key is the table's own (a crafted name like
+// "constructor" must not read Object.prototype)
+export function own<T>(table: Readonly<Record<string | number, T>> | undefined, key: string | number): T | undefined {
+  return table !== undefined && Object.hasOwn(table, key) ? table[key] : undefined
 }
 
 export interface PlayerClassSources {
@@ -41,9 +49,10 @@ export interface PlayerClassSources {
 }
 
 export function resolvePlayerClass(name: string, sources: PlayerClassSources): string | undefined {
-  return (
-    sources.knownClasses?.[name] ??
-    sources.spellClasses?.get(name) ??
-    UNIQUE_SPEC_NAME_TO_CLASS[sources.knownSpecs?.[name] ?? '']
-  )
+  const fromLog = own(sources.knownClasses, name)
+  if (typeof fromLog === 'string') return fromLog
+  const fromSpells = sources.spellClasses?.get(name)
+  if (fromSpells !== undefined) return fromSpells
+  const spec = own(sources.knownSpecs, name)
+  return typeof spec === 'string' ? own(UNIQUE_SPEC_NAME_TO_CLASS, spec) : undefined
 }

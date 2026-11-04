@@ -14,7 +14,7 @@ import ClipControls from './ClipControls.vue'
 import WclFightPanel from './WclFightPanel.vue'
 import SidebarClipRow from './SidebarClipRow.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP } from '@shared/constants'
-import { classesFromSpecIds, resolvePlayerClass } from '@shared/playerClass'
+import { classesFromSpecIds, own, resolvePlayerClass } from '@shared/playerClass'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
 import { computeMeter } from '@/composables/useMeters'
@@ -223,7 +223,7 @@ function unitClass(name: string): string | undefined {
 
 function playerColor(name: string): string {
   const cls = unitClass(name)
-  return cls !== undefined ? (CLASS_COLORS[cls] ?? '#d4d4d8') : '#d4d4d8'
+  return (cls !== undefined ? own(CLASS_COLORS, cls) : undefined) ?? '#d4d4d8'
 }
 
 // Warcraft Logs ranks players by name alone

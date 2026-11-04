@@ -37,3 +37,17 @@ describe('player class', () => {
     expect(resolvePlayerClass('Gobitron-Area52-US', { knownSpecs })).toBe('Hunter')
   })
 })
+
+describe('player class with crafted files', () => {
+  it('ignores names and specs that are Object.prototype members', () => {
+    expect(resolvePlayerClass('X', { knownClasses: Object.create(null) })).toBeUndefined()
+    expect(resolvePlayerClass('constructor', { knownClasses: {}, knownSpecs: {} })).toBeUndefined()
+    expect(resolvePlayerClass('X', { knownSpecs: { X: 'constructor' } })).toBeUndefined()
+    expect(resolvePlayerClass('X', { knownClasses: { X: 5 as unknown as string }, knownSpecs: { X: 'Arms' } })).toBe('Warrior')
+  })
+
+  it('ignores a coach.json players field that is not a list of players', () => {
+    expect(classesFromSpecIds(5)).toEqual({})
+    expect(classesFromSpecIds([null, { name: 'A', specId: 'x' }, { name: 'B', specId: 65 }])).toEqual({ B: 'Paladin' })
+  })
+})
