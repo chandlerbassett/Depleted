@@ -27,6 +27,8 @@ export interface ProcessingRequiredEvent {
   timeline: TimelineEvent[]
   // name → spec string
   knownSpecs: Record<string, string>
+  // name → class, from the same spec IDs. Missing on recovered recordings.
+  knownClasses?: Record<string, string>
   // Party roster
   teamComp: string[]
   // The player recording (Name-Realm and class/spec names), empty strings when unknown.

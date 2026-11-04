@@ -951,9 +951,14 @@ export class MythicPlusStateMachine extends EventEmitter {
     // Spec names for the party, from COMBATANT_INFO — the replay view colors and labels
     // players with these
     const knownSpecs: Record<string, string> = {}
+    // Class too, since a spec name like "Holy" or "Frost" fits more than one class
+    const knownClasses: Record<string, string> = {}
     for (const p of coach.players) {
       const spec = p.specId !== null ? WOW_SPEC_ID_MAP[p.specId] : undefined
-      if (spec !== undefined) knownSpecs[p.name] = spec.spec
+      if (spec !== undefined) {
+        knownSpecs[p.name] = spec.spec
+        knownClasses[p.name] = spec.class
+      }
     }
 
     // The recording player, from the unit the log flags as theirs
@@ -970,6 +975,7 @@ export class MythicPlusStateMachine extends EventEmitter {
       recordingStartedAt,
       timeline,
       knownSpecs,
+      knownClasses,
       teamComp: [...session.roster.values()],
       player: { name: selfName, class: selfSpec?.class ?? '', spec: selfSpec?.spec ?? '' },
       playerDamageDone: Object.fromEntries(session.dmgDoneByName),

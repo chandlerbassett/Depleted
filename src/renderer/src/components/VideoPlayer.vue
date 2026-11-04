@@ -13,7 +13,8 @@ import CoachPanel from './CoachPanel.vue'
 import ClipControls from './ClipControls.vue'
 import WclFightPanel from './WclFightPanel.vue'
 import SidebarClipRow from './SidebarClipRow.vue'
-import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP, WOW_SPEC_ID_MAP } from '@shared/constants'
+import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP } from '@shared/constants'
+import { classesFromSpecIds, resolvePlayerClass } from '@shared/playerClass'
 import { toFileUrl } from '@/utils/fileUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
 import { computeMeter } from '@/composables/useMeters'
@@ -197,21 +198,31 @@ const derivedSpecMap = computed((): Map<string, string> => {
   return map
 })
 
-// Spec name (e.g. "Frost", "Affliction") → class, reversed from WOW_SPEC_ID_MAP —
-// lets playerColor/playerSpec resolve a class from metadata.knownSpecs (COMBATANT_INFO,
-// covers every player regardless of what they cast) instead of only from tracked spell
-// casts, which leave players with no class color in the Meters panel whenever they
-// didn't happen to cast a tracked spell.
-const SPEC_NAME_TO_CLASS: Record<string, string> = (() => {
-  const map: Record<string, string> = {}
-  for (const entry of Object.values(WOW_SPEC_ID_MAP)) {
-    map[entry.spec] = entry.class
-  }
-  return map
-})()
+// Class per player from COMBATANT_INFO spec IDs — covers every player regardless of
+// what they cast. Saved in metadata.knownClasses; older recordings only saved spec
+// names, which can't tell a Holy Paladin from a Holy Priest, so read their coach.json.
+const coachClasses = ref<Record<string, string> | undefined>(undefined)
+watch(
+  () => props.recording.id,
+  async (id) => {
+    coachClasses.value = undefined
+    if (props.recording.metadata.knownClasses !== undefined) return
+    const data = await window.electron.invoke('storage:getCoachData', { id }).catch(() => null)
+    if (props.recording.id === id && data !== null) coachClasses.value = classesFromSpecIds(data.players)
+  },
+  { immediate: true }
+)
+
+function unitClass(name: string): string | undefined {
+  return resolvePlayerClass(name, {
+    knownClasses: props.recording.metadata.knownClasses ?? coachClasses.value,
+    spellClasses: derivedClassMap.value,
+    knownSpecs: props.recording.metadata.knownSpecs
+  })
+}
 
 function playerColor(name: string): string {
-  const cls = derivedClassMap.value.get(name) ?? SPEC_NAME_TO_CLASS[props.recording.metadata.knownSpecs?.[name] ?? '']
+  const cls = unitClass(name)
   return cls !== undefined ? (CLASS_COLORS[cls] ?? '#d4d4d8') : '#d4d4d8'
 }
 
@@ -313,10 +324,6 @@ const showEvents = ref(false)
 // so hiding "Death" there doesn't also empty this section.
 // -------------------------------------------------------------------------
 const showDeathLog = ref(false)
-
-function unitClass(name: string): string | undefined {
-  return derivedClassMap.value.get(name) ?? SPEC_NAME_TO_CLASS[props.recording.metadata.knownSpecs?.[name] ?? '']
-}
 
 const deathEvents = computed(() => {
   const raw = events.value.filter((ev) => ev.type === 'death-player')
