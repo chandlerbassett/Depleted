@@ -26,7 +26,12 @@ struct CaptureSetup {
         config = SCStreamConfiguration()
         config.width = Int(size.width)
         config.height = Int(size.height)
-        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.fps))
+        // Ask for frames a bit faster than the target rate and let FramePacer pick one per
+        // frame slot. At exactly 1/fps, a window update that lands a hair early (16.5 ms
+        // after the last one on a 60 Hz display) is skipped and the next frame comes a whole
+        // refresh later, which cost ~5-7 fps at 60 (#78).
+        config.minimumFrameInterval = CMTime(
+            value: 3, timescale: CMTimeScale(4 * options.fps))
         config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         // Convert to sRGB / BT.709 to match the file's color tags. Left at its defaults,
         // ScreenCaptureKit hands over pixels in the window's own color space (WoW's is
@@ -110,4 +115,33 @@ func isCompleteFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
         let statusRaw = attachments.first?[.status] as? Int
     else { return false }
     return SCFrameStatus(rawValue: statusRaw) == .complete
+}
+
+// Lets through about one frame per 1/fps. ScreenCaptureKit is asked for frames up to a
+// third faster than that (see CaptureSetup), so on a 120 or 144 Hz display this keeps the
+// file at the chosen rate, while a frame that comes a little early or late on a 60 Hz
+// display is still kept. Frames are kept on a fixed grid rather than "at least 1/fps since
+// the last one", so jitter can't make every other frame miss its slot.
+struct FramePacer {
+    private let interval: Double
+    private let tolerance: Double
+    private var due: Double?
+
+    init(fps: Int) {
+        interval = 1 / Double(fps)
+        tolerance = interval / 4
+    }
+
+    mutating func admit(_ time: CMTime) -> Bool {
+        let t = CMTimeGetSeconds(time)
+        guard let due else {
+            self.due = t + interval
+            return true
+        }
+        if t < due - tolerance { return false }
+        // More than a frame behind (the game hitched, or nothing changed on screen):
+        // restart the grid from this frame instead of letting a burst through to catch up
+        self.due = t > due + interval ? t + interval : due + interval
+        return true
+    }
 }
