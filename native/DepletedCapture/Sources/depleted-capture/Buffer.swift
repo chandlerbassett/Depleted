@@ -72,6 +72,7 @@ final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetW
     private let queue = DispatchQueue(label: "depleted.buffer.capture")
     private var sessionStart: CMTime?
     private var droppedFrames = 0
+    private var pacer: FramePacer
     private var stopping = false
 
     // Segments and the recording file, only touched on `io`
@@ -90,6 +91,7 @@ final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetW
         size = setup.size
         config = setup.config
         filter = setup.filter
+        pacer = FramePacer(fps: options.fps)
 
         // No output file: segments come to the delegate as they're cut
         writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
@@ -128,7 +130,7 @@ final class BufferRecorder: NSObject, SCStreamOutput, SCStreamDelegate, AVAssetW
     }
 
     private func appendVideo(_ sampleBuffer: CMSampleBuffer) {
-        guard isCompleteFrame(sampleBuffer) else { return }
+        guard isCompleteFrame(sampleBuffer), pacer.admit(sampleBuffer.presentationTimeStamp) else { return }
         let time = sampleBuffer.presentationTimeStamp
         if sessionStart == nil {
             writer.initialSegmentStartTime = time

@@ -60,6 +60,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     private var sessionStart: CMTime?
     private var lastVideoTime = CMTime.zero
     private var droppedFrames = 0
+    private var pacer: FramePacer
     private var stopping = false
 
     init(options: RecordOptions, outputURL: URL, window: SCWindow, scale: CGFloat) {
@@ -69,6 +70,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         size = setup.size
         config = setup.config
         filter = setup.filter
+        pacer = FramePacer(fps: options.fps)
 
         try? FileManager.default.removeItem(at: outputURL)
         do {
@@ -106,7 +108,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
     }
 
     private func appendVideo(_ sampleBuffer: CMSampleBuffer) {
-        guard isCompleteFrame(sampleBuffer) else { return }
+        guard isCompleteFrame(sampleBuffer), pacer.admit(sampleBuffer.presentationTimeStamp) else { return }
 
         let time = sampleBuffer.presentationTimeStamp
         if sessionStart == nil {
