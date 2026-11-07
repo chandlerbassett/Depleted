@@ -143,6 +143,10 @@ export interface MythicPlusInfo {
   interruptsByPlayer: Record<string, number>
 }
 
+// What a folder picked in system:pickFolder is for. Only a 'recordings' pick can become
+// the recordings folder (src/main/system/pickedFolders.ts).
+export type FolderPurpose = 'wow' | 'recordings'
+
 export type RaidDifficulty = 'lfr' | 'normal' | 'heroic' | 'mythic'
 
 export type RaidOutcome = 'kill' | 'wipe'
@@ -262,7 +266,7 @@ export interface IpcCommands {
   'system:listCaptureWindows': { params: void; result: CaptureSource[] }
   'system:checkWowPath': { params: { path: string }; result: { valid: boolean } }
   'system:openSystemPreferences': { params: void; result: void }
-  'system:pickFolder': { params: void; result: { path: string | null } }
+  'system:pickFolder': { params: { purpose: FolderPurpose }; result: { path: string | null } }
   'system:openUrl': { params: { url: string }; result: { success: boolean; error?: string } }
   'system:relaunch': { params: void; result: void }
   'system:getPlatform': { params: void; result: { platform: string } }

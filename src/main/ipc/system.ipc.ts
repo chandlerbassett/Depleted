@@ -16,7 +16,7 @@ import { listCaptureSources } from '../recorder/sourceResolver'
 import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from '../addon/SavedVarsReader'
 import { isInstalledAddonOutdated } from '../addon/addonVersionCheck'
 import { ADDON_NAME, ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants'
-import type { AppConfig, CaptureSource } from '@shared/ipc.types'
+import type { AppConfig, CaptureSource, FolderPurpose } from '@shared/ipc.types'
 // Where the addon bundled with this build lives — packaged builds ship it under
 // resourcesPath; in dev it's just the repo's addon/ folder (electron-builder hasn't run).
 export function resolveBundledAddonDir(): string {
@@ -144,12 +144,19 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   })
 
   // Show a native folder picker dialog and return the selected path.
-  ipcMain.handle('system:pickFolder', async (): Promise<{ path: string | null }> => {
+  ipcMain.handle('system:pickFolder', async (_event, params: { purpose: FolderPurpose }): Promise<{ path: string | null }> => {
+    const purpose = params?.purpose
+    if (purpose !== 'wow' && purpose !== 'recordings') throw new Error('Unknown folder purpose')
+    // The dialog says what the folder is for, so the page can't pass off a recordings
+    // pick as something else
     const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ['openDirectory']
+      properties: ['openDirectory', 'createDirectory'],
+      title: purpose === 'recordings' ? 'Choose where to save recordings' : 'Choose your World of Warcraft folder',
+      message: purpose === 'recordings' ? 'Choose where Depleted saves recordings' : 'Choose your World of Warcraft folder',
+      buttonLabel: 'Choose'
     })
     const path = canceled || filePaths.length === 0 ? null : (filePaths[0] ?? null)
-    if (path !== null) rememberPickedFolder(path)
+    if (path !== null && purpose === 'recordings') rememberPickedFolder(path)
     return { path }
   })
 

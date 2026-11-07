@@ -54,7 +54,7 @@ export function useSettings() {
   // -------------------------------------------------------------------------
 
   async function pickWowPath(): Promise<void> {
-    const { path } = await window.electron.invoke('system:pickFolder')
+    const { path } = await window.electron.invoke('system:pickFolder', { purpose: 'wow' })
     if (path === null) return
     const { valid } = await window.electron.invoke('system:checkWowPath', { path })
     if (!valid) return
@@ -67,7 +67,7 @@ export function useSettings() {
   // -------------------------------------------------------------------------
 
   async function pickStoragePath(): Promise<void> {
-    const { path } = await window.electron.invoke('system:pickFolder')
+    const { path } = await window.electron.invoke('system:pickFolder', { purpose: 'recordings' })
     if (path === null) return
     await set('storagePath', path)
     restartRequired.value = true
