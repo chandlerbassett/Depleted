@@ -332,7 +332,9 @@ jobs:
           outside="$(find "$mount" -mindepth 1 \( -path "$mount/Depleted.app" -o -path "$mount/Applications" \) -prune -o \( -type l -o -perm +111 -type f \) -print)"
           [ -z "$outside" ] || { echo "::error::Links or executables outside the app: $outside"; exit 1; }
           while IFS= read -r -d '' file; do
-            case "$(file -b "$file")" in Mach-O*|*script*) echo "::error::$file runs"; exit 1 ;; esac
+            # (Not just "*script*": TIFF metadata reads "description=...")
+            kind="$(file -b "$file")"
+            case "$kind" in Mach-O*|*"script text"*|*executable*) echo "::error::$file runs ($kind)"; exit 1 ;; esac
           done < <(find "$mount" -mindepth 1 \( -path "$mount/Depleted.app" -o -path "$mount/Applications" \) -prune -o -type f -print0)
           echo "The zip and the DMG hold the signed app ($CDHASH)"
 
