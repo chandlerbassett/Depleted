@@ -32,6 +32,7 @@ import {
   type CaptureStartedPayload,
   type CaptureErrorPayload
 } from '@shared/captureIpc.types'
+import { APP_ORIGIN } from '@shared/appUrl'
 import { resolveCaptureSource } from './sourceResolver'
 import type { CaptureRecorder, RecorderEventMap, RecorderOptions } from './CaptureRecorder'
 
@@ -383,7 +384,7 @@ async function loadCaptureRenderer(win: BrowserWindow): Promise<void> {
   if (process.env.ELECTRON_RENDERER_URL) {
     await win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/capture.html`)
   } else {
-    await win.loadFile(join(__dirname, '../renderer/capture.html'))
+    await win.loadURL(`${APP_ORIGIN}/capture.html`)
   }
 }
 

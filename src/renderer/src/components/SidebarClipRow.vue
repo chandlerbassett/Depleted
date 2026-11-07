@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Clip } from '@shared/ipc.types'
-import { toFileUrl } from '@/utils/fileUrl'
+import { toMediaUrl } from '@shared/appUrl'
 import { fmtClock } from '@/utils/recordingLabels'
 
 defineProps<{
@@ -25,7 +25,7 @@ const emit = defineEmits<{ select: []; delete: [] }>()
     >
       <img
         v-if="clip.thumbnailPath !== null"
-        :src="toFileUrl(clip.thumbnailPath)"
+        :src="toMediaUrl(clip.thumbnailPath)"
         class="w-full h-full object-cover"
         loading="lazy"
       >

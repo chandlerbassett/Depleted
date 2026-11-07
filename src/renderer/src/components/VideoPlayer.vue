@@ -15,7 +15,7 @@ import WclFightPanel from './WclFightPanel.vue'
 import SidebarClipRow from './SidebarClipRow.vue'
 import { TIMELINE_COLORS, SPELL_CLASS_MAP, SPELL_SPEC_MAP } from '@shared/constants'
 import { classesFromSpecIds, own, resolvePlayerClass } from '@shared/playerClass'
-import { toFileUrl } from '@/utils/fileUrl'
+import { toMediaUrl } from '@shared/appUrl'
 import { buildCharacterStatsUrl } from '@/utils/characterLinks'
 import { computeMeter } from '@/composables/useMeters'
 import { levelBadge, outcomeLabel, recordingTitle } from '@/utils/recordingLabels'
@@ -57,7 +57,7 @@ function openPlayer(name: string): void {
   void window.electron.invoke('system:openUrl', { url })
 }
 
-const videoSrc = computed(() => toFileUrl(props.recording.videoPath))
+const videoSrc = computed(() => toMediaUrl(props.recording.videoPath))
 
 const hiddenTypes = ref(new Set<TimelineEventType>())
 const hiddenAbilities = ref(new Set<string>())
