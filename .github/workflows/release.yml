@@ -8,32 +8,40 @@ on:
   # instead of being published
   workflow_dispatch:
 
-# contents: create the release and upload the DMG. id-token + attestations: sign a
-# build provenance attestation, so anyone can check the DMG was built here, from
-# this repo's commit (gh attestation verify <dmg> -R chandlerbassett/Depleted).
+# Jobs ask for more where they need it
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
+
+# The signing certificate and notarization key never share a job with npm packages, and
+# the jobs that hold them never unpack anything a job with npm packages made without
+# checking it first:
+#
+#   build     npm ci, test, build the app.                                       No secrets.
+#   sign      Developer ID: check the zip (build/checkZip.py), sign the app      No npm.
+#             (build/signApp.sh), notarize, staple.
+#   package   npm ci, electron-builder makes the DMG and zip from the signed app. No secrets.
+#   verify    The app in the zip and the DMG is the one `sign` signed (same      No secrets,
+#             CDHash), and the DMG holds nothing else that runs.                  no npm.
+#   sign-dmg  Developer ID: sign, notarize and staple the DMG `verify` checked.  No npm, no checkout.
+#   publish   Write latest-mac.yml from the files themselves, checksum, attest,  No secrets,
+#             publish (or keep a test build on the run).                         no npm.
+#
+# Each job checks the hash of what it downloads against the job that made it.
 
 jobs:
   # ---------------------------------------------------------------------------
-  # macOS — Apple silicon DMG (arm64)
-  # ---------------------------------------------------------------------------
-  build-mac:
-    name: macOS (arm64)
+  build:
+    name: Build (no secrets)
     runs-on: macos-latest
-    # The signing certificate and notarization key live in this environment, which only
-    # v* tags and main can deploy to, so no other branch's workflow can read them
-    environment: release
+    outputs:
+      sha256: ${{ steps.pack.outputs.sha256 }}
 
     steps:
       # Actions are pinned to commits; Dependabot keeps them current
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          # Don't leave this job's write token in .git/config, where npm ci's install
-          # scripts could read it. Publishing uses the API, not git.
+          # Don't leave a token in .git/config, where npm ci's install scripts could read it
           persist-credentials: false
 
       - name: Check the tag (releases)
@@ -56,16 +64,78 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Build the app (unsigned)
+        # The zip target makes electron-builder write app-update.yml into the app, which
+        # the auto-updater needs; the zip itself is thrown away. mac.identity=null: no
+        # signing here (the sign job signs everything).
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run build:mac -- zip --arm64 --publish never -c.mac.identity=null
+
+      - name: Pack the app
+        id: pack
+        run: |
+          app="$(ls -d dist/mac-arm64/*.app)"
+          [ "$(basename "$app")" = "Depleted.app" ] || { echo "::error::Unexpected app $app"; exit 1; }
+          test -f "$app/Contents/Resources/app-update.yml" || { echo "::error::app-update.yml is missing"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/out"
+          ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "$app" "$RUNNER_TEMP/out/Depleted-unsigned.zip"
+          echo "sha256=$(shasum -a 256 "$RUNNER_TEMP/out/Depleted-unsigned.zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-app
+          path: ${{ runner.temp }}/out/Depleted-unsigned.zip
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  sign:
+    name: Sign & notarize the app (no npm)
+    needs: build
+    runs-on: macos-latest
+    # The signing certificate and notarization key live in this environment, which only
+    # v* tags and main can deploy to, so no other branch's workflow can read them
+    environment: release
+    outputs:
+      sha256: ${{ steps.pack.outputs.sha256 }}
+      cdhash: ${{ steps.pack.outputs.cdhash }}
+
+    steps:
+      # For build/checkZip.py, build/signApp.sh and the entitlements. Nothing from npm
+      # runs in this job.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: unsigned-app
+          path: ${{ runner.temp }}/in
+
+      - name: Check and unpack the app
+        # The zip comes from a job that ran npm packages: check that every entry stays
+        # inside Depleted.app before ditto writes anything. (checkZip reads the zip's
+        # central directory; ditto could in theory read an odd zip differently, so the
+        # result is checked again after unpacking.)
+        env:
+          EXPECTED: ${{ needs.build.outputs.sha256 }}
+        run: |
+          zip="$RUNNER_TEMP/in/Depleted-unsigned.zip"
+          echo "$EXPECTED  $zip" | shasum -a 256 -c -
+          python3 -I build/checkZip.py "$zip"
+          mkdir -p "$RUNNER_TEMP/app"
+          ditto -x -k "$zip" "$RUNNER_TEMP/app"
+          [ "$(ls -A "$RUNNER_TEMP/app")" = "Depleted.app" ] || { echo "::error::Unexpected files in the zip"; exit 1; }
+          [ ! -L "$RUNNER_TEMP/app/Depleted.app" ] && [ -d "$RUNNER_TEMP/app/Depleted.app" ] || { echo "::error::Depleted.app isn't a folder"; exit 1; }
+
       - name: Load the signing certificate
-        # Into a temporary keychain the build finds by itself. electron-builder's own
-        # CSC_LINK import fails on current macOS runners (set-key-partition-list can't
-        # unlock its keychain), so it gets no CSC_LINK.
+        # Into a temporary keychain codesign finds by itself
         env:
           P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
         run: |
           if [ -z "$P12_BASE64" ]; then
-            echo "::warning::MAC_CERTIFICATE_P12_BASE64 is not set: the build will be ad-hoc signed"
+            echo "::warning::MAC_CERTIFICATE_P12_BASE64 is not set: the app will be ad-hoc signed"
             exit 0
           fi
           keychain="$RUNNER_TEMP/signing.keychain-db"
@@ -81,16 +151,14 @@ jobs:
           security find-identity -v -p codesigning "$keychain"
 
       - name: Load the notarization key
-        # An App Store Connect API key (Developer role). electron-builder notarizes the app
-        # with it when APPLE_API_KEY (a path to the .p8), APPLE_API_KEY_ID and
-        # APPLE_API_ISSUER are set.
+        # An App Store Connect API key (Developer role)
         env:
           API_KEY_P8: ${{ secrets.APPLE_API_KEY }}
           API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           if [ -z "$API_KEY_P8" ] || [ -z "$API_KEY_ID" ] || [ -z "$API_ISSUER" ]; then
-            echo "::warning::APPLE_API_KEY, APPLE_API_KEY_ID or APPLE_API_ISSUER is not set: the build won't be notarized"
+            echo "::warning::APPLE_API_KEY, APPLE_API_KEY_ID or APPLE_API_ISSUER is not set: the app won't be notarized"
             exit 0
           fi
           key="$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8"
@@ -101,36 +169,326 @@ jobs:
             echo "APPLE_API_ISSUER=$API_ISSUER"
           } >> "$GITHUB_ENV"
 
-      - name: Build, sign & notarize
-        # Signs with the Developer ID certificate and notarizes when the secrets are set
-        # (see CONTRIBUTING.md). Without them the DMG is ad-hoc signed and not notarized.
-        run: npm run build:mac -- --publish never
-
-      - name: Sign & notarize the DMG
-        # The app inside is already notarized. This signs, notarizes and staples the disk
-        # image too, then puts the DMG's new hash in latest-mac.yml.
+      - name: Sign the app
         run: |
           identity="$(security find-identity -v -p codesigning | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
-          if [ -z "$identity" ] || [ -z "${APPLE_API_KEY:-}" ]; then
-            echo "::warning::No Developer ID certificate or notarization secrets: the DMG itself stays unsigned"
+          bash build/signApp.sh "$RUNNER_TEMP/app/Depleted.app" "${identity:--}" build/entitlements.mac.plist
+
+      - name: Notarize the app
+        run: |
+          app="$RUNNER_TEMP/app/Depleted.app"
+          if ! codesign -dvv "$app" 2>&1 | grep -q 'Authority=Developer ID Application' || [ -z "${APPLE_API_KEY:-}" ]; then
+            echo "::warning::No Developer ID signature or notarization key: the app isn't notarized"
             exit 0
           fi
-          for dmg in dist/*.dmg; do
-            codesign --sign "$identity" --timestamp "$dmg"
-            xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
-            xcrun stapler staple "$dmg"
-          done
-          node build/updateManifest.js dist/latest-mac.yml dist/*.dmg
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
+          xcrun stapler staple "$app"
+          rm "$RUNNER_TEMP/notarize.zip"
 
       - name: Check the signature
         run: |
-          app="$(ls -d dist/mac-arm64/*.app)"
+          app="$RUNNER_TEMP/app/Depleted.app"
           codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dvv "$app" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|Timestamp|Runtime Version|CDHash)='
           if ! spctl --assess --type execute --verbose=4 "$app"; then
             # Never publish a release Gatekeeper would block
             if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "::error::Not notarized"; exit 1; fi
             echo "::warning::Not notarized: Gatekeeper will warn on first launch"
           fi
+
+      - name: Pack the signed app
+        id: pack
+        run: |
+          app="$RUNNER_TEMP/app/Depleted.app"
+          mkdir -p "$RUNNER_TEMP/out"
+          ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "$app" "$RUNNER_TEMP/out/Depleted-signed.zip"
+          echo "sha256=$(shasum -a 256 "$RUNNER_TEMP/out/Depleted-signed.zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "cdhash=$(codesign -dvvv "$app" 2>&1 | sed -n 's/^CDHash=//p')" >> "$GITHUB_OUTPUT"
+
+      - name: Remove the certificate and key
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-app
+          path: ${{ runner.temp }}/out/Depleted-signed.zip
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  package:
+    name: DMG & zip (no secrets)
+    needs: sign
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: signed-app
+          path: ${{ runner.temp }}/in
+
+      - name: Unpack the signed app
+        env:
+          EXPECTED: ${{ needs.sign.outputs.sha256 }}
+        run: |
+          zip="$RUNNER_TEMP/in/Depleted-signed.zip"
+          echo "$EXPECTED  $zip" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/app"
+          ditto -x -k "$zip" "$RUNNER_TEMP/app"
+
+      - name: Make the DMG and zip
+        # --prepackaged: package the signed app as it is (no afterPack, no signing).
+        # mac.identity=null: the DMG is signed in the sign-dmg job, not here.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder --mac --arm64 --prepackaged "$RUNNER_TEMP/app/Depleted.app" --publish never -c.mac.identity=null
+
+      # latest-mac.yml isn't taken from here: the publish job writes its own
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packaged
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.zip.blockmap
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Check the DMG & zip (no secrets, no npm)
+    needs: [sign, package]
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      dmg-sha256: ${{ steps.check.outputs.dmg-sha256 }}
+      zip-sha256: ${{ steps.check.outputs.zip-sha256 }}
+      blockmap-sha256: ${{ steps.check.outputs.blockmap-sha256 }}
+
+    steps:
+      # For build/checkZip.py and package.json's version
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: packaged
+          path: ${{ runner.temp }}/packaged
+
+      - name: Check the app in the zip and the DMG is the one that was signed
+        # The package job ran npm packages, so check its output: the same code signature
+        # (CDHash) as the sign job's, still valid, and nothing else in the DMG that runs
+        id: check
+        env:
+          CDHASH: ${{ needs.sign.outputs.cdhash }}
+        run: |
+          [ -n "$CDHASH" ] || { echo "::error::No CDHash from the sign job"; exit 1; }
+          version="$(node -p "require('./package.json').version")"
+          dir="$RUNNER_TEMP/packaged"
+          zip="$dir/Depleted-$version-arm64-mac.zip"
+          dmg="$dir/Depleted-$version-arm64.dmg"
+          expected="$(printf '%s\n' "$(basename "$dmg")" "$(basename "$zip")" "$(basename "$zip").blockmap" | sort)"
+          [ "$(ls -A "$dir" | sort)" = "$expected" ] || { echo "::error::Unexpected files: $(ls -A "$dir")"; exit 1; }
+
+          check_app() {
+            local app="$1" got
+            [ ! -L "$app" ] && [ -d "$app" ] || { echo "::error::$app isn't a folder"; exit 1; }
+            codesign --verify --deep --strict "$app"
+            got="$(codesign -dvvv "$app" 2>&1 | sed -n 's/^CDHash=//p')"
+            [ "$got" = "$CDHASH" ] || { echo "::error::$app has CDHash $got, expected $CDHASH"; exit 1; }
+          }
+
+          python3 -I build/checkZip.py "$zip"
+          mkdir -p "$RUNNER_TEMP/zip"
+          ditto -x -k "$zip" "$RUNNER_TEMP/zip"
+          [ "$(ls -A "$RUNNER_TEMP/zip")" = "Depleted.app" ] || { echo "::error::The zip holds more than Depleted.app"; exit 1; }
+          check_app "$RUNNER_TEMP/zip/Depleted.app"
+
+          mount="$RUNNER_TEMP/dmg"
+          mkdir -p "$mount"
+          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mount" "$dmg" > /dev/null
+          trap 'hdiutil detach "$mount" > /dev/null || true' EXIT
+          check_app "$mount/Depleted.app"
+          [ -L "$mount/Applications" ] && [ "$(readlink "$mount/Applications")" = "/Applications" ] || { echo "::error::Applications isn't a link to /Applications"; exit 1; }
+          # Besides the app and the Applications link: Finder's layout and background only
+          extra="$(find "$mount" -mindepth 1 -maxdepth 1 ! -name 'Depleted.app' ! -name 'Applications' ! -name '.background' ! -name '.DS_Store' ! -name '.VolumeIcon.icns')"
+          [ -z "$extra" ] || { echo "::error::Unexpected files in the DMG: $extra"; exit 1; }
+          # Nothing outside the app that can run: no links, no executables, no Mach-O
+          outside="$(find "$mount" -mindepth 1 \( -path "$mount/Depleted.app" -o -path "$mount/Applications" \) -prune -o \( -type l -o -perm +111 -type f \) -print)"
+          [ -z "$outside" ] || { echo "::error::Links or executables outside the app: $outside"; exit 1; }
+          while IFS= read -r -d '' file; do
+            case "$(file -b "$file")" in Mach-O*|*script*) echo "::error::$file runs"; exit 1 ;; esac
+          done < <(find "$mount" -mindepth 1 \( -path "$mount/Depleted.app" -o -path "$mount/Applications" \) -prune -o -type f -print0)
+          echo "The zip and the DMG hold the signed app ($CDHASH)"
+
+          {
+            echo "version=$version"
+            echo "dmg-sha256=$(shasum -a 256 "$dmg" | cut -d' ' -f1)"
+            echo "zip-sha256=$(shasum -a 256 "$zip" | cut -d' ' -f1)"
+            echo "blockmap-sha256=$(shasum -a 256 "$zip.blockmap" | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  sign-dmg:
+    name: Sign & notarize the DMG (no npm)
+    needs: verify
+    runs-on: macos-latest
+    environment: release
+    outputs:
+      sha256: ${{ steps.done.outputs.sha256 }}
+
+    steps:
+      # No checkout: only Apple's tools run here, on the DMG verify checked. codesign and
+      # notarytool still read the DMG's bytes, which the package job shaped; verify has
+      # checked what's in it, and this is the same file (hash checked below).
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: packaged
+          path: ${{ runner.temp }}/packaged
+
+      - name: Check the DMG
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          EXPECTED: ${{ needs.verify.outputs.dmg-sha256 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          mv "$RUNNER_TEMP/packaged/Depleted-$VERSION-arm64.dmg" "$RUNNER_TEMP/out/"
+          echo "$EXPECTED  $RUNNER_TEMP/out/Depleted-$VERSION-arm64.dmg" | shasum -a 256 -c -
+
+      - name: Load the signing certificate
+        env:
+          P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$P12_BASE64" ]; then
+            echo "::warning::MAC_CERTIFICATE_P12_BASE64 is not set: the DMG stays unsigned"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+      - name: Load the notarization key
+        env:
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ -z "$API_KEY_P8" ] || [ -z "$API_KEY_ID" ] || [ -z "$API_ISSUER" ]; then
+            echo "::warning::APPLE_API_KEY, APPLE_API_KEY_ID or APPLE_API_ISSUER is not set: the DMG won't be notarized"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8"
+          (umask 077 && printf '%s\n' "$API_KEY_P8" > "$key")
+          {
+            echo "APPLE_API_KEY=$key"
+            echo "APPLE_API_KEY_ID=$API_KEY_ID"
+            echo "APPLE_API_ISSUER=$API_ISSUER"
+          } >> "$GITHUB_ENV"
+
+      - name: Sign & notarize the DMG
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          dmg="$RUNNER_TEMP/out/Depleted-$VERSION-arm64.dmg"
+          identity="$(security find-identity -v -p codesigning | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
+          if [ -z "$identity" ] || [ -z "${APPLE_API_KEY:-}" ]; then
+            echo "::warning::No Developer ID certificate or notarization secrets: the DMG itself stays unsigned"
+            exit 0
+          fi
+          codesign --sign "$identity" --timestamp "$dmg"
+          xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
+          xcrun stapler staple "$dmg"
+
+      - name: Remove the certificate and key
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+      - name: Hash the DMG
+        id: done
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: echo "sha256=$(shasum -a 256 "$RUNNER_TEMP/out/Depleted-$VERSION-arm64.dmg" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-dmg
+          path: ${{ runner.temp }}/out/*.dmg
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish (no secrets, no npm)
+    needs: [verify, sign-dmg]
+    runs-on: macos-latest
+    # contents: create the release and upload the files. id-token + attestations: sign a
+    # build provenance attestation, so anyone can check the DMG was built here, from
+    # this repo's commit (gh attestation verify <dmg> -R chandlerbassett/Depleted).
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      # For build/writeManifest.js (Node's own modules only)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: packaged
+          path: ${{ runner.temp }}/packaged
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: signed-dmg
+          path: ${{ runner.temp }}/signed-dmg
+
+      - name: Gather the files
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          DMG_SHA256: ${{ needs.sign-dmg.outputs.sha256 }}
+          ZIP_SHA256: ${{ needs.verify.outputs.zip-sha256 }}
+          BLOCKMAP_SHA256: ${{ needs.verify.outputs.blockmap-sha256 }}
+        run: |
+          mkdir -p dist
+          zip="Depleted-$VERSION-arm64-mac.zip"
+          dmg="Depleted-$VERSION-arm64.dmg"
+          mv "$RUNNER_TEMP/signed-dmg/$dmg" "$RUNNER_TEMP/packaged/$zip" "$RUNNER_TEMP/packaged/$zip.blockmap" dist/
+          printf '%s  %s\n' "$DMG_SHA256" "dist/$dmg" "$ZIP_SHA256" "dist/$zip" "$BLOCKMAP_SHA256" "dist/$zip.blockmap" | shasum -a 256 -c -
+
+      - name: Write latest-mac.yml
+        # From the files as published: the updater checks the zip against this
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: node build/writeManifest.js dist/latest-mac.yml "$VERSION" "dist/Depleted-$VERSION-arm64-mac.zip" "dist/Depleted-$VERSION-arm64.dmg"
+
+      - name: Check the DMG
+        run: |
           for dmg in dist/*.dmg; do
             if ! { spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg" && xcrun stapler validate "$dmg"; }; then
               if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "::error::$dmg is not signed and notarized"; exit 1; fi

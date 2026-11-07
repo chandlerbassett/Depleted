@@ -71,6 +71,14 @@ secrets are set in the repository's `release` environment. Keep them out of repo
 secrets: the environment only deploys to `v*` tags and `main`, so a workflow on any other branch
 can't read them.
 
+The secrets never share a job with npm packages. The workflow builds the app with no secrets,
+signs and notarizes it in a job that only runs `build/checkZip.py`, `build/signApp.sh` and
+Apple's tools, makes the DMG and zip with electron-builder again without secrets, checks in a
+job with neither that both hold exactly the app that was signed (same CDHash), signs and
+notarizes the DMG in a job with no checkout at all, and publishes from a job with no secrets
+that writes `latest-mac.yml` itself. Keep it that way: no `npm ci`, no third-party actions and
+no unchecked archives in the `sign` and `sign-dmg` jobs.
+
 | Secret | What it is |
 |--------|------------|
 | `MAC_CERTIFICATE_P12_BASE64` | The *Developer ID Application* certificate and its private key, exported from Keychain Access as a `.p12` and base64 encoded (`base64 -i cert.p12 \| pbcopy`) |
