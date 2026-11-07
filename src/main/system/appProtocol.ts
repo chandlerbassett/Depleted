@@ -23,6 +23,13 @@ export interface AppProtocolRoots {
   mediaRoot: string
 }
 
+// Every page the app serves gets this policy as a header too (index.html also has it as
+// a meta tag; the capture page has none)
+const PAGE_CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+  "media-src 'self'; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; " +
+  "form-action 'none'; frame-src 'none'"
+
 const UI_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -53,8 +60,9 @@ export function registerAppScheme(): void {
     {
       scheme: APP_SCHEME,
       // standard: real origin and relative URLs; secure: treated like https;
-      // stream: the <video> element can stream and seek
-      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+      // stream: the <video> element can stream and seek. No supportFetchAPI: the page
+      // never fetch()es, so its script can't read a recording's bytes either.
+      privileges: { standard: true, secure: true, stream: true }
     }
   ])
 }
@@ -154,6 +162,7 @@ async function serveFile(request: Request, path: string, type: string): Promise<
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': 'no-store'
   })
+  if (type.startsWith('text/html')) headers.set('Content-Security-Policy', PAGE_CSP)
   const range = parseRange(request.headers.get('range'), size)
   if (range === 'unsatisfiable') {
     headers.set('Content-Range', `bytes */${size}`)

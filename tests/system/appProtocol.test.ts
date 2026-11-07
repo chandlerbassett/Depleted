@@ -44,6 +44,8 @@ describe('app:// UI', () => {
     const index = await get('app://depleted/')
     expect(index.status).toBe(200)
     expect(index.headers.get('content-type')).toContain('text/html')
+    expect(index.headers.get('content-security-policy')).toContain("script-src 'self'")
+    expect((await get('app://depleted/assets/app.js')).headers.get('content-security-policy')).toBeNull()
     expect(await (await get('app://depleted/assets/app.js')).text()).toBe('console.log(1)')
   })
 

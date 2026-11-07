@@ -10,6 +10,7 @@ import { join, dirname, isAbsolute } from 'path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type Store from 'electron-store'
 import { openExternalUrl } from '../system/openExternal'
+import { rememberPickedFolder } from '../system/pickedFolders'
 import { resolveFfmpegPath, checkScreenPermission as checkScreenPermissionSync } from '../system/ffmpeg'
 import { listCaptureSources } from '../recorder/sourceResolver'
 import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from '../addon/SavedVarsReader'
@@ -147,7 +148,9 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openDirectory']
     })
-    return { path: canceled || filePaths.length === 0 ? null : (filePaths[0] ?? null) }
+    const path = canceled || filePaths.length === 0 ? null : (filePaths[0] ?? null)
+    if (path !== null) rememberPickedFolder(path)
+    return { path }
   })
 
   // List window/screen capture sources for the Settings manual-override picker.
