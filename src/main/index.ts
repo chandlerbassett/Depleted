@@ -17,6 +17,12 @@ if (process.platform === 'darwin') {
 // Every page runs sandboxed, including any window added later
 app.enableSandbox()
 
+// The UI and recordings load over app://depleted, not file:// (see appProtocol.ts).
+// The scheme has to be registered before 'ready'.
+import { registerAppScheme, handleAppProtocol } from './system/appProtocol'
+import { APP_ORIGIN } from '@shared/appUrl'
+registerAppScheme()
+
 import { registerSystemIpc, wireAddonWindow } from './ipc/system.ipc'
 import { registerRecorderIpc, wireRecorderWindow } from './ipc/recorder.ipc'
 import { registerStorageIpc, wireStorageWindow } from './ipc/storage.ipc'
@@ -130,6 +136,7 @@ function createPipeline(): {
   recorder: CaptureRecorder
   stateMachine: MythicPlusStateMachine
   storageManager: StorageManager
+  storagePath: string
   mediaTools: () => MediaTools | null
 } {
   const wowPath = configStore.get('wowPath')
@@ -213,7 +220,7 @@ function createPipeline(): {
   watcher.start()
   console.warn(`[Main] Combat log watcher started: ${logsDir}/${COMBAT_LOG_GLOB}`)
 
-  return { watcher, recorder, stateMachine, storageManager, mediaTools }
+  return { watcher, recorder, stateMachine, storageManager, storagePath, mediaTools }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,9 +283,7 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      // The packaged page is a file:// page, so it can show recordings (file:// too)
-      // with web security on. The dev server's http page can't, so it's off there only.
-      webSecurity: !process.env.ELECTRON_RENDERER_URL
+      webSecurity: true
     }
   })
 
@@ -310,7 +315,7 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadURL(`${APP_ORIGIN}/index.html`)
   }
 
   return mainWindow
@@ -359,7 +364,9 @@ function startApp(): void {
   registerSystemIpc(configStore)
   registerConfigIpc(configStore)
 
-  const { recorder, stateMachine, storageManager, mediaTools } = createPipeline()
+  const { recorder, stateMachine, storageManager, storagePath, mediaTools } = createPipeline()
+  // Recordings are only served from the folder this run records into
+  handleAppProtocol({ uiRoot: join(__dirname, '../renderer'), mediaRoot: storagePath })
 
   // Keep recorder options in sync with config changes (e.g. window selection in Settings).
   const recorderConfigKeys = ['videoBitrate', 'videoFps', 'videoCodec', 'captureSourceHint', 'videoResolution'] as const

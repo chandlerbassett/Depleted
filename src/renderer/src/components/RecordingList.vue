@@ -4,7 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useRecordingsStore } from '@/stores/recordingsStore'
 import type { Clip, Recording } from '@shared/ipc.types'
 import { RAID_DIFFICULTY_LABEL } from '@shared/constants'
-import { toFileUrl } from '@/utils/fileUrl'
+import { toMediaUrl } from '@shared/appUrl'
 import { clipSourceLabel, levelBadge, outcomeLabel, recordingTitle } from '@/utils/recordingLabels'
 import { allClips, groupRaidNights } from '@/utils/sidebarGroups'
 import SidebarClipRow from './SidebarClipRow.vue'
@@ -226,7 +226,7 @@ const isEmpty = computed(() => props.recordings.length === 0)
               >
                 <img
                   v-if="item.thumbnailPath"
-                  :src="toFileUrl(item.thumbnailPath)"
+                  :src="toMediaUrl(item.thumbnailPath)"
                   class="w-full h-full object-cover"
                   loading="lazy"
                   @error="($event.target as HTMLImageElement).style.display = 'none'"
@@ -391,7 +391,7 @@ const isEmpty = computed(() => props.recordings.length === 0)
                     style="aspect-ratio: 16/9"
                   >
                     <img
-                      :src="toFileUrl(pull.thumbnailPath)"
+                      :src="toMediaUrl(pull.thumbnailPath)"
                       class="w-full h-full object-cover"
                       loading="lazy"
                       @error="($event.target as HTMLImageElement).style.display = 'none'"

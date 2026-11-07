@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onUnmounted } from 'vue'
+import { toMediaUrl } from '@shared/appUrl'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -11,13 +12,6 @@ const errorMessage = ref('')
 const videoUrl = ref<string | null>(null)
 
 let unsubscribeCountdown: (() => void) | null = null
-
-// Renderer has no Node `path`/`url` APIs — build a file:// URL good enough for local
-// recording paths (no exotic characters expected: storagePath is user-chosen, but the
-// test-mode subfolder/filename are always our own ASCII-only names).
-function toFileUrl(p: string): string {
-  return `file://${encodeURI(p.replace(/\\/g, '/'))}`
-}
 
 async function startTest(): Promise<void> {
   phase.value = 'recording'
@@ -32,7 +26,7 @@ async function startTest(): Promise<void> {
   unsubscribeCountdown = null
 
   if (result.success) {
-    videoUrl.value = result.videoPath ? toFileUrl(result.videoPath) : null
+    videoUrl.value = result.videoPath ? toMediaUrl(result.videoPath) : null
     phase.value = 'done'
   } else {
     errorMessage.value = result.error ?? 'Unknown error'

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { Clip, Recording } from '@shared/ipc.types'
 import { useRecordingsStore } from '@/stores/recordingsStore'
-import { toFileUrl } from '@/utils/fileUrl'
+import { toMediaUrl } from '@shared/appUrl'
 import { clipSourceLabel, fmtClock } from '@/utils/recordingLabels'
 
 const props = defineProps<{
@@ -35,7 +35,7 @@ function openInRecording(): void {
         class="w-full h-full object-contain"
         controls
         autoplay
-        :src="toFileUrl(clip.videoPath)"
+        :src="toMediaUrl(clip.videoPath)"
       />
     </div>
 

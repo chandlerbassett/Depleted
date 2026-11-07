@@ -104,7 +104,7 @@ export function useOnboarding() {
   }
 
   async function pickWowFolder(): Promise<void> {
-    const result = await window.electron.invoke('system:pickFolder')
+    const result = await window.electron.invoke('system:pickFolder', { purpose: 'wow' })
     if (result.path === null) return
 
     wowPathState.value = 'checking'

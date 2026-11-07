@@ -8,6 +8,8 @@
 import { ipcMain } from 'electron'
 import { isAbsolute } from 'path'
 import type Store from 'electron-store'
+import { DEFAULT_STORAGE_PATH } from '@shared/constants'
+import { wasPicked } from '../system/pickedFolders'
 import type { AppConfig, RaidDifficulty, StatsSite, VideoCodec, WowRegion } from '@shared/ipc.types'
 
 // The most a custom bitrate can be (Settings offers up to 100 Mbps)
@@ -107,6 +109,11 @@ export function registerConfigIpc(configStore: Store<AppConfig>): void {
   ipcMain.handle('config:set', (_event, { key, value }: { key: string; value: unknown }) => {
     if (!isConfigKey(key)) throw new Error(`Unknown setting: ${String(key)}`)
     if (!isValidConfigValue(key, value)) throw new Error(`Not a valid value for ${key}: ${JSON.stringify(value) ?? String(value)}`)
+    // The recordings folder is what app://depleted/media may serve from, so it only moves
+    // to a folder the user picked (or back to the default)
+    if (key === 'storagePath' && value !== configStore.get('storagePath') && value !== DEFAULT_STORAGE_PATH && !wasPicked(value as string)) {
+      throw new Error('The recordings folder can only be changed to a folder chosen in the folder picker')
+    }
     configStore.set(key, value)
   })
 
