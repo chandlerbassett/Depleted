@@ -325,7 +325,8 @@ jobs:
           check_app "$mount/Depleted.app"
           [ -L "$mount/Applications" ] && [ "$(readlink "$mount/Applications")" = "/Applications" ] || { echo "::error::Applications isn't a link to /Applications"; exit 1; }
           # Besides the app and the Applications link: Finder's layout and background only
-          extra="$(find "$mount" -mindepth 1 -maxdepth 1 ! -name 'Depleted.app' ! -name 'Applications' ! -name '.background' ! -name '.DS_Store' ! -name '.VolumeIcon.icns')"
+          # (electron-builder puts the background at .background.tiff)
+          extra="$(find "$mount" -mindepth 1 -maxdepth 1 ! -name 'Depleted.app' ! -name 'Applications' ! -name '.background' ! -name '.background.tiff' ! -name '.DS_Store' ! -name '.VolumeIcon.icns')"
           [ -z "$extra" ] || { echo "::error::Unexpected files in the DMG: $extra"; exit 1; }
           # Nothing outside the app that can run: no links, no executables, no Mach-O
           outside="$(find "$mount" -mindepth 1 \( -path "$mount/Depleted.app" -o -path "$mount/Applications" \) -prune -o \( -type l -o -perm +111 -type f \) -print)"
