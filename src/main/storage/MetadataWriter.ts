@@ -43,6 +43,11 @@ export function isUsableMetadata(value: unknown): value is RecordingMetadata {
   if (typeof m.duration !== 'number' || !Number.isFinite(m.duration) || m.duration < 0) return false
   if (m.videoExt !== undefined && !VIDEO_EXTS.includes(m.videoExt as string)) return false
   if (!Array.isArray(m.events)) return false
+  if (!Array.isArray(m.teamComp) || !m.teamComp.every((n) => typeof n === 'string')) return false
+  if (typeof m.playerName !== 'string') return false
+  const isObject = (v: unknown): boolean => typeof v === 'object' && v !== null && !Array.isArray(v)
+  if (m.mythicPlus !== undefined && !isObject(m.mythicPlus)) return false
+  if (m.raid !== undefined && !isObject(m.raid)) return false
   return true
 }
 

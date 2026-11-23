@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { isUsableMetadata } from '../../src/main/storage/MetadataWriter'
 import { toWclFightLink } from '../../src/main/storage/StorageManager'
 
-const good = { date: '2026-11-23T17:00:00.000Z', zone: 'Ruby Life Pools', duration: 1800, videoExt: 'mp4', events: [] }
+const good = { date: '2026-11-23T17:00:00.000Z', zone: 'Ruby Life Pools', duration: 1800, videoExt: 'mp4', events: [], teamComp: ['A'], playerName: '' }
 
 describe('isUsableMetadata', () => {
   it('takes what the app writes', () => {
@@ -20,6 +20,8 @@ describe('isUsableMetadata', () => {
     expect(isUsableMetadata({ ...good, date: 'not a date' })).toBe(false)
     expect(isUsableMetadata({ ...good, duration: Infinity })).toBe(false)
     expect(isUsableMetadata({ ...good, events: {} })).toBe(false)
+    expect(isUsableMetadata({ ...good, teamComp: 5 })).toBe(false)
+    expect(isUsableMetadata({ ...good, raid: 'x' })).toBe(false)
     expect(isUsableMetadata(null)).toBe(false)
   })
 })
