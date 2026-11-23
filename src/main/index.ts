@@ -43,6 +43,7 @@ import { resolveFfmpegPath } from './system/ffmpeg'
 import { openExternalUrl } from './system/openExternal'
 import { startLogFile } from './system/logFile'
 import { isWowRunning } from './system/gameProcess'
+import { devRendererUrl } from './system/devRendererUrl'
 
 import type { AppConfig, Recording } from '@shared/ipc.types'
 import {
@@ -283,7 +284,9 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: true
+      webSecurity: true,
+      // No DevTools in a release: a console in this window reaches every IPC channel
+      devTools: !app.isPackaged
     }
   })
 
@@ -312,8 +315,9 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
   wireStorageWindow(storageManager, mainWindow)
   wireAddonWindow(configStore, mainWindow)
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+  const devUrl = devRendererUrl()
+  if (devUrl) {
+    mainWindow.loadURL(devUrl)
   } else {
     mainWindow.loadURL(`${APP_ORIGIN}/index.html`)
   }

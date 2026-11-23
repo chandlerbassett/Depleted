@@ -34,6 +34,7 @@ import {
 } from '@shared/captureIpc.types'
 import { APP_ORIGIN } from '@shared/appUrl'
 import { resolveCaptureSource } from './sourceResolver'
+import { devRendererUrl } from '../system/devRendererUrl'
 import type { CaptureRecorder, RecorderEventMap, RecorderOptions } from './CaptureRecorder'
 
 export type { RecorderOptions } from './CaptureRecorder'
@@ -381,8 +382,9 @@ function createHiddenCaptureWindow(): BrowserWindow {
 }
 
 async function loadCaptureRenderer(win: BrowserWindow): Promise<void> {
-  if (process.env.ELECTRON_RENDERER_URL) {
-    await win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/capture.html`)
+  const devUrl = devRendererUrl()
+  if (devUrl) {
+    await win.loadURL(`${devUrl}/capture.html`)
   } else {
     await win.loadURL(`${APP_ORIGIN}/capture.html`)
   }
