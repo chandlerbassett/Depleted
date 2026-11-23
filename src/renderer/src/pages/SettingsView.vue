@@ -430,12 +430,6 @@ const CODECS = [
               Detecting windows…
             </p>
             <div
-              v-else-if="captureSources.length === 0"
-              class="text-xs text-zinc-600"
-            >
-              No windows found — ensure Screen Recording permission is granted.
-            </div>
-            <div
               v-else
               class="space-y-1.5"
             >
@@ -461,7 +455,14 @@ const CODECS = [
                 >not found</span>
               </button>
 
-              <!-- Manual override list -->
+              <p
+                v-if="captureSources.length === 0"
+                class="text-xs text-zinc-600 px-1"
+              >
+                No World of Warcraft window is open right now. Start the game to pick one of its windows.
+              </p>
+
+              <!-- Manual override list: only WoW's own windows -->
               <button
                 v-for="src in captureSources"
                 :key="src.id"
@@ -487,7 +488,7 @@ const CODECS = [
             </div>
             <p class="text-xs text-zinc-600 mt-1.5">
               Auto-detect works for most setups. Pick a specific window manually if
-              multiple WoW clients are open or the wrong window is captured.
+              multiple WoW clients are open. Depleted only ever records World of Warcraft's own windows.
             </p>
           </div>
         </section>

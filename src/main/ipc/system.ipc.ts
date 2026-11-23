@@ -14,6 +14,8 @@ import { openExternalUrl } from '../system/openExternal'
 import { rememberPickedFolder, isAllowedWowPath } from '../system/pickedFolders'
 import { resolveFfmpegPath, checkScreenPermission as checkScreenPermissionSync } from '../system/ffmpeg'
 import { listCaptureSources } from '../recorder/sourceResolver'
+import { listWowWindowIds } from '../recorder/wowWindows'
+import { nativeHelperPath } from '../recorder/nativeHelperPath'
 import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from '../addon/SavedVarsReader'
 import { isInstalledAddonOutdated } from '../addon/addonVersionCheck'
 import { ADDON_NAME, ADDON_RELATIVE_PATH, COMBAT_LOG_RELATIVE_PATH } from '@shared/constants'
@@ -165,7 +167,16 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Auto-detection (WoW window by title) happens separately in sourceResolver.ts at
   // recording-start time — this handler is only for populating the picker UI.
   handle('system:listCaptureWindows', async (): Promise<CaptureSource[]> => {
-    return listCaptureSources()
+    if (process.platform !== 'darwin') return listCaptureSources()
+    // The capture helper records only WoW's own windows, so only those are offered
+    let wowWindowIds: Set<number>
+    try {
+      wowWindowIds = await listWowWindowIds(nativeHelperPath())
+    } catch (err) {
+      console.warn('[Settings] Could not list WoW windows:', err instanceof Error ? err.message : String(err))
+      wowWindowIds = new Set()
+    }
+    return listCaptureSources(wowWindowIds)
   })
 
   // Copy the bundled DepletedCompanion addon to the WoW AddOns directory.

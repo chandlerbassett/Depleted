@@ -15,30 +15,40 @@ func shareableContent() async -> SCShareableContent {
     }
 }
 
-// Picks the window to record: an exact title match for the user's manual choice if one
-// was given, otherwise the WoW client (by bundle id, then by title). When several match,
-// the biggest wins, which skips WoW's small helper windows.
+// Only the WoW client's own windows are ever recorded. The bundle id is the retail
+// client's; test clients use it with a suffix (".ptr", ".beta"). A title alone is never
+// enough: any app can name a window "World of Warcraft", and the window hint comes from a
+// config file that other programs running as the user could edit.
+func isWowWindow(_ window: SCWindow) -> Bool {
+    guard let id = window.owningApplication?.bundleIdentifier else { return false }
+    return id == wowBundleId || id.hasPrefix(wowBundleId + ".")
+}
+
+// Picks the window to record, from the WoW client's windows only: an exact title match
+// for the user's manual choice if one was given, otherwise the biggest WoW window (which
+// skips WoW's small helper windows).
 func resolveWindow(in content: SCShareableContent, hint: String?) -> SCWindow {
-    let windows = content.windows.filter { $0.frame.width >= 100 && $0.frame.height >= 100 }
+    let sized = content.windows.filter { $0.frame.width >= 100 && $0.frame.height >= 100 }
+    let wow = sized.filter(isWowWindow)
     let biggest: ([SCWindow]) -> SCWindow? = { candidates in
         candidates.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
     }
 
     if let hint, !hint.isEmpty, hint != "auto" {
-        if let w = biggest(windows.filter { $0.title == hint }) { return w }
-        log("window \"\(hint)\" not found, falling back to auto-detect")
+        if let w = biggest(wow.filter { $0.title == hint }) { return w }
+        // No title here: the hint may name some other app's window
+        log("the chosen window is not an open World of Warcraft window, falling back to auto-detect")
     }
 
-    if let w = biggest(windows.filter { $0.owningApplication?.bundleIdentifier == wowBundleId }) { return w }
-    if let w = biggest(windows.filter { $0.title?.caseInsensitiveCompare("World of Warcraft") == .orderedSame }) {
-        return w
-    }
-    if let w = biggest(windows.filter { $0.title?.localizedCaseInsensitiveContains("World of Warcraft") == true }) {
-        return w
-    }
+    if let w = biggest(wow) { return w }
 
-    let visible = windows.compactMap { $0.title }.filter { !$0.isEmpty }
-    fail("No World of Warcraft window found to capture. Visible windows: \(visible.joined(separator: ", "))")
+    // Only a count: other windows' titles can be browser tabs or document names, and the
+    // message ends up in the log people attach to issues
+    let others = sized.count
+    fail(
+        "No World of Warcraft window found to capture (\(others) other window\(others == 1 ? "" : "s") open). "
+            + "Start the game and make sure its window isn't minimized."
+    )
 }
 
 // Backing scale of the display the window is mostly on (2 on Retina). SCDisplay sizes are
@@ -50,14 +60,14 @@ func pixelScale(for window: SCWindow, in content: SCShareableContent) -> CGFloat
     return CGFloat(mode.pixelWidth) / CGFloat(display.width)
 }
 
-// `windows` subcommand: prints what the helper can see, for diagnostics.
+// `windows` subcommand: the WoW client's windows the helper can see. The app uses it to
+// list WoW windows in Settings; other apps' windows are left out.
 func runListWindows() async {
     let content = await shareableContent()
-    let rows: [[String: Any]] = content.windows.map { w in
+    let rows: [[String: Any]] = content.windows.filter(isWowWindow).map { w in
         [
             "id": Int(w.windowID),
             "title": w.title ?? "",
-            "app": w.owningApplication?.applicationName ?? "",
             "bundleId": w.owningApplication?.bundleIdentifier ?? "",
             "width": Int(w.frame.width),
             "height": Int(w.frame.height),
