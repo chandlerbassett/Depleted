@@ -17,6 +17,15 @@ if (process.platform === 'darwin') {
 // Every page runs sandboxed, including any window added later
 app.enableSandbox()
 
+// A release never runs with a DevTools protocol endpoint open (see debugSwitches.ts).
+// Quit before 'ready', which is when Chromium would start listening.
+import { forbiddenDebugSwitch } from './system/debugSwitches'
+const debugSwitch = forbiddenDebugSwitch()
+if (debugSwitch) {
+  console.error(`Depleted does not run with --${debugSwitch}`)
+  app.exit(1)
+}
+
 // The UI and recordings load over app://depleted, not file:// (see appProtocol.ts).
 // The scheme has to be registered before 'ready'.
 import { registerAppScheme, handleAppProtocol } from './system/appProtocol'

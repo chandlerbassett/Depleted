@@ -17,7 +17,7 @@
 // (trim + thumbnail), identical on macOS and Windows.
 
 import { EventEmitter } from 'events'
-import { BrowserWindow, ipcMain, session } from 'electron'
+import { app, BrowserWindow, ipcMain, session } from 'electron'
 import type { IpcMainEvent } from 'electron'
 import { createWriteStream, type WriteStream } from 'fs'
 import { mkdir } from 'fs/promises'
@@ -350,6 +350,7 @@ function createHiddenCaptureWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
+      devTools: !app.isPackaged,
       // This window is never shown, so Chromium would otherwise apply background
       // throttling to its timers and rendering — which can starve the MediaRecorder
       // encoder and the WebAudio graph that keeps the audio pipeline fed.
