@@ -7,8 +7,7 @@ const good = { date: '2026-11-23T17:00:00.000Z', zone: 'Ruby Life Pools', durati
 describe('isUsableMetadata', () => {
   it('takes what the app writes', () => {
     expect(isUsableMetadata(good)).toBe(true)
-    const { videoExt: _, ...old } = good
-    expect(isUsableMetadata(old)).toBe(true)
+    expect(isUsableMetadata({ ...good, videoExt: undefined })).toBe(true)
   })
 
   it('refuses a videoExt that could add to a path', () => {
