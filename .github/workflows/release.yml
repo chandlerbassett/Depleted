@@ -29,7 +29,8 @@ permissions:
 # Each job checks the hash of what it downloads against the job that made it.
 
 # Runners: every job uses macos-26 (Apple silicon), pinned rather than macos-latest so
-# the image only changes when we change it here. Each job needs macOS: Swift helper and
+# the macOS major version only changes when we change it here (GitHub still updates the
+# image's Xcode and tools, and retires old versions: bump this before macos-26 goes). Each job needs macOS: Swift helper and
 # Electron app build, codesign/notarytool/stapler, hdiutil for the DMG, and spctl for the
 # final check. macOS 26 is a supported Apple and GitHub image and builds for the app's
 # macOS 13 minimum (electron-builder.yml, native/DepletedCapture/Package.swift).
