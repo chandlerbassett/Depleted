@@ -28,11 +28,18 @@ permissions:
 #
 # Each job checks the hash of what it downloads against the job that made it.
 
+# Runners: every job uses macos-26 (Apple silicon), pinned rather than macos-latest so
+# the macOS major version only changes when we change it here (GitHub still updates the
+# image's Xcode and tools, and retires old versions: bump this before macos-26 goes). Each job needs macOS: Swift helper and
+# Electron app build, codesign/notarytool/stapler, hdiutil for the DMG, and spctl for the
+# final check. macOS 26 is a supported Apple and GitHub image and builds for the app's
+# macOS 13 minimum (electron-builder.yml, native/DepletedCapture/Package.swift).
+
 jobs:
   # ---------------------------------------------------------------------------
   build:
     name: Build (no secrets)
-    runs-on: macos-latest
+    runs-on: macos-26
     outputs:
       sha256: ${{ steps.pack.outputs.sha256 }}
 
@@ -92,7 +99,7 @@ jobs:
   sign:
     name: Sign & notarize the app (no npm)
     needs: build
-    runs-on: macos-latest
+    runs-on: macos-26
     # The signing certificate and notarization key live in this environment, which only
     # v* tags and main can deploy to, so no other branch's workflow can read them
     environment: release
@@ -222,7 +229,7 @@ jobs:
   package:
     name: DMG & zip (no secrets)
     needs: sign
-    runs-on: macos-latest
+    runs-on: macos-26
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -271,7 +278,7 @@ jobs:
   verify:
     name: Check the DMG & zip (no secrets, no npm)
     needs: [sign, package]
-    runs-on: macos-latest
+    runs-on: macos-26
     outputs:
       version: ${{ steps.check.outputs.version }}
       dmg-sha256: ${{ steps.check.outputs.dmg-sha256 }}
@@ -349,7 +356,7 @@ jobs:
   sign-dmg:
     name: Sign & notarize the DMG (no npm)
     needs: verify
-    runs-on: macos-latest
+    runs-on: macos-26
     environment: release
     outputs:
       sha256: ${{ steps.done.outputs.sha256 }}
@@ -446,7 +453,7 @@ jobs:
   publish:
     name: Publish (no secrets, no npm)
     needs: [verify, sign-dmg]
-    runs-on: macos-latest
+    runs-on: macos-26
     # contents: create the release and upload the files. id-token + attestations: sign a
     # build provenance attestation, so anyone can check the DMG was built here, from
     # this repo's commit (gh attestation verify <dmg> -R chandlerbassett/Depleted).
