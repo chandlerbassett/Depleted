@@ -25,7 +25,6 @@ const COMMAND_CHANNELS: Readonly<Record<keyof IpcCommands, true>> = {
   'config:set': true,
   'config:getAll': true,
   'system:getAddonStatus': true,
-  'system:checkBrew': true,
   'system:checkFfmpeg': true,
   'system:checkScreenPermission': true,
   'system:requestScreenPermission': true,
