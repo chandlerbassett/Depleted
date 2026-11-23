@@ -16,19 +16,25 @@ func shareableContent() async -> SCShareableContent {
 }
 
 // Only the WoW client's own windows are ever recorded. The bundle id is the retail
-// client's; test clients use it with a suffix (".ptr", ".beta"). A title alone is never
+// client's, compared ignoring case; a suffixed id ("<id>.<something>") counts too, for
+// other WoW clients. A title alone is never
 // enough: any app can name a window "World of Warcraft", and the window hint comes from a
 // config file that other programs running as the user could edit.
 func isWowWindow(_ window: SCWindow) -> Bool {
-    guard let id = window.owningApplication?.bundleIdentifier else { return false }
+    guard let id = window.owningApplication?.bundleIdentifier?.lowercased() else { return false }
     return id == wowBundleId || id.hasPrefix(wowBundleId + ".")
 }
 
 // Picks the window to record, from the WoW client's windows only: an exact title match
 // for the user's manual choice if one was given, otherwise the biggest WoW window (which
 // skips WoW's small helper windows).
+// WoW's small helper windows aren't worth recording or offering
+func isRecordableSize(_ window: SCWindow) -> Bool {
+    window.frame.width >= 100 && window.frame.height >= 100
+}
+
 func resolveWindow(in content: SCShareableContent, hint: String?) -> SCWindow {
-    let sized = content.windows.filter { $0.frame.width >= 100 && $0.frame.height >= 100 }
+    let sized = content.windows.filter(isRecordableSize)
     let wow = sized.filter(isWowWindow)
     let biggest: ([SCWindow]) -> SCWindow? = { candidates in
         candidates.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
@@ -64,7 +70,7 @@ func pixelScale(for window: SCWindow, in content: SCShareableContent) -> CGFloat
 // list WoW windows in Settings; other apps' windows are left out.
 func runListWindows() async {
     let content = await shareableContent()
-    let rows: [[String: Any]] = content.windows.filter(isWowWindow).map { w in
+    let rows: [[String: Any]] = content.windows.filter { isWowWindow($0) && isRecordableSize($0) }.map { w in
         [
             "id": Int(w.windowID),
             "title": w.title ?? "",

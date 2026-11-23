@@ -59,6 +59,16 @@ describe('trustedOrigins', () => {
 })
 
 describe('isTrustedSender', () => {
+  it('refuses when reading the frame\'s origin throws (frame disposed)', () => {
+    const frame = {
+      parent: null,
+      get origin(): never {
+        throw new Error('Render frame was disposed')
+      }
+    }
+    expect(isTrustedSender({ senderFrame: frame } as never)).toBe(false)
+  })
+
   it('refuses when reading senderFrame throws (frame being torn down)', () => {
     const event = {
       get senderFrame(): never {
@@ -101,8 +111,14 @@ describe('main process', () => {
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/\/\/.*$/gm, '')
       if (/ipcMain\s*\.\s*(handle|handleOnce|on|once|addListener)\s*\(/.test(code)) {
-        // WindowCaptureRecorder listens with ipcMain.on but checks isTrustedSender itself
-        if (rel === join('recorder', 'WindowCaptureRecorder.ts') && /isTrustedSender\(event\)/.test(code)) continue
+        // WindowCaptureRecorder listens with ipcMain.on, and each listener checks
+        // isTrustedSender itself: at least as many checks as listeners
+        if (rel === join('recorder', 'WindowCaptureRecorder.ts')) {
+          const listeners = code.match(/ipcMain\s*\.\s*on\s*\(/g)?.length ?? 0
+          const checks = code.match(/!isTrustedSender\(event\)/g)?.length ?? 0
+          const other = /ipcMain\s*\.\s*(handle|handleOnce|once|addListener)\s*\(/.test(code)
+          if (!other && checks >= listeners) continue
+        }
         offenders.push(rel)
       }
     }

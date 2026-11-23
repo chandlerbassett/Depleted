@@ -33,31 +33,32 @@ export function isLikelyWowWindow(name: string): boolean {
   return WOW_SUBSTRING_RE.test(name)
 }
 
-// Lists sources for the Settings manual-override picker. With onlyWindowIds (macOS, where
-// the capture helper only records WoW's own windows), just those windows; otherwise every
-// window and screen.
-export async function listCaptureSources(onlyWindowIds?: ReadonlySet<number>): Promise<CaptureSource[]> {
+// Lists sources for the Settings manual-override picker. With onlyWindows (macOS, where
+// the capture helper only records WoW's own windows: id -> title), just those windows,
+// named by the helper's title so a saved choice matches what the helper compares;
+// otherwise every window and screen.
+export async function listCaptureSources(onlyWindows?: ReadonlyMap<number, string>): Promise<CaptureSource[]> {
   const sources = await desktopCapturer.getSources({
-    types: onlyWindowIds === undefined ? ['window', 'screen'] : ['window'],
+    types: onlyWindows === undefined ? ['window', 'screen'] : ['window'],
     thumbnailSize: { width: 160, height: 90 },
     fetchWindowIcons: false
   })
 
   const listed =
-    onlyWindowIds === undefined
+    onlyWindows === undefined
       ? sources
       : sources.filter((s) => {
           const id = desktopCapturerWindowId(s.id)
-          return id !== null && onlyWindowIds.has(id)
+          return id !== null && onlyWindows.has(id)
         })
 
   return listed.map((s) => ({
     id: s.id,
-    name: s.name,
+    name: (onlyWindows !== undefined && onlyWindows.get(desktopCapturerWindowId(s.id) ?? -1)) || s.name,
     kind: s.id.startsWith('screen:') ? 'screen' : 'window',
     thumbnailDataUrl: s.thumbnail.isEmpty() ? undefined : s.thumbnail.toDataURL(),
     // On macOS the list is already only WoW's own windows
-    isLikelyWow: onlyWindowIds !== undefined || isLikelyWowWindow(s.name)
+    isLikelyWow: onlyWindows !== undefined || isLikelyWowWindow(s.name)
   }))
 }
 

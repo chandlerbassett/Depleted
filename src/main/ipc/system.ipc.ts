@@ -14,7 +14,7 @@ import { openExternalUrl } from '../system/openExternal'
 import { rememberPickedFolder, isAllowedWowPath } from '../system/pickedFolders'
 import { resolveFfmpegPath, checkScreenPermission as checkScreenPermissionSync } from '../system/ffmpeg'
 import { listCaptureSources } from '../recorder/sourceResolver'
-import { listWowWindowIds } from '../recorder/wowWindows'
+import { listWowWindows } from '../recorder/wowWindows'
 import { nativeHelperPath } from '../recorder/nativeHelperPath'
 import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from '../addon/SavedVarsReader'
 import { isInstalledAddonOutdated } from '../addon/addonVersionCheck'
@@ -168,15 +168,17 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // recording-start time — this handler is only for populating the picker UI.
   handle('system:listCaptureWindows', async (): Promise<CaptureSource[]> => {
     if (process.platform !== 'darwin') return listCaptureSources()
-    // The capture helper records only WoW's own windows, so only those are offered
-    let wowWindowIds: Set<number>
+    // The capture helper records only WoW's own windows, so only those are offered. If the
+    // helper can't list windows (usually Screen Recording permission), say so instead of
+    // showing an empty list.
+    let wowWindows: Map<number, string>
     try {
-      wowWindowIds = await listWowWindowIds(nativeHelperPath())
+      wowWindows = await listWowWindows(nativeHelperPath())
     } catch (err) {
       console.warn('[Settings] Could not list WoW windows:', err instanceof Error ? err.message : String(err))
-      wowWindowIds = new Set()
+      throw new Error('Could not list windows. Check that Depleted has Screen Recording permission.')
     }
-    return listCaptureSources(wowWindowIds)
+    return listCaptureSources(wowWindows)
   })
 
   // Copy the bundled DepletedCompanion addon to the WoW AddOns directory.

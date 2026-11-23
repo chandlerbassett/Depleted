@@ -55,15 +55,16 @@ export class WclClient {
     return body.data
   }
 
-  private async send(url: string, init: RequestInit): Promise<Response> {
-    try {
-      return await this.fetchFn(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
-    } catch (err) {
+  // A request and its JSON body, both within REQUEST_TIMEOUT_MS
+  private async send(url: string, init: RequestInit): Promise<{ status: number; ok: boolean; json: () => Promise<unknown> }> {
+    const timedOut = (err: unknown): never => {
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
         throw new WclError('Warcraft Logs did not answer in time; try again in a while')
       }
       throw err
     }
+    const res = await this.fetchFn(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }).catch(timedOut)
+    return { status: res.status, ok: res.ok, json: () => res.json().catch(timedOut) }
   }
 
   private async accessToken(): Promise<string> {

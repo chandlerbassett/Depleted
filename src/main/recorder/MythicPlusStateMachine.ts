@@ -532,7 +532,7 @@ export class MythicPlusStateMachine extends EventEmitter {
           : undefined
     }
     try {
-      await fs.writeFile(rawInfoPath(session.rawOutputPath), JSON.stringify(info))
+      await fs.writeFile(rawInfoPath(session.rawOutputPath), JSON.stringify(info), { mode: 0o600 })
     } catch (err) {
       console.error('[MythicPlus] Could not write the raw recording info:', err instanceof Error ? err.message : String(err))
     }

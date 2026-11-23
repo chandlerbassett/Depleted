@@ -44,6 +44,11 @@ async function handleComplete(): Promise<void> {
   await complete()
   emit('complete')
 }
+
+// (A template can't reach window.electron: Vue reads names there off the component)
+function openFfmpegBuilds(): void {
+  void window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })
+}
 </script>
 
 <template>
@@ -310,7 +315,7 @@ async function handleComplete(): Promise<void> {
               it from
               <button
                 class="text-blue-400 hover:text-blue-300 underline"
-                @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })"
+                @click="openFfmpegBuilds"
               >
                 BtbN FFmpeg Builds
               </button> and add it to your PATH, or place
@@ -356,7 +361,7 @@ async function handleComplete(): Promise<void> {
                     Download from
                     <button
                       class="text-blue-400 hover:text-blue-300 underline"
-                      @click="() => window.electron.invoke('system:openUrl', { url: 'https://github.com/BtbN/FFmpeg-Builds/releases' })"
+                      @click="openFfmpegBuilds"
                     >
                       BtbN FFmpeg Builds
                     </button>

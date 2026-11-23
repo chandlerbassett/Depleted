@@ -39,16 +39,15 @@ export function isTrustedFrame(frame: SenderFrame | null | undefined, origins: r
   return origins.includes(frame.origin)
 }
 
-// senderFrame is null once the frame has gone or navigated away, and reading it can throw
-// while the frame is being torn down; either way the call isn't from a trusted page
+// senderFrame is null once the frame has gone or navigated away, and reading it (or its
+// origin or parent) can throw while it is being torn down; either way the call isn't
+// from a trusted page
 export function isTrustedSender(event: Pick<IpcMainEvent, 'senderFrame'>): boolean {
-  let frame: SenderFrame | null | undefined
   try {
-    frame = event.senderFrame
+    return isTrustedFrame(event.senderFrame)
   } catch {
     return false
   }
-  return isTrustedFrame(frame)
 }
 
 function describeSender(event: Pick<IpcMainEvent, 'senderFrame'>): string {
