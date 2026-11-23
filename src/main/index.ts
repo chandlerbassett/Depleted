@@ -53,6 +53,7 @@ import { openExternalUrl } from './system/openExternal'
 import { startLogFile } from './system/logFile'
 import { isWowRunning } from './system/gameProcess'
 import { devRendererUrl } from './system/devRendererUrl'
+import { DEFAULT_WOW_PATH } from './system/pickedFolders'
 
 import type { AppConfig, Recording } from '@shared/ipc.types'
 import {
@@ -73,10 +74,6 @@ import {
 // ---------------------------------------------------------------------------
 // App config — electron-store with typed defaults
 // ---------------------------------------------------------------------------
-
-const DEFAULT_WOW_PATH = process.platform === 'win32'
-  ? 'C:\\Program Files (x86)\\World of Warcraft'
-  : '/Applications/World of Warcraft'
 
 const configStore = new Store<AppConfig>({
   // Only this user: electron-store otherwise writes it world-readable and writable

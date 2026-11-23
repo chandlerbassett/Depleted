@@ -8,6 +8,7 @@
 
 import { desktopCapturer, type DesktopCapturerSource } from 'electron'
 import type { CaptureSource } from '@shared/ipc.types'
+import { desktopCapturerWindowId } from './wowWindows'
 
 export class AmbiguousSourceError extends Error {
   constructor(public readonly matches: DesktopCapturerSource[]) {
@@ -17,9 +18,10 @@ export class AmbiguousSourceError extends Error {
 }
 
 export class NoSourceFoundError extends Error {
-  constructor(availableWindowNames: string[]) {
-    const list = availableWindowNames.length > 0 ? availableWindowNames.join(', ') : '(none)'
-    super(`No World of Warcraft window found to capture. Windows currently visible to the OS: ${list}`)
+  // Only a count: other windows' titles can be browser tabs or document names, and the
+  // message ends up in the log people attach to issues
+  constructor(otherWindowCount: number) {
+    super(`No World of Warcraft window found to capture (${otherWindowCount} other window${otherWindowCount === 1 ? '' : 's'} open)`)
     this.name = 'NoSourceFoundError'
   }
 }
@@ -31,20 +33,32 @@ export function isLikelyWowWindow(name: string): boolean {
   return WOW_SUBSTRING_RE.test(name)
 }
 
-// Lists all window + screen sources for the Settings manual-override picker.
-export async function listCaptureSources(): Promise<CaptureSource[]> {
+// Lists sources for the Settings manual-override picker. With onlyWindows (macOS, where
+// the capture helper only records WoW's own windows: id -> title), just those windows,
+// named by the helper's title so a saved choice matches what the helper compares;
+// otherwise every window and screen.
+export async function listCaptureSources(onlyWindows?: ReadonlyMap<number, string>): Promise<CaptureSource[]> {
   const sources = await desktopCapturer.getSources({
-    types: ['window', 'screen'],
+    types: onlyWindows === undefined ? ['window', 'screen'] : ['window'],
     thumbnailSize: { width: 160, height: 90 },
     fetchWindowIcons: false
   })
 
-  return sources.map((s) => ({
+  const listed =
+    onlyWindows === undefined
+      ? sources
+      : sources.filter((s) => {
+          const id = desktopCapturerWindowId(s.id)
+          return id !== null && onlyWindows.has(id)
+        })
+
+  return listed.map((s) => ({
     id: s.id,
-    name: s.name,
+    name: (onlyWindows !== undefined && onlyWindows.get(desktopCapturerWindowId(s.id) ?? -1)) || s.name,
     kind: s.id.startsWith('screen:') ? 'screen' : 'window',
     thumbnailDataUrl: s.thumbnail.isEmpty() ? undefined : s.thumbnail.toDataURL(),
-    isLikelyWow: isLikelyWowWindow(s.name)
+    // On macOS the list is already only WoW's own windows
+    isLikelyWow: onlyWindows !== undefined || isLikelyWowWindow(s.name)
   }))
 }
 
@@ -76,5 +90,5 @@ export async function resolveCaptureSource(
   if (substring.length === 1) return substring[0]!
   if (substring.length > 1) throw new AmbiguousSourceError(substring)
 
-  throw new NoSourceFoundError(windowSources.map((s) => s.name))
+  throw new NoSourceFoundError(windowSources.length)
 }

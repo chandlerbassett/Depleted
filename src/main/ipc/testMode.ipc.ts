@@ -3,14 +3,15 @@
 // Reuses the recorder instance the main pipeline uses, so a test can't overlap a real
 // recording (and WindowCaptureRecorder's display-media handler is registered only once).
 //
-// Commands (ipcMain.handle):
+// Commands (handle() from system/ipcGuard: only the app's own page can call them):
 //   testMode:start    — records for TEST_RECORDING_SECS, resolves once stopped
 //   testMode:cleanup  — deletes the last test recording's file + containing directory
 //
 // Push events (webContents.send):
 //   testMode:countdown — fired once per second while recording, counting down to 0
 
-import { ipcMain, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
+import { handle } from '../system/ipcGuard'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import type { CaptureRecorder } from '../recorder/CaptureRecorder'
@@ -28,7 +29,7 @@ export function registerTestModeIpc(
 ): void {
   let lastTestPath: string | null = null
 
-  ipcMain.handle('testMode:start', async () => {
+  handle('testMode:start', async () => {
     await stateMachine.releaseArmedRecorder()
     if (stateMachine.getStatus() !== 'idle' || recorder.isRecording()) {
       return { success: false, error: 'Cannot start a test recording while a key is being recorded.' }
@@ -68,7 +69,7 @@ export function registerTestModeIpc(
     return { success: true, videoPath }
   })
 
-  ipcMain.handle('testMode:cleanup', async () => {
+  handle('testMode:cleanup', async () => {
     if (lastTestPath === null) return
     await fs.rm(lastTestPath, { recursive: true, force: true })
     lastTestPath = null

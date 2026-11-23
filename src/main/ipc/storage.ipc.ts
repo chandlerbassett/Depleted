@@ -1,6 +1,6 @@
 // IPC handlers for storage commands.
 //
-// Commands (ipcMain.handle):
+// Commands (handle() from system/ipcGuard: only the app's own page can call them):
 //   storage:getRecordings    — returns all Recording[] sorted newest first
 //   storage:deleteRecording  — asks first, then moves a recording directory to the Trash
 //   storage:openFolder       — opens a recording directory in Finder
@@ -13,15 +13,16 @@
 //   storage:recordingProcessed   — new recording is ready
 //   storage:orphanedRecordings   — incomplete recordings found on startup
 
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, dialog, shell } from 'electron'
+import { handle } from '../system/ipcGuard'
 import { join } from 'path'
 import type { MediaTools, StorageManager } from '../storage/StorageManager'
 import type { Recording } from '@shared/ipc.types'
 import { RAID_DIFFICULTY_LABEL } from '@shared/constants'
 
-// Register ipcMain.handle commands — call ONCE at app startup.
+// Register the commands — call ONCE at app startup.
 export function registerStorageIpc(storageManager: StorageManager, mediaTools: () => MediaTools | null): void {
-  ipcMain.handle('storage:saveClip', async (_event, params: { id: string; start: number; end: number }) => {
+  handle('storage:saveClip', async (_event, params: { id: string; start: number; end: number }) => {
     if (typeof params?.id !== 'string' || !Number.isFinite(params.start) || !Number.isFinite(params.end)) {
       throw new Error('A clip needs a recording and a start and end time')
     }
@@ -30,7 +31,7 @@ export function registerStorageIpc(storageManager: StorageManager, mediaTools: (
     return storageManager.saveClip(params.id, params.start, params.end, media)
   })
 
-  ipcMain.handle('storage:deleteClip', async (event, params: { id: string }) => {
+  handle('storage:deleteClip', async (event, params: { id: string }) => {
     const clip = await storageManager.getClip(idParam(params))
     if (clip === null) return { deleted: false }
     const window = BrowserWindow.fromWebContents(event.sender)
@@ -50,18 +51,18 @@ export function registerStorageIpc(storageManager: StorageManager, mediaTools: (
     return { deleted: true }
   })
 
-  ipcMain.handle('storage:showClip', async (_event, params: { id: string }) => {
+  handle('storage:showClip', async (_event, params: { id: string }) => {
     const clip = await storageManager.getClip(idParam(params))
     if (clip !== null) shell.showItemInFolder(clip.videoPath)
   })
 
-  ipcMain.handle('storage:getRecordings', async () => {
+  handle('storage:getRecordings', async () => {
     return storageManager.getRecordings()
   })
 
   // One misclick shouldn't cost a whole key: confirm on a sheet (Cancel is the default
   // button, so Return doesn't delete), then move it to the Trash so it can be put back.
-  ipcMain.handle('storage:deleteRecording', async (event, params: { id: string }) => {
+  handle('storage:deleteRecording', async (event, params: { id: string }) => {
     const recordings = await storageManager.getRecordings()
     const recording = recordings.find((r) => r.id === idParam(params))
     // Only ever a run in the library, never some other folder in the storage path
@@ -83,11 +84,11 @@ export function registerStorageIpc(storageManager: StorageManager, mediaTools: (
     return { deleted: true }
   })
 
-  ipcMain.handle('storage:getCoachData', async (_event, params: { id: string }) => {
+  handle('storage:getCoachData', async (_event, params: { id: string }) => {
     return storageManager.getCoachData(idParam(params))
   })
 
-  ipcMain.handle('storage:openFolder', async (_event, params: { id: string }) => {
+  handle('storage:openFolder', async (_event, params: { id: string }) => {
     const recordings = await storageManager.getRecordings()
     const recording = recordings.find((r) => r.id === idParam(params))
     if (recording === undefined) return

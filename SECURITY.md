@@ -17,6 +17,10 @@ Only the latest release gets security fixes.
 ## How Depleted handles your data
 
 - Recordings, coach data and settings stay on your Mac. Nothing is uploaded.
+- Depleted only records windows that belong to the World of Warcraft app (checked by
+  its bundle ID), whatever the settings file says, and only WoW's own sound.
+- Only the app's own window can call into the main process; requests from any other page
+  or frame are refused.
 - Your Warcraft Logs API client ID and secret are encrypted with the macOS Keychain
   and are only ever sent to warcraftlogs.com.
 - The app makes two kinds of network calls: to the Warcraft Logs API, for the Coach's

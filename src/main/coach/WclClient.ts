@@ -6,6 +6,8 @@ const TOKEN_URL = 'https://www.warcraftlogs.com/oauth/token'
 const API_URL = 'https://www.warcraftlogs.com/api/v2/client'
 // Renew a little before WCL says the token expires
 const EXPIRY_MARGIN_MS = 60_000
+// Give up on a request that hangs instead of leaving the Coach waiting forever
+export const REQUEST_TIMEOUT_MS = 30_000
 
 export interface WclCredentials {
   clientId: string
@@ -34,7 +36,7 @@ export class WclClient {
 
   async query<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
     const token = await this.accessToken()
-    const res = await this.fetchFn(API_URL, {
+    const res = await this.send(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ query, variables })
@@ -53,10 +55,22 @@ export class WclClient {
     return body.data
   }
 
+  // A request and its JSON body, both within REQUEST_TIMEOUT_MS
+  private async send(url: string, init: RequestInit): Promise<{ status: number; ok: boolean; json: () => Promise<unknown> }> {
+    const timedOut = (err: unknown): never => {
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new WclError('Warcraft Logs did not answer in time; try again in a while')
+      }
+      throw err
+    }
+    const res = await this.fetchFn(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }).catch(timedOut)
+    return { status: res.status, ok: res.ok, json: () => res.json().catch(timedOut) }
+  }
+
   private async accessToken(): Promise<string> {
     if (this.token !== null && Date.now() < this.token.expiresAt) return this.token.value
     const basic = Buffer.from(`${this.credentials.clientId}:${this.credentials.clientSecret}`).toString('base64')
-    const res = await this.fetchFn(TOKEN_URL, {
+    const res = await this.send(TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${basic}` },
       body: 'grant_type=client_credentials'

@@ -18,6 +18,7 @@ const {
   setCodec,
   captureSources,
   sourcesLoading,
+  sourcesError,
   addonAlreadyInstalled,
   cleanupDaysEnabled,
   cleanupDays,
@@ -131,6 +132,15 @@ const CODECS = [
   { value: 'hevc', label: 'HEVC (H.265)', hint: 'better quality per Mbps' },
   { value: 'h264', label: 'H.264', hint: 'plays everywhere' },
 ] as const
+
+// (A template can't reach window.electron: Vue reads names there off the component)
+function openAddonSource(): void {
+  void window.electron.invoke('system:openAddonSource')
+}
+
+function openAddonsDir(): void {
+  if (config.value) void window.electron.invoke('system:openAddonsDir', { wowPath: config.value.wowPath })
+}
 </script>
 
 <template>
@@ -430,12 +440,6 @@ const CODECS = [
               Detecting windows…
             </p>
             <div
-              v-else-if="captureSources.length === 0"
-              class="text-xs text-zinc-600"
-            >
-              No windows found — ensure Screen Recording permission is granted.
-            </div>
-            <div
               v-else
               class="space-y-1.5"
             >
@@ -461,7 +465,26 @@ const CODECS = [
                 >not found</span>
               </button>
 
-              <!-- Manual override list -->
+              <p
+                v-if="sourcesError"
+                class="text-xs text-amber-500 px-1"
+              >
+                {{ sourcesError }}
+              </p>
+              <p
+                v-else-if="captureSources.length === 0"
+                class="text-xs text-zinc-600 px-1"
+              >
+                No World of Warcraft window is visible right now. Start the game (or bring it to this Space) to pick one of its windows.
+              </p>
+              <p
+                v-if="config.captureSourceHint !== 'auto' && !sourcesError && !captureSources.some((s) => s.name === config!.captureSourceHint)"
+                class="text-xs text-zinc-500 px-1"
+              >
+                The saved window "{{ config.captureSourceHint }}" isn't open as a World of Warcraft window, so recording uses auto-detect.
+              </p>
+
+              <!-- Manual override list: only WoW's own windows -->
               <button
                 v-for="src in captureSources"
                 :key="src.id"
@@ -487,7 +510,7 @@ const CODECS = [
             </div>
             <p class="text-xs text-zinc-600 mt-1.5">
               Auto-detect works for most setups. Pick a specific window manually if
-              multiple WoW clients are open or the wrong window is captured.
+              multiple WoW clients are open. Depleted only ever records World of Warcraft's own windows.
             </p>
           </div>
         </section>
@@ -562,7 +585,7 @@ const CODECS = [
                 Open the addon source folder and copy <code class="bg-zinc-800 px-1 rounded">DepletedCompanion</code>
                 <button
                   class="ml-2 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
-                  @click="() => window.electron.invoke('system:openAddonSource')"
+                  @click="openAddonSource"
                 >
                   Open source
                 </button>
@@ -572,7 +595,7 @@ const CODECS = [
                 <button
                   v-if="config"
                   class="ml-2 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
-                  @click="() => window.electron.invoke('system:openAddonsDir', { wowPath: config!.wowPath })"
+                  @click="openAddonsDir"
                 >
                   Open AddOns
                 </button>

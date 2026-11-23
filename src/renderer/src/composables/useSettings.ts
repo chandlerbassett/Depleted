@@ -125,11 +125,16 @@ export function useSettings() {
 
   const captureSources = ref<CaptureSource[]>([])
   const sourcesLoading = ref(false)
+  const sourcesError = ref<string | null>(null)
 
   async function loadCaptureSources(): Promise<void> {
     sourcesLoading.value = true
+    sourcesError.value = null
     try {
       captureSources.value = await window.electron.invoke('system:listCaptureWindows')
+    } catch {
+      captureSources.value = []
+      sourcesError.value = 'Could not list windows. Check that Depleted has Screen Recording permission.'
     } finally {
       sourcesLoading.value = false
     }
@@ -290,6 +295,7 @@ export function useSettings() {
     setCodec,
     captureSources,
     sourcesLoading,
+    sourcesError,
     addonAlreadyInstalled,
     cleanupDaysEnabled,
     cleanupDays,
