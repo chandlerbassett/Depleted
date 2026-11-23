@@ -60,3 +60,14 @@ jobs:
       - name: Check the fuses
         # The packaged app has every Electron fuse set as build/fuses.js says
         run: node build/checkFuses.js dist/mac-arm64/Depleted.app
+
+      - name: Release zip round trip
+        # What the release's sign job does with the build job's zip: ditto zips the app,
+        # build/checkZip.py checks and unpacks it, the copy must match the app, and
+        # build/signApp.sh signs it (ad-hoc here). Catches a ditto change the checker
+        # would reject before a release finds it.
+        run: |
+          ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent dist/mac-arm64/Depleted.app "$RUNNER_TEMP/roundtrip.zip"
+          python3 -I build/checkZip.py "$RUNNER_TEMP/roundtrip.zip" --extract "$RUNNER_TEMP/roundtrip"
+          diff -r dist/mac-arm64/Depleted.app "$RUNNER_TEMP/roundtrip/Depleted.app"
+          bash build/signApp.sh "$RUNNER_TEMP/roundtrip/Depleted.app" - build/entitlements.mac.plist

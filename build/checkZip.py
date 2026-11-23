@@ -12,7 +12,8 @@
 # With --extract DEST, the checked zip is also unpacked into DEST (which must not exist
 # yet) by this same parser, so what gets unpacked is exactly what was checked: no second
 # reader (ditto) sees the zip at all. Files get their permission bits without setuid,
-# setgid, sticky or group/other write.
+# setgid, sticky or group/other write, and always readable and writable by the owner
+# (so nothing is hidden from the signing step).
 #
 # Python's own modules only.
 # Usage: python3 -I build/checkZip.py <zip> [--extract <dest>]
@@ -41,6 +42,15 @@ def fail(message):
     sys.exit(1)
 
 
+def extra_field_ids(extra):
+    ids = []
+    while len(extra) >= 4:
+        field_id, length = struct.unpack('<HH', extra[:4])
+        ids.append(field_id)
+        extra = extra[4 + length:]
+    return ids
+
+
 def has_control_characters(text):
     return any(ord(c) < 0x20 or ord(c) == 0x7F for c in text)
 
@@ -51,29 +61,33 @@ def central_directory_bounds(raw, size):
     if size < END.size:
         fail('the zip is too short')
     raw.seek(size - END.size)
-    signature, disk, cd_disk, _, _, cd_size, cd_offset, comment_length = END.unpack(raw.read(END.size))
+    signature, disk, cd_disk, _, entries_in_end, cd_size, cd_offset, comment_length = END.unpack(raw.read(END.size))
     if signature != END_SIGNATURE or comment_length != 0:
         fail('the zip has a comment or data after its end record')
     if disk != 0 or cd_disk != 0:
         fail('the zip spans several disks')
     records_start = size - END.size
-    if cd_size == 0xFFFFFFFF or cd_offset == 0xFFFFFFFF:
-        # Zip64: the locator sits right before the end record, the zip64 end record right
-        # before the locator
-        locator_at = records_start - ZIP64_LOCATOR.size
-        raw.seek(locator_at)
-        signature, _, zip64_end_at, _ = ZIP64_LOCATOR.unpack(raw.read(ZIP64_LOCATOR.size))
-        if signature != ZIP64_LOCATOR_SIGNATURE:
-            fail('the zip64 locator is missing')
+    count = entries_in_end
+    # A zip64 locator right before the end record means zip64 end records, whatever the
+    # end record's own fields say (Python looks for it the same way)
+    locator_at = records_start - ZIP64_LOCATOR.size
+    raw.seek(max(locator_at, 0))
+    locator = raw.read(ZIP64_LOCATOR.size)
+    if locator_at >= 0 and locator.startswith(ZIP64_LOCATOR_SIGNATURE):
+        _, _, zip64_end_at, _ = ZIP64_LOCATOR.unpack(locator)
+        if zip64_end_at != locator_at - ZIP64_END.size:
+            fail('the zip64 end record is not right before its locator')
         raw.seek(zip64_end_at)
         fields = ZIP64_END.unpack(raw.read(ZIP64_END.size))
-        if fields[0] != ZIP64_END_SIGNATURE or zip64_end_at + 12 + fields[1] != locator_at:
-            fail('the zip64 end record is not right before its locator')
-        cd_size, cd_offset = fields[8], fields[9]
+        if fields[0] != ZIP64_END_SIGNATURE or fields[1] != ZIP64_END.size - 12:
+            fail('the zip64 end record is malformed')
+        count, cd_size, cd_offset = fields[7], fields[8], fields[9]
         records_start = zip64_end_at
+    elif cd_size == 0xFFFFFFFF or cd_offset == 0xFFFFFFFF:
+        fail('the zip64 locator is missing')
     if cd_offset + cd_size != records_start:
         fail('the zip has data between its central directory and its end record')
-    return cd_offset
+    return cd_offset, count
 
 
 def entry_end(raw, info, data_end):
@@ -103,7 +117,9 @@ def check_layout(zip_path, archive, entries):
         fail('the zip has a comment')
     size = os.path.getsize(zip_path)
     with open(zip_path, 'rb') as raw:
-        cd_offset = central_directory_bounds(raw, size)
+        cd_offset, count = central_directory_bounds(raw, size)
+        if count != len(entries):
+            fail(f'the end record counts {count} entries, the central directory has {len(entries)}')
         position = 0
         for info in sorted(entries, key=lambda e: e.header_offset):
             if info.header_offset != position:
@@ -143,6 +159,12 @@ def check(zip_path):
     links = {}
     for info in entries:
         name = info.filename
+        # The name every zip reader sees: the raw bytes, ASCII only, with nothing Python
+        # reinterprets (a Unicode Path extra field, or text after a NUL)
+        if info.filename != info.orig_filename or '\0' in info.orig_filename or not info.orig_filename.isascii():
+            fail(f'bad entry name {info.orig_filename!r}')
+        if any(field_id == 0x7075 for field_id in extra_field_ids(info.extra)):
+            fail(f'{name!r} has a Unicode Path extra field')
         if '\\' in name or name.startswith('/') or has_control_characters(name):
             fail(f'bad entry name {name!r}')
         parts = name.rstrip('/').split('/')
@@ -219,7 +241,7 @@ def extract(archive, entries, dest):
                     os.mkdir(name, 0o755, dir_fd=dest_fd)
                 except FileExistsError:
                     pass
-                os.chmod(name, permissions or 0o755, dir_fd=dest_fd, follow_symlinks=False)
+                os.chmod(name, permissions | 0o700, dir_fd=dest_fd, follow_symlinks=False)
             elif kind(info) == 1:
                 fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dest_fd)
                 with os.fdopen(fd, 'wb') as out, archive.open(info) as data:
@@ -230,7 +252,7 @@ def extract(archive, entries, dest):
                         if not chunk:
                             break
                         out.write(chunk)
-                    os.fchmod(out.fileno(), permissions or 0o644)
+                    os.fchmod(out.fileno(), permissions | 0o600)
             else:
                 target = archive.read(info).decode('utf-8')
                 os.symlink(target, name, dir_fd=dest_fd)
