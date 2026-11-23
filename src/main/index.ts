@@ -17,6 +17,15 @@ if (process.platform === 'darwin') {
 // Every page runs sandboxed, including any window added later
 app.enableSandbox()
 
+// A release never runs with a DevTools protocol endpoint open (see debugSwitches.ts).
+// Quit before 'ready', which is when Chromium would start listening.
+import { forbiddenDebugSwitch } from './system/debugSwitches'
+const debugSwitch = forbiddenDebugSwitch()
+if (debugSwitch) {
+  console.error(`Depleted does not run with --${debugSwitch}`)
+  app.exit(1)
+}
+
 // The UI and recordings load over app://depleted, not file:// (see appProtocol.ts).
 // The scheme has to be registered before 'ready'.
 import { registerAppScheme, handleAppProtocol } from './system/appProtocol'
@@ -43,6 +52,7 @@ import { resolveFfmpegPath } from './system/ffmpeg'
 import { openExternalUrl } from './system/openExternal'
 import { startLogFile } from './system/logFile'
 import { isWowRunning } from './system/gameProcess'
+import { devRendererUrl } from './system/devRendererUrl'
 
 import type { AppConfig, Recording } from '@shared/ipc.types'
 import {
@@ -283,7 +293,9 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: true
+      webSecurity: true,
+      // No DevTools in a release: a console in this window reaches every IPC channel
+      devTools: !app.isPackaged
     }
   })
 
@@ -312,8 +324,9 @@ function createWindow(stateMachine: MythicPlusStateMachine, storageManager: Stor
   wireStorageWindow(storageManager, mainWindow)
   wireAddonWindow(configStore, mainWindow)
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+  const devUrl = devRendererUrl()
+  if (devUrl) {
+    mainWindow.loadURL(devUrl)
   } else {
     mainWindow.loadURL(`${APP_ORIGIN}/index.html`)
   }

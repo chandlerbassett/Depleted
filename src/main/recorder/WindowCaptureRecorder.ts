@@ -17,7 +17,7 @@
 // (trim + thumbnail), identical on macOS and Windows.
 
 import { EventEmitter } from 'events'
-import { BrowserWindow, ipcMain, session } from 'electron'
+import { app, BrowserWindow, ipcMain, session } from 'electron'
 import type { IpcMainEvent } from 'electron'
 import { createWriteStream, type WriteStream } from 'fs'
 import { mkdir } from 'fs/promises'
@@ -34,6 +34,7 @@ import {
 } from '@shared/captureIpc.types'
 import { APP_ORIGIN } from '@shared/appUrl'
 import { resolveCaptureSource } from './sourceResolver'
+import { devRendererUrl } from '../system/devRendererUrl'
 import type { CaptureRecorder, RecorderEventMap, RecorderOptions } from './CaptureRecorder'
 
 export type { RecorderOptions } from './CaptureRecorder'
@@ -349,6 +350,7 @@ function createHiddenCaptureWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
+      devTools: !app.isPackaged,
       // This window is never shown, so Chromium would otherwise apply background
       // throttling to its timers and rendering — which can starve the MediaRecorder
       // encoder and the WebAudio graph that keeps the audio pipeline fed.
@@ -381,8 +383,9 @@ function createHiddenCaptureWindow(): BrowserWindow {
 }
 
 async function loadCaptureRenderer(win: BrowserWindow): Promise<void> {
-  if (process.env.ELECTRON_RENDERER_URL) {
-    await win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/capture.html`)
+  const devUrl = devRendererUrl()
+  if (devUrl) {
+    await win.loadURL(`${devUrl}/capture.html`)
   } else {
     await win.loadURL(`${APP_ORIGIN}/capture.html`)
   }
