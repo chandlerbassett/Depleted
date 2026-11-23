@@ -21,7 +21,7 @@ func shareableContent() async -> SCShareableContent {
 // enough: any app can name a window "World of Warcraft", and the window hint comes from a
 // config file that other programs running as the user could edit.
 func isWowWindow(_ window: SCWindow) -> Bool {
-    guard let id = window.owningApplication?.bundleIdentifier?.lowercased() else { return false }
+    guard let id = window.owningApplication?.bundleIdentifier.lowercased() else { return false }
     return id == wowBundleId || id.hasPrefix(wowBundleId + ".")
 }
 
