@@ -1,10 +1,8 @@
-// Turns off the Electron switches that let another program run its own code as
-// Depleted (and so with Depleted's Screen Recording permission): ELECTRON_RUN_AS_NODE,
-// NODE_OPTIONS and --inspect. Also makes Electron load the app only from app.asar and
-// check it against the hash in Info.plist, and takes file:// pages' extra privileges
-// away. Runs before signing, which covers the change.
+// Flips Depleted's Electron fuses (build/fuses.js says what each one is for). Runs
+// before signing, which covers the change.
 
-const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses')
+const { flipFuses, FuseVersion } = require('@electron/fuses')
+const { FUSES } = require('./fuses')
 
 module.exports = async function afterPack({ appOutDir, packager, electronPlatformName }) {
   if (electronPlatformName !== 'darwin') return
@@ -13,14 +11,6 @@ module.exports = async function afterPack({ appOutDir, packager, electronPlatfor
     version: FuseVersion.V1,
     // Flipping fuses breaks the binary's signature; arm64 won't run it unsigned
     resetAdHocDarwinSignature: true,
-    [FuseV1Options.RunAsNode]: false,
-    [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
-    [FuseV1Options.EnableNodeCliInspectArguments]: false,
-    [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
-    [FuseV1Options.OnlyLoadAppFromAsar]: true,
-    [FuseV1Options.EnableCookieEncryption]: true,
-    // The UI and recordings load over app:// (src/main/system/appProtocol.ts), so
-    // file:// pages need none of Chromium's extra file privileges
-    [FuseV1Options.GrantFileProtocolExtraPrivileges]: false
+    ...FUSES
   })
 }

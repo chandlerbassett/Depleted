@@ -25,24 +25,35 @@ sign() {
 
 # Nested bundles (helper apps, frameworks) and loose Mach-O files (dylibs, ShipIt,
 # chrome_crashpad_handler, the capture helper). Symlinks are skipped: they point at files
-# found here anyway. Lines are "<depth> <path>", sorted deepest first so everything inside
+# found here anyway. Paths are read NUL-separated and kept in an array, never split on
+# lines, and a path with a control character (a newline could otherwise turn one path
+# into two signing targets) stops the script. Signed deepest first, so everything inside
 # a bundle is signed before the bundle.
-items="$(mktemp)"
-trap 'rm -f "$items"' EXIT
+items=()
+depths=()
+max_depth=0
 while IFS= read -r -d '' path; do
-  if [[ -d "$path" ]]; then
-    echo "$path"
-  elif [[ "$(file -b "$path")" == Mach-O* ]]; then
-    echo "$path"
+  if [[ "$path" == *[[:cntrl:]]* ]]; then
+    echo "signApp: a path in the app has a control character in its name" >&2
+    exit 1
   fi
-done < <(find "$app/Contents" \( -type d \( -name '*.app' -o -name '*.framework' \) -o -type f \) -print0) |
-  awk -F/ '{ print NF, $0 }' | sort -rn -k1,1 -s | cut -d' ' -f2- > "$items"
+  if [[ -d "$path" ]] || [[ "$(file -b "$path")" == Mach-O* ]]; then
+    slashes="${path//[^\/]/}"
+    items+=("$path")
+    depths+=("${#slashes}")
+    if ((${#slashes} > max_depth)); then max_depth=${#slashes}; fi
+  fi
+done < <(find "$app/Contents" \( -type d \( -name '*.app' -o -name '*.framework' \) -o -type f \) -print0)
 
 count=0
-while IFS= read -r path; do
-  sign "$path"
-  count=$((count + 1))
-done < "$items"
+for ((depth = max_depth; depth >= 0; depth--)); do
+  for i in "${!items[@]}"; do
+    if [[ "${depths[$i]}" == "$depth" ]]; then
+      sign "${items[$i]}"
+      count=$((count + 1))
+    fi
+  done
+done
 
 sign "$app"
 echo "signApp: signed $count nested items and $(basename "$app") with ${identity}"

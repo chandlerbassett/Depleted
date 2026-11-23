@@ -56,3 +56,7 @@ jobs:
         shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Check the fuses
+        # The packaged app has every Electron fuse set as build/fuses.js says
+        run: node build/checkFuses.js dist/mac-arm64/Depleted.app
