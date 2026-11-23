@@ -27,7 +27,7 @@ import { rawInfoPath, type ProcessingRequiredEvent, type RawRecordingInfo } from
 import { runHelperCommand } from '../recorder/nativeHelper'
 import { writeMetadata, readMetadata, writeCoachData, readCoachData } from './MetadataWriter'
 import type { CoachData } from '@shared/coach.types'
-import type { WclFightLink } from '@shared/wclFight.types'
+import { WCL_REPORT_CODE_RE, wclFightUrl, type WclFightLink } from '@shared/wclFight.types'
 
 const SUMMARY_CACHE_FILENAME = 'coach-summaries.json'
 const CLIPS_DIRNAME = 'clips'
@@ -262,6 +262,12 @@ export class StorageManager {
     const ext = metadata.videoExt ?? 'mp4'
     const clipsDir = join(dirPath, CLIPS_DIRNAME)
     await fs.mkdir(clipsDir, { recursive: true, mode: PRIVATE_DIR })
+    // The clip is written (and anything at its path replaced) by the helper: only into a
+    // real clips folder inside a real recording folder, never through a symlink
+    for (const dir of [dirPath, clipsDir]) {
+      const info = await fs.lstat(dir)
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('The recording folder is not a plain folder')
+    }
     const base = `clip_${clockLabel(start)}-${clockLabel(end)}`
     let fileName = `${base}.${ext}`
     for (let n = 2; await fileExists(join(clipsDir, fileName)); n++) fileName = `${base}_${n}.${ext}`
@@ -299,7 +305,7 @@ export class StorageManager {
   async readWclFight(id: string): Promise<WclFightLink | null> {
     if (!id || id === '..' || id === '.' || id.includes('/') || id.includes('\\')) return null
     try {
-      return JSON.parse(await fs.readFile(join(this.storagePath, id, WCL_FIGHT_FILENAME), 'utf8')) as WclFightLink
+      return toWclFightLink(JSON.parse(await fs.readFile(join(this.storagePath, id, WCL_FIGHT_FILENAME), 'utf8')))
     } catch {
       return null
     }
@@ -375,14 +381,38 @@ function generateThumbnail(
 // Metadata builder
 // ---------------------------------------------------------------------------
 
+// A saved fight link, if it is one. The link the page opens is rebuilt from the report
+// code and fight id, never taken from the file, so a recording folder from elsewhere
+// can't point the button at another site.
+export function toWclFightLink(value: unknown): WclFightLink | null {
+  if (typeof value !== 'object' || value === null) return null
+  const v = value as Record<string, unknown>
+  if (typeof v.reportCode !== 'string' || !WCL_REPORT_CODE_RE.test(v.reportCode)) return null
+  if (!Number.isSafeInteger(v.fightId) || (v.fightId as number) < 0) return null
+  return {
+    reportCode: v.reportCode,
+    reportTitle: typeof v.reportTitle === 'string' ? v.reportTitle : '',
+    fightId: v.fightId as number,
+    url: wclFightUrl(v.reportCode, v.fightId as number),
+    parses: Array.isArray(v.parses) ? (v.parses as WclFightLink['parses']) : [],
+    fetchedAt: typeof v.fetchedAt === 'string' ? v.fetchedAt : ''
+  }
+}
+
 export function buildDirName(event: ProcessingRequiredEvent): string {
   const zone = event.zoneName.replace(/[^a-zA-Z0-9]/g, '')
   const date = formatDateTime(event.matchStartedAt)
   if (event.raid !== undefined) {
     const boss = event.raid.encounterName.replace(/[^a-zA-Z0-9]/g, '')
-    return `${date}_${zone}_${boss}_${event.raid.difficulty}_${event.raid.outcome}`
+    // Every part is reduced to letters and digits: the raw info file a crash recovery
+    // reads these from is on disk, so none of it may add a path separator
+    const difficulty = String(event.raid.difficulty).replace(/[^a-zA-Z0-9]/g, '')
+    const outcome = String(event.raid.outcome).replace(/[^a-zA-Z0-9]/g, '')
+    return `${date}_${zone}_${boss}_${difficulty}_${outcome}`
   }
-  return `${date}_${zone}_M${event.mythicPlus?.keystoneLevel ?? 0}_${event.mythicPlus?.outcome ?? 'abandoned'}`
+  const level = Number.isSafeInteger(event.mythicPlus?.keystoneLevel) ? event.mythicPlus!.keystoneLevel : 0
+  const outcome = String(event.mythicPlus?.outcome ?? 'abandoned').replace(/[^a-zA-Z0-9]/g, '')
+  return `${date}_${zone}_M${level}_${outcome}`
 }
 
 // Builds RecordingMetadata from a processing event.

@@ -3,10 +3,9 @@
 // uploaded, live or afterwards) for a fight that started when the recording's did.
 // Reports that are private or unlisted to the API client aren't visible.
 
-import type { WclParse, WclFightLink } from '@shared/wclFight.types'
+import { wclFightUrl, type WclParse, type WclFightLink } from '@shared/wclFight.types'
 import type { WclQuery } from './BenchmarkService'
 
-const REPORT_URL = 'https://www.warcraftlogs.com/reports'
 const RECENT_REPORTS = 10
 // Combat log and WCL times come from the same log lines, so they agree to the second;
 // this leaves room for a recording that only picked the pull up late
@@ -53,7 +52,7 @@ export class WclFightFinder {
             reportCode: report.code,
             reportTitle: report.title,
             fightId: fight.id,
-            url: `${REPORT_URL}/${report.code}#fight=${fight.id}`,
+            url: wclFightUrl(report.code, fight.id),
             parses: await this.parses(report.code, fight.id),
             fetchedAt: new Date().toISOString()
           }

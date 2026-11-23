@@ -40,15 +40,8 @@ export function resolveFfmpegPath(): string {
     throw new Error('FFmpeg not found. Download from https://ffmpeg.org/download.html and add to PATH.')
   }
 
-  try {
-    const p = execSync('which ffmpeg', { stdio: ['pipe', 'pipe', 'pipe'] })
-      .toString()
-      .trim()
-    if (p.length > 0) return p
-  } catch {
-    // Terminal-launched path lookup failed — try known Homebrew locations below.
-  }
-
+  // Fixed locations only, no `which`: a shell lookup would follow whatever PATH Depleted
+  // was started with, and run as Depleted's child
   const candidates = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate

@@ -249,7 +249,6 @@ export interface IpcCommands {
   }
 
   // System / onboarding checks
-  'system:checkBrew': { params: void; result: { found: boolean; path: string | null } }
   'system:checkFfmpeg': { params: void; result: { found: boolean; path: string | null } }
   'system:checkScreenPermission': {
     params: void

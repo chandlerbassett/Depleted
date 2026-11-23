@@ -4,9 +4,8 @@
 
 import { shell, dialog, app, desktopCapturer, type BrowserWindow } from 'electron'
 import { handle } from '../system/ipcGuard'
-import { execSync } from 'child_process'
 import { existsSync } from 'fs'
-import { cp, mkdir } from 'fs/promises'
+import { cp, lstat, mkdir } from 'fs/promises'
 import { join, dirname, isAbsolute } from 'path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type Store from 'electron-store'
@@ -42,29 +41,6 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // App version from package.json, shown in the title bar.
   handle('system:getVersion', (): { version: string } => {
     return { version: app.getVersion() }
-  })
-
-  // Check whether Homebrew is installed and return its path.
-  // On Windows, Homebrew doesn't exist — return found:true as a no-op so the
-  // onboarding brew step auto-passes and the FFmpeg check runs immediately.
-  handle('system:checkBrew', (): { found: boolean; path: string | null } => {
-    if (process.platform === 'win32') return { found: true, path: null }
-
-    try {
-      const p = execSync('which brew', { stdio: ['pipe', 'pipe', 'pipe'] })
-        .toString()
-        .trim()
-      if (p.length > 0) return { found: true, path: p }
-    } catch {
-      // Fall through to known Homebrew locations.
-    }
-
-    const candidates = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew']
-    for (const candidate of candidates) {
-      if (existsSync(candidate)) return { found: true, path: candidate }
-    }
-
-    return { found: false, path: null }
   })
 
   // Check whether FFmpeg is installed and return its path.
@@ -215,6 +191,9 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
     if (wowPath === null || !isAllowedWowPath(wowPath, configStore.get('wowPath'))) return
     const addonsDir = join(wowPath, '_retail_', 'Interface', 'AddOns')
     await mkdir(addonsDir, { recursive: true }).catch(() => {})
+    // openPath launches a file it's given, so only ever hand it a folder
+    const info = await lstat(addonsDir).catch(() => null)
+    if (info === null || !info.isDirectory()) return
     void shell.openPath(addonsDir)
   })
 

@@ -17,12 +17,12 @@ if (process.platform === 'darwin') {
 // Every page runs sandboxed, including any window added later
 app.enableSandbox()
 
-// A release never runs with a DevTools protocol endpoint open (see debugSwitches.ts).
-// Quit before 'ready', which is when Chromium would start listening.
-import { forbiddenDebugSwitch } from './system/debugSwitches'
-const debugSwitch = forbiddenDebugSwitch()
-if (debugSwitch) {
-  console.error(`Depleted does not run with --${debugSwitch}`)
+// A release never runs with command-line switches (see debugSwitches.ts). Quit before
+// 'ready', which is when Chromium would act on them.
+import { forbiddenSwitch } from './system/debugSwitches'
+const startupSwitch = forbiddenSwitch()
+if (startupSwitch) {
+  console.error(`Depleted does not run with command-line switches (got ${JSON.stringify(startupSwitch.split('=')[0])})`)
   app.exit(1)
 }
 

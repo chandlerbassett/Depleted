@@ -25,3 +25,10 @@ export type WclFightResult =
   | { status: 'not-found'; message: string }
   | { status: 'no-credentials' }
   | { status: 'error'; message: string }
+
+// Warcraft Logs report codes are short alphanumeric strings
+export const WCL_REPORT_CODE_RE = /^[A-Za-z0-9]{1,32}$/
+
+export function wclFightUrl(reportCode: string, fightId: number): string {
+  return `https://www.warcraftlogs.com/reports/${encodeURIComponent(reportCode)}#fight=${fightId}`
+}
