@@ -17,8 +17,8 @@ permissions:
 # checking it first:
 #
 #   build     npm ci, test, build the app.                                       No secrets.
-#   sign      Developer ID: check the zip (build/checkZip.py), sign the app      No npm.
-#             (build/signApp.sh), notarize, staple.
+#   sign      Developer ID: check and unpack the zip (build/checkZip.py), sign   No npm.
+#             the app (build/signApp.sh), notarize, staple.
 #   package   npm ci, electron-builder makes the DMG and zip from the signed app. No secrets.
 #   verify    The app in the zip and the DMG is the one `sign` signed (same      No secrets,
 #             CDHash), and the DMG holds nothing else that runs.                  no npm.
@@ -85,6 +85,7 @@ jobs:
           app="$(ls -d dist/mac-arm64/*.app)"
           [ "$(basename "$app")" = "Depleted.app" ] || { echo "::error::Unexpected app $app"; exit 1; }
           test -f "$app/Contents/Resources/app-update.yml" || { echo "::error::app-update.yml is missing"; exit 1; }
+          node build/checkFuses.js "$app"
           mkdir -p "$RUNNER_TEMP/out"
           ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "$app" "$RUNNER_TEMP/out/Depleted-unsigned.zip"
           echo "sha256=$(shasum -a 256 "$RUNNER_TEMP/out/Depleted-unsigned.zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -121,17 +122,16 @@ jobs:
 
       - name: Check and unpack the app
         # The zip comes from a job that ran npm packages: check that every entry stays
-        # inside Depleted.app before ditto writes anything. (checkZip reads the zip's
-        # central directory; ditto could in theory read an odd zip differently, so the
-        # result is checked again after unpacking.)
+        # inside Depleted.app and that the zip is plain (no prepended or trailing data,
+        # local headers match the central directory, no control characters in names),
+        # then unpack it with that same parser. No second zip reader sees it, so what's
+        # unpacked is exactly what was checked. The result is checked again below.
         env:
           EXPECTED: ${{ needs.build.outputs.sha256 }}
         run: |
           zip="$RUNNER_TEMP/in/Depleted-unsigned.zip"
           echo "$EXPECTED  $zip" | shasum -a 256 -c -
-          python3 -I build/checkZip.py "$zip"
-          mkdir -p "$RUNNER_TEMP/app"
-          ditto -x -k "$zip" "$RUNNER_TEMP/app"
+          python3 -I build/checkZip.py "$zip" --extract "$RUNNER_TEMP/app"
           [ "$(ls -A "$RUNNER_TEMP/app")" = "Depleted.app" ] || { echo "::error::Unexpected files in the zip"; exit 1; }
           [ ! -L "$RUNNER_TEMP/app/Depleted.app" ] && [ -d "$RUNNER_TEMP/app/Depleted.app" ] || { echo "::error::Depleted.app isn't a folder"; exit 1; }
 

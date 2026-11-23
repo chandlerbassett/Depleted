@@ -3,6 +3,9 @@
 # Electron is the exception. It only patches its newest three majors, so each major
 # arrives as its own PR to test on a Mac before merging. Security fixes still arrive
 # for every version, majors included.
+# Version updates wait 5 days after a release (cooldown), so a release that gets pulled
+# or turns out to be compromised in its first days isn't proposed. Security updates
+# don't wait.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -10,6 +13,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 5
     groups:
       minor-and-patch:
         update-types: [minor, patch]
@@ -44,6 +49,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 5
     groups:
       actions:
         update-types: [minor, patch]
