@@ -12,7 +12,9 @@ permissions:
 jobs:
   lint-build:
     name: Lint and Build
-    runs-on: macos-latest
+    # Pinned like release.yml (not macos-latest): this job builds the Swift helper and
+    # packages the Mac app, so it needs macOS
+    runs-on: macos-26
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
