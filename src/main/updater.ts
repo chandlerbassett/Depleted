@@ -3,7 +3,8 @@
 // with the same Developer ID as the running app. The update is applied when the user
 // clicks "Restart to update" (never while recording) or on the next quit.
 
-import { app, ipcMain, type BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
+import { handle } from './system/ipcGuard'
 import { autoUpdater } from 'electron-updater'
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -15,8 +16,8 @@ export function setupAutoUpdater(window: BrowserWindow, isRecording: () => boole
   // The version of an update that has finished downloading, if any
   let readyVersion: string | null = null
 
-  ipcMain.handle('updater:getReady', (): { version: string | null } => ({ version: readyVersion }))
-  ipcMain.handle('updater:install', (): { installed: boolean } => {
+  handle('updater:getReady', (): { version: string | null } => ({ version: readyVersion }))
+  handle('updater:install', (): { installed: boolean } => {
     if (readyVersion === null || isRecording()) return { installed: false }
     beforeInstall()
     autoUpdater.quitAndInstall()

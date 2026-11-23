@@ -5,12 +5,14 @@ const showMessageBox = vi.fn()
 const trashItem = vi.fn(async () => undefined)
 
 vi.mock('electron', () => ({
+  app: { isPackaged: true },
   BrowserWindow: { fromWebContents: () => null },
   dialog: { showMessageBox },
   ipcMain: { handle: (channel: string, fn: (event: unknown, params: { id: string }) => unknown) => handlers.set(channel, fn) },
   shell: { trashItem }
 }))
 
+const { appPageEvent } = await import('../helpers/ipcEvent')
 const { registerStorageIpc, describeRun } = await import('../../src/main/ipc/storage.ipc')
 
 const recording = {
@@ -31,7 +33,7 @@ beforeEach(() => {
   registerStorageIpc(storageManager as never)
 })
 
-const del = (id = 'run-1'): unknown => handlers.get('storage:deleteRecording')?.({ sender: {} }, { id })
+const del = (id = 'run-1'): unknown => handlers.get('storage:deleteRecording')?.(appPageEvent, { id })
 
 describe('storage:deleteRecording', () => {
   it('keeps the run when the user cancels', async () => {

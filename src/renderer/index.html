@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Only the app's own code runs here. Recordings and thumbnails are local files;
-         the UI library injects its styles inline. ws: is the dev server's reload. -->
+         the UI library injects its styles inline. ws: is the dev server's reload,
+         and a release build removes it (electron.vite.config.ts). -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' app://depleted data:; media-src 'self' app://depleted; font-src 'self' data:; connect-src 'self' ws://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"

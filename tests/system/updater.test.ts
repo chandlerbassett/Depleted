@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const handlers = new Map<string, () => unknown>()
+const handlers = new Map<string, (event: unknown) => unknown>()
 const updaterEvents = new Map<string, (info: { version: string }) => void>()
 const quitAndInstall = vi.fn()
 
 vi.mock('electron', () => ({
   app: { isPackaged: true },
-  ipcMain: { handle: (channel: string, fn: () => unknown) => handlers.set(channel, fn) }
+  ipcMain: { handle: (channel: string, fn: (event: unknown) => unknown) => handlers.set(channel, fn) }
 }))
 vi.mock('electron-updater', () => ({
   autoUpdater: {
@@ -16,6 +16,7 @@ vi.mock('electron-updater', () => ({
   }
 }))
 
+const { appPageEvent } = await import('../helpers/ipcEvent')
 const { setupAutoUpdater } = await import('../../src/main/updater')
 
 const fakeWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
@@ -33,7 +34,7 @@ describe('setupAutoUpdater', () => {
     setupAutoUpdater(fakeWindow as never, () => false, () => order.push('quitting'))
     updaterEvents.get('update-downloaded')!({ version: '1.1.1' })
 
-    expect(handlers.get('updater:install')!()).toEqual({ installed: true })
+    expect(handlers.get('updater:install')!(appPageEvent)).toEqual({ installed: true })
     expect(order).toEqual(['quitting', 'install'])
   })
 
@@ -42,11 +43,11 @@ describe('setupAutoUpdater', () => {
     let recording = true
     setupAutoUpdater(fakeWindow as never, () => recording, beforeInstall)
 
-    expect(handlers.get('updater:install')!()).toEqual({ installed: false })
+    expect(handlers.get('updater:install')!(appPageEvent)).toEqual({ installed: false })
     updaterEvents.get('update-downloaded')!({ version: '1.1.1' })
-    expect(handlers.get('updater:install')!()).toEqual({ installed: false })
+    expect(handlers.get('updater:install')!(appPageEvent)).toEqual({ installed: false })
     recording = false
-    expect(handlers.get('updater:install')!()).toEqual({ installed: true })
+    expect(handlers.get('updater:install')!(appPageEvent)).toEqual({ installed: true })
     expect(beforeInstall).toHaveBeenCalledOnce()
   })
 })

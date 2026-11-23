@@ -1,6 +1,6 @@
 // IPC handlers for comparing keys with top Warcraft Logs players.
 //
-// Commands (ipcMain.handle):
+// Commands (handle() from system/ipcGuard: only the app's own page can call them):
 //   coach:getWclStatus     — whether API credentials are saved, and the client ID
 //   coach:setWclCredentials — checks a client ID + secret with WCL, then saves them
 //   coach:clearWclCredentials
@@ -9,7 +9,8 @@
 //   coach:getKeySummaries  — one character's keys boiled down for recap and trends
 //   coach:findWclFight     : the recording's fight on Warcraft Logs, with parses (cached)
 
-import { app, ipcMain } from 'electron'
+import { app } from 'electron'
+import { handle } from '../system/ipcGuard'
 import { join } from 'path'
 import { WclClient, WclError, type WclCredentials } from '../coach/WclClient'
 import { BenchmarkService } from '../coach/BenchmarkService'
@@ -52,12 +53,12 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
     return service
   }
 
-  ipcMain.handle('coach:getWclStatus', async () => {
+  handle('coach:getWclStatus', async () => {
     const creds = await loadWclCredentials()
     return { configured: creds !== null, clientId: creds?.clientId ?? null }
   })
 
-  ipcMain.handle('coach:setWclCredentials', async (_event, params: Partial<WclCredentials> | undefined) => {
+  handle('coach:setWclCredentials', async (_event, params: Partial<WclCredentials> | undefined) => {
     if (typeof params?.clientId !== 'string' || typeof params.clientSecret !== 'string') {
       return { ok: false, error: 'Enter both the client ID and the secret' }
     }
@@ -74,7 +75,7 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
     }
   })
 
-  ipcMain.handle(
+  handle(
     'coach:findWclFight',
     async (_event, params: { id: string; refresh: boolean }): Promise<WclFightResult> => {
       if (typeof params?.id !== 'string') return { status: 'error', message: 'Recording not found' }
@@ -104,13 +105,13 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
     }
   )
 
-  ipcMain.handle('coach:clearWclCredentials', async () => {
+  handle('coach:clearWclCredentials', async () => {
     await clearWclCredentials()
     service = null
     serviceFor = null
   })
 
-  ipcMain.handle(
+  handle(
     'coach:getBenchmark',
     async (_event, params: { specId: number; dungeon: string; keyLevel: number }): Promise<BenchmarkResult> => {
       if (!Number.isInteger(params?.specId) || WOW_SPEC_ID_MAP[params.specId] === undefined) {
@@ -169,7 +170,7 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
     })
   }
 
-  ipcMain.handle('coach:listCharacters', async () => {
+  handle('coach:listCharacters', async () => {
     const counts = new Map<string, number>()
     for (const rec of await storageManager.getRecordings()) {
       // Recap and Trends compare keys with keys, so raid pulls are left out
@@ -181,7 +182,7 @@ export function registerCoachIpc(storageManager: StorageManager, region: () => W
       .sort((a, b) => b.keys - a.keys || a.name.localeCompare(b.name))
   })
 
-  ipcMain.handle(
+  handle(
     'coach:getKeySummaries',
     async (_event, params: { playerName: string; fetchMissing: boolean }) => {
       if (typeof params?.playerName !== 'string') return { summaries: [], wclConfigured: false }

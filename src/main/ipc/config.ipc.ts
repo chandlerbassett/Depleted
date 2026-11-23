@@ -1,15 +1,15 @@
 // IPC handlers for app configuration (electron-store).
 //
-// Commands (ipcMain.handle):
+// Commands (handle() from system/ipcGuard: only the app's own page can call them):
 //   config:get    — returns the value for a single config key
 //   config:set    — sets a single config key, after checking the value is one the key can hold
 //   config:getAll — returns the full AppConfig object
 
-import { ipcMain } from 'electron'
+import { handle } from '../system/ipcGuard'
 import { isAbsolute } from 'path'
 import type Store from 'electron-store'
 import { DEFAULT_STORAGE_PATH } from '@shared/constants'
-import { wasPicked } from '../system/pickedFolders'
+import { wasPicked, isAllowedWowPath } from '../system/pickedFolders'
 import type { AppConfig, RaidDifficulty, StatsSite, VideoCodec, WowRegion } from '@shared/ipc.types'
 
 // The most a custom bitrate can be (Settings offers up to 100 Mbps)
@@ -101,23 +101,28 @@ export function isValidConfigValue<K extends keyof AppConfig>(key: K, value: unk
 }
 
 export function registerConfigIpc(configStore: Store<AppConfig>): void {
-  ipcMain.handle('config:get', (_event, { key }: { key: string }) => {
+  handle('config:get', (_event, { key }: { key: string }) => {
     if (!isConfigKey(key)) return undefined
     return configStore.get(key)
   })
 
-  ipcMain.handle('config:set', (_event, { key, value }: { key: string; value: unknown }) => {
+  handle('config:set', (_event, { key, value }: { key: string; value: unknown }) => {
     if (!isConfigKey(key)) throw new Error(`Unknown setting: ${String(key)}`)
     if (!isValidConfigValue(key, value)) throw new Error(`Not a valid value for ${key}: ${JSON.stringify(value) ?? String(value)}`)
     // The recordings folder is what app://depleted/media may serve from, so it only moves
     // to a folder the user picked (or back to the default)
-    if (key === 'storagePath' && value !== configStore.get('storagePath') && value !== DEFAULT_STORAGE_PATH && !wasPicked(value as string)) {
+    if (key === 'storagePath' && value !== configStore.get('storagePath') && value !== DEFAULT_STORAGE_PATH && !wasPicked('recordings', value as string)) {
       throw new Error('The recordings folder can only be changed to a folder chosen in the folder picker')
+    }
+    // The WoW folder is where the addon is copied to and the combat log is read from, so
+    // the same goes for it
+    if (key === 'wowPath' && !isAllowedWowPath(value as string, configStore.get('wowPath'))) {
+      throw new Error('The World of Warcraft folder can only be changed to a folder chosen in the folder picker')
     }
     configStore.set(key, value)
   })
 
-  ipcMain.handle('config:getAll', () => {
+  handle('config:getAll', () => {
     return configStore.store
   })
 }

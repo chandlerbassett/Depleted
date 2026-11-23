@@ -35,6 +35,7 @@ import {
 import { APP_ORIGIN } from '@shared/appUrl'
 import { resolveCaptureSource } from './sourceResolver'
 import { devRendererUrl } from '../system/devRendererUrl'
+import { isTrustedSender } from '../system/ipcGuard'
 import type { CaptureRecorder, RecorderEventMap, RecorderOptions } from './CaptureRecorder'
 
 export type { RecorderOptions } from './CaptureRecorder'
@@ -160,7 +161,7 @@ export class WindowCaptureRecorder extends EventEmitter implements CaptureRecord
       }, startupTimeout)
 
       const onStarted = (event: IpcMainEvent, payload: CaptureStartedPayload): void => {
-        if (event.sender.id !== webContentsId || settled) return
+        if (event.sender.id !== webContentsId || !isTrustedSender(event) || settled) return
         settled = true
         clearTimeout(startupTimer)
         cleanupListeners()
@@ -179,7 +180,7 @@ export class WindowCaptureRecorder extends EventEmitter implements CaptureRecord
       }
 
       const onError = (event: IpcMainEvent, payload: CaptureErrorPayload): void => {
-        if (event.sender.id !== webContentsId || settled) return
+        if (event.sender.id !== webContentsId || !isTrustedSender(event) || settled) return
         settled = true
         clearTimeout(startupTimer)
         cleanupListeners()
@@ -199,11 +200,11 @@ export class WindowCaptureRecorder extends EventEmitter implements CaptureRecord
   // Bound after start() resolves; unbound in stop()/teardown.
   private bindChunkListeners(webContentsId: number, win: BrowserWindow): void {
     const onChunk = (event: IpcMainEvent, buf: ArrayBuffer): void => {
-      if (event.sender.id !== webContentsId) return
+      if (event.sender.id !== webContentsId || !isTrustedSender(event)) return
       this.enqueueWrite(Buffer.from(buf))
     }
     const onUnexpectedError = (event: IpcMainEvent, payload: CaptureErrorPayload): void => {
-      if (event.sender.id !== webContentsId || !this.capturing) return
+      if (event.sender.id !== webContentsId || !isTrustedSender(event) || !this.capturing) return
       console.error('[WindowCaptureRecorder] Capture error mid-recording:', payload.message)
       const outputPath = this.currentOutputPath ?? ''
       this.capturing = false
@@ -289,7 +290,7 @@ export class WindowCaptureRecorder extends EventEmitter implements CaptureRecord
       const flushTimer = setTimeout(finish, STOP_FLUSH_TIMEOUT_MS)
 
       const onFinished = (event: IpcMainEvent): void => {
-        if (event.sender.id !== webContentsId) return
+        if (event.sender.id !== webContentsId || !isTrustedSender(event)) return
         clearTimeout(flushTimer)
         finish()
       }

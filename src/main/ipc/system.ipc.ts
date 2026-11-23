@@ -2,7 +2,8 @@
 // Channels: system:checkFfmpeg, system:checkScreenPermission, system:checkAddon,
 //           system:checkWowPath, system:openSystemPreferences, system:pickFolder
 
-import { ipcMain, shell, dialog, app, desktopCapturer, type BrowserWindow } from 'electron'
+import { shell, dialog, app, desktopCapturer, type BrowserWindow } from 'electron'
+import { handle } from '../system/ipcGuard'
 import { execSync } from 'child_process'
 import { existsSync } from 'fs'
 import { cp, mkdir } from 'fs/promises'
@@ -10,7 +11,7 @@ import { join, dirname, isAbsolute } from 'path'
 import chokidar, { type FSWatcher } from 'chokidar'
 import type Store from 'electron-store'
 import { openExternalUrl } from '../system/openExternal'
-import { rememberPickedFolder } from '../system/pickedFolders'
+import { rememberPickedFolder, isAllowedWowPath } from '../system/pickedFolders'
 import { resolveFfmpegPath, checkScreenPermission as checkScreenPermissionSync } from '../system/ffmpeg'
 import { listCaptureSources } from '../recorder/sourceResolver'
 import { readAddonCharacterInfo, isAddonInfoStale, isAddonVersionOutdated } from '../addon/SavedVarsReader'
@@ -32,19 +33,19 @@ function wowPathParam(params: { wowPath?: unknown; path?: unknown } | undefined)
 
 export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // Return the current process platform so renderer can adapt onboarding flow.
-  ipcMain.handle('system:getPlatform', (): { platform: string } => {
+  handle('system:getPlatform', (): { platform: string } => {
     return { platform: process.platform }
   })
 
   // App version from package.json, shown in the title bar.
-  ipcMain.handle('system:getVersion', (): { version: string } => {
+  handle('system:getVersion', (): { version: string } => {
     return { version: app.getVersion() }
   })
 
   // Check whether Homebrew is installed and return its path.
   // On Windows, Homebrew doesn't exist — return found:true as a no-op so the
   // onboarding brew step auto-passes and the FFmpeg check runs immediately.
-  ipcMain.handle('system:checkBrew', (): { found: boolean; path: string | null } => {
+  handle('system:checkBrew', (): { found: boolean; path: string | null } => {
     if (process.platform === 'win32') return { found: true, path: null }
 
     try {
@@ -65,7 +66,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   })
 
   // Check whether FFmpeg is installed and return its path.
-  ipcMain.handle('system:checkFfmpeg', (): { found: boolean; path: string | null } => {
+  handle('system:checkFfmpeg', (): { found: boolean; path: string | null } => {
     try {
       const path = resolveFfmpegPath()
       return { found: true, path }
@@ -75,7 +76,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   })
 
   // Check Screen Recording permission status. On Windows, always granted (no permission model).
-  ipcMain.handle(
+  handle(
     'system:checkScreenPermission',
     async (): Promise<{ status: 'granted' | 'denied' | 'not-determined' }> => {
       if (process.platform === 'win32') return { status: 'granted' }
@@ -96,7 +97,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   )
 
   // Trigger the macOS screen recording permission prompt. No-op on Windows.
-  ipcMain.handle(
+  handle(
     'system:requestScreenPermission',
     async (): Promise<{ status: 'granted' | 'denied' | 'not-determined' }> => {
       if (process.platform === 'win32') return { status: 'granted' }
@@ -113,7 +114,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   )
 
   // Check whether SimpleCombatLogger is installed in the given WoW path.
-  ipcMain.handle(
+  handle(
     'system:checkAddon',
     (_event, params: { wowPath: string }): { found: boolean } => {
       const wowPath = wowPathParam(params)
@@ -124,7 +125,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   )
 
   // Validate a candidate WoW installation path by checking for the Logs directory.
-  ipcMain.handle(
+  handle(
     'system:checkWowPath',
     (_event, params: { path: string }): { valid: boolean } => {
       const path = wowPathParam(params)
@@ -135,7 +136,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   )
 
   // Open the Screen Recording section of macOS System Settings. No-op on Windows.
-  ipcMain.handle('system:openSystemPreferences', (): void => {
+  handle('system:openSystemPreferences', (): void => {
     if (process.platform !== 'win32') {
       void shell.openExternal(
         'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
@@ -144,7 +145,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   })
 
   // Show a native folder picker dialog and return the selected path.
-  ipcMain.handle('system:pickFolder', async (_event, params: { purpose: FolderPurpose }): Promise<{ path: string | null }> => {
+  handle('system:pickFolder', async (_event, params: { purpose: FolderPurpose }): Promise<{ path: string | null }> => {
     const purpose = params?.purpose
     if (purpose !== 'wow' && purpose !== 'recordings') throw new Error('Unknown folder purpose')
     // The dialog says what the folder is for, so the page can't pass off a recordings
@@ -156,23 +157,28 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
       buttonLabel: 'Choose'
     })
     const path = canceled || filePaths.length === 0 ? null : (filePaths[0] ?? null)
-    if (path !== null && purpose === 'recordings') rememberPickedFolder(path)
+    if (path !== null) rememberPickedFolder(purpose, path)
     return { path }
   })
 
   // List window/screen capture sources for the Settings manual-override picker.
   // Auto-detection (WoW window by title) happens separately in sourceResolver.ts at
   // recording-start time — this handler is only for populating the picker UI.
-  ipcMain.handle('system:listCaptureWindows', async (): Promise<CaptureSource[]> => {
+  handle('system:listCaptureWindows', async (): Promise<CaptureSource[]> => {
     return listCaptureSources()
   })
 
   // Copy the bundled DepletedCompanion addon to the WoW AddOns directory.
-  ipcMain.handle(
+  handle(
     'system:installAddon',
     async (_event, params: { wowPath: string }): Promise<{ success: boolean; error?: string }> => {
       const wowPath = wowPathParam(params)
       if (wowPath === null) return { success: false, error: 'Choose the World of Warcraft folder first' }
+      // Copies files under that folder, so only into a WoW folder the user chose (or the
+      // saved or default one), never one the page names
+      if (!isAllowedWowPath(wowPath, configStore.get('wowPath'))) {
+        return { success: false, error: 'Choose the World of Warcraft folder with the folder picker first' }
+      }
       try {
         const src = join(resolveBundledAddonDir(), ADDON_NAME)
         const dest = join(wowPath, ADDON_RELATIVE_PATH)
@@ -186,21 +192,21 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   )
 
   // Open the bundled addon source folder in Finder/Explorer for manual copying.
-  ipcMain.handle('system:openAddonSource', (): void => {
+  handle('system:openAddonSource', (): void => {
     void shell.openPath(resolveBundledAddonDir())
   })
 
   // Open the WoW AddOns directory in Finder/Explorer for manual copying.
-  ipcMain.handle('system:openAddonsDir', async (_event, params: { wowPath: string }): Promise<void> => {
+  handle('system:openAddonsDir', async (_event, params: { wowPath: string }): Promise<void> => {
     const wowPath = wowPathParam(params)
-    if (wowPath === null) return
+    if (wowPath === null || !isAllowedWowPath(wowPath, configStore.get('wowPath'))) return
     const addonsDir = join(wowPath, '_retail_', 'Interface', 'AddOns')
     await mkdir(addonsDir, { recursive: true }).catch(() => {})
     void shell.openPath(addonsDir)
   })
 
   // Return addon connection status by reading the SavedVariables file.
-  ipcMain.handle('system:getAddonStatus', () => {
+  handle('system:getAddonStatus', () => {
     const wowPath = configStore.get('wowPath')
     const info = readAddonCharacterInfo(wowPath)
     // Two independent signals, OR'd together: the SavedVariables `version` field (only
@@ -218,7 +224,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   // can reject (unregistered protocol handler, sandboxing, etc.) and callers otherwise
   // have no way to tell "opened invisibly in the background" apart from "silently did
   // nothing", which reads identically to the user.
-  ipcMain.handle(
+  handle(
     'system:openUrl',
     async (_event, params: { url: string }): Promise<{ success: boolean; error?: string }> => {
       try {
@@ -232,7 +238,7 @@ export function registerSystemIpc(configStore: Store<AppConfig>): void {
   )
 
   // Relaunch the app — used after path settings changes that require a restart.
-  ipcMain.handle('system:relaunch', (): void => {
+  handle('system:relaunch', (): void => {
     app.relaunch()
     app.exit(0)
   })
